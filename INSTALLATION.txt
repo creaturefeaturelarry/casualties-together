@@ -1,0 +1,51 @@
+"Casualties: Together" Co-Op Mod
+Official link: https://github.com/creaturefeaturelarry/casualties-together
+Support the developer: https://buymeacoffee.com/casualtiestogether
+
+
+
+1. Download BepInEx from:   https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x64_5.4.23.5.zip
+
+2. Go to Game directory:
+ - Open Steam
+ - Right click on the game
+ - Click: Manage > Browse Local Files
+ - Now you opened the game root directory
+
+3. Unzip BepInEx in the game root directory.
+
+4. Unzip MP Mod (you've already done it)
+
+5. Move the contents of "mod" folder into the game root directory.
+
+Now it should look like this:
+  CasualtiesUnknown/
+    - CasualtiesUnknown.exe
+    - UnityPlayer.dll
+    - UnityCrashHandler64.exe
+    - CasualtiesUnknown_Data/
+    - MonoBleedingEdge/
+    - winhttp.dll  <-  from BepInEx zip
+    - steam_appid.txt  <-  from mod zip
+    - BepInEx/
+    - - plugins/
+    - - - Together/                    <-  from mod zip
+    - - - - CasualtiesMP.dll
+    - - - - LiteEntitySystem.dll
+    - - - - LiteNetLib.dll
+    - - - - OpusSharp.Core.dll
+    - - - - ... and so on ...
+    - - patchers/
+    - - - autoupdater_patcher.dll      <-  from mod zip
+    - - core/                    <-  from BepInEx zip
+    - - ... and so on...
+
+6. Launch the game through Steam.
+
+7. MP button should appear at the bottom.
+
+
+Didn't work? Found bugs? Wanna find friends? Join our discord:
+ Casualties: Together Mod Discord:     https://discord.gg/7K6J6bhV8b
+ Casualties: Unknown Official Discord: https://discord.gg/targetplanet
+
