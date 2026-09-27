@@ -1,6 +1,6 @@
-"Casualties: Together" Co-Op Mod by Krokosha666 for game "Casualties: Unknown"
-Official link: https://github.com/Krokosha666/cas-unk-krokosha-multiplayer-coop
-buymeacoffee: https://buymeacoffee.com/krokosha666
+"Casualties: Together" Co-Op Mod
+Official link: https://github.com/creaturefeaturelarry/casualties-together
+Support the developer: https://buymeacoffee.com/casualtiestogether
 
 
 KNOWN ISSUES:
@@ -11,6 +11,12 @@ KNOWN ISSUES:
  - Console commands are not synced. (but there is admin mode to run commands on server side)
  
  
+
+ --- 4.1.2 --- 27.09.2026 --- Just around the corner --- 
+Removed Autoupdater in NexusMods.
+Some small optimizations.
+Some bug fixes I don't remember.
+
 
  --- 4.0.1 --- 22.06.2026 --- V4 Fixes --- 
 - Additions
@@ -136,7 +142,7 @@ Fixed game crashing from unintentional strength xp overflow from attacking.
 Ported to the game version v6.1
 Replaced the network library "Unity Netcode for GameObjects" to "LiteNetLib" in hopes for better performance.
 Added button to deactivate multiplayer mod to play singleplayer without copying the game.
- - Can be also done with cmd arg "--ksmulti-disable"
+ - Can be also done with cmd arg "--mp-disable"
 Steam Networking Support added !!!!!!
  - Added steam lobbies browser.
  - Host steam lobbies n shi, u know steam works burh
@@ -229,7 +235,7 @@ Improved skills sync.
 Improved crafting sync.
 Improved inventory sync.
 Upgraded some UI.
-Fixed late-joined client not recieving layer modifier.
+Fixed late-joined client not receiving layer modifier.
 Fixed client crafted items dropping on the ground when inventory was full.
 Fixed player death not applying mood debuff to witnesses.
 Fixed landmines not being triggered by items when far from players.
@@ -325,7 +331,7 @@ Added rule "DServerToMainMenuWhenAllDied"
 Added rule "DServerToMainMenuWhenAllLeft" 
 Mindwipe now completely distorts chat for true mindless experience.
  - Rule "MindwipeDisablesChat" = true;  // REQUIRES  SpeechImpairedChat and HearingLossChat
-Removed CMD arg "--ksmulti-min-plr-count"
+Removed CMD arg "--mp-min-plr-count"
 Witnessing a player death affects mood same as corpse.
 Witnessing a player self-harm reduces mood. (less if player is desensitized)
  - Rule "SelfharmWitnessMoodDebuff"
@@ -375,8 +381,8 @@ Changed Version 5 features:
  - mp3player item is a separate audiosource, it doesn't replace background music.
  - - Clients can only choose music from the Server "custommusic" folder.
  - - Music is just streamed, it's not being downloaded.
-Added CMD arg "--ksmulti-runcommand" // run a in-game console command in main menu after the game and mp starts // example: "--ksmulti-runcommand setpref_loot_0;log_hello_world;log_another_message_idk"
-Added CMD arg "--ksmulti-setpass" // to set a password
+Added CMD arg "--mp-runcommand" // run a in-game console command in main menu after the game and mp starts // example: "--mp-runcommand setpref_loot_0;log_hello_world;log_another_message_idk"
+Added CMD arg "--mp-setpass" // to set a password
 
 Special thanks for participation goes to:
  - Gary the cat - @garythecat  - Leading and hosting the playtests
@@ -401,7 +407,7 @@ Added 3 buttons to player interaction menu
 Fixed host ip being locked to the ip being inputted (127.0.0.1 works again as expected).
 Rule changer gui is unlocked ingame if sv_cheats are on.
 Removed the vignette in spectator.
-Added missing "--ksmulti-startserver" cmd argument.
+Added missing "--mp-startserver" cmd argument.
 Improved lockpicking minigame sync.
 Added rule "FriendlyFireCombatDismember"
 Added rule "FriendlyFireAttackerMoodDebuff"
