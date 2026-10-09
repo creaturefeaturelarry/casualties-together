@@ -1,6 +1,6 @@
-"Casualties: Together" Co-Op Mod by Krokosha666 for game "Casualties: Unknown"
-Official link: https://github.com/Krokosha666/cas-unk-krokosha-multiplayer-coop
-buymeacoffee: https://buymeacoffee.com/krokosha666
+"Casualties: Together" Co-Op Mod
+Official link: https://github.com/creaturefeaturelarry/casualties-together
+
 
 # Port Forwarding:
 This mod uses UDP protocol.
@@ -8,6 +8,7 @@ Default port: 7790
 
 # New Files saved:
 %LocalAppData%Low/Orsoniks/CasualtiesUnknown/mp_rule_presets.json  -  where the rule presets are saved
+%LocalAppData%Low/Orsoniks/CasualtiesUnknown/mp_settings.json  -  where the mp mod settings are saved
 %LocalAppData%Low/Orsoniks/CasualtiesUnknown/mp_banlist.json  -  is for people you banned
 %LocalAppData%Low/Orsoniks/CasualtiesUnknown/mp_save/   - is new location for save files  
 
@@ -45,41 +46,27 @@ also some commands that require player name as input can accept macros:
 "give" command is more advanced way to spawn items. it automatically loads any guns or magazines.
 
 
-# Keybinds:
-"krokosha_coop_pointfingerat" default: Mouse2  (middle mouse button)
-"krokosha_coop_chat" default: Slash
-"krokosha_coop_voicechat" default: V
-"krokosha_coop_woundview" default: R
-"krokosha_coop_push" default: F
-"krokosha_coop_piggyback" default: P
-"krokosha_coop_carry" default: K
-"krokosha_coop_inventory" default: O
-"krokosha_coop_showplrs" default: LeftShift
-
-
-Are added to the "keybinds.json" automatically.
-
 
 # Available startup os command arguments:  
---ksmulti-immidiate-start	// start the world as soon as the game initializes 
---ksmulti-setstarttutorial  // requires immidiate start, makes the world start in tutorial
---ksmulti-verbose			// logs more info about synchronization (useful for reporing bugs)
---ksmulti-ip-port 127.0.0.1:7790   // override ip and port
---ksmulti-setname My_Custom_User_Name  // override username
---ksmulti-setpass 123		// override password
---ksmulti-starthost			// start host once the game initializes (on the specified port)
---ksmulti-startclient		// start client once the game initializes (it tries to connect to the specified ip instantly)
---ksmulti-startserver		// start dedicated server once the game initializes (on the specified port), also sets "AutoContinue" rule to true automatically
---ksmulti-min-plr-count	[int]	// for AutoContinue rule, it tells dedicated server what is the minimum player count to automatically start the run (does not affect run continue)
---ksmulti-setrule [rule] [value] // set a game rule before start, in in-game console enter "currentrules" to see them all
---ksmulti-runcommand		// run a in-game console command in main menu after the game and mp starts // example: "--ksmulti-runcommand setpref_loot_0;log_WASUUUP;log_another_message_idk"
---ksmulti-servername My_Server   // override server name
---ksmulti-nosteam			// don't attach the game to steam (this locks you only to direct IP connection mode, and server browser does not work)
---ksmulti-hoststeam [public/private/friendsonly]   // create lobby when the game initializes
+--mp-immidiate-start	// start the world as soon as the game initializes 
+--mp-setstarttutorial  // requires immidiate start, makes the world start in tutorial
+--mp-verbose			// logs more info about synchronization (useful for reporing bugs)
+--mp-ip-port 127.0.0.1:7790   // override ip and port
+--mp-setname My_Custom_User_Name  // override username
+--mp-setpass 123		// override password
+--mp-starthost			// start host once the game initializes (on the specified port)
+--mp-startclient		// start client once the game initializes (it tries to connect to the specified ip instantly)
+--mp-startserver		// start dedicated server once the game initializes (on the specified port), also sets "AutoContinue" rule to true automatically
+--mp-min-plr-count	[int]	// for AutoContinue rule, it tells dedicated server what is the minimum player count to automatically start the run (does not affect run continue)
+--mp-setrule [rule] [value] // set a game rule before start, in in-game console enter "currentrules" to see them all
+--mp-runcommand		// run a in-game console command in main menu after the game and mp starts // example: "--mp-runcommand log_WASUUUP;log_another_message_idk;pasterunsettings_H4sIAAAAAAAACoWUTW4bMQyF7zLroEiaoovcoGcouqAkaoaw/kJRddyidy/lLDy2IXnhzfgD+cj3xJ9/lx+C8WV5W1qyG5WCbnk6f/u6vHkIFf89XRgDFUPO4jBVktOFfPnyvOc6E1sQKoGQh1gvJwzlUbnOULKMyl+g52sIoiFMEmjdZAdd1aGIgSLt/v9+U6UKsFBaaytde91p2mMfZQVKQ8ERBUwOVCOD4BDbEIL2mjKewUpjLLN+JiC6aRlKHq1QTrXg3uIRZjdIdqKKDFMI0NFp35izS5mjDvrnMW1yalUdMsAx89BqNSlSAsYVxzsBEbAHBxHWiTxKtEJEndbVDQ5jsuqKiz3ZgPMNYrItGu7bs1DG5YTzYR8v4Xb91FgN/1TvP8aYz2zxrG3MhHzsNuBvfR6TjoHeG7nS6qaZHGOOqqdVExm13BhL+ayKUSelz+RNDovmTp0QDFBF3U2zI6TXwCHfBvT19e5mKKUlI8Tc9krvj4uC+sCy93qOhqHrpZx6epomOGR7KKQ/RktVpx6TcEJNuSNP99N8u2neL5dBOSIm1AO1vTe4Ss/tTBgLqk516cFUWY/qfD8OTVuPmcOdJ7/+Awu79/U+BgAA"
+--mp-servername My_Server   // override server name
+--mp-nosteam			// don't attach the game to steam (this locks you only to direct IP connection mode, and server browser does not work)
+--mp-hoststeam [public/private/friendsonly]   // create lobby when the game initializes
 
 
 DEDICATED SERVER EXAMPLE: 
-"CasualtiesUnknown.exe -screen-fullscreen 0 -screen-height 360 -screen-width 640 --ksmulti-ip-port 127.0.0.1:7790 --ksmulti-setrule AllowJoinWhileInGame 1 --ksmulti-setrule PLAYER_COUNT_LIMIT 64 --ksmulti-setname Krokosha --ksmulti-runcommand loadcustommusic --ksmulti-startserver --ksmulti-verbose --ksmulti-min-plr-count 16 --ksmulti-immidiate-start"
+"CasualtiesUnknown.exe -screen-fullscreen 0 -screen-height 360 -screen-width 640 --mp-ip-port 127.0.0.1:7790 --mp-setrule AllowJoinWhileInGame 1 --mp-setrule PLAYER_COUNT_LIMIT 64 --mp-setname Krokosha --mp-runcommand loadcustommusic --mp-startserver --mp-verbose --mp-min-plr-count 16 --mp-immidiate-start"
 
 
 

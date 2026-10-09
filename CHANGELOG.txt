@@ -9,8 +9,56 @@ KNOWN ISSUES:
  - Extreme lag with larger time scale.
  - Gun jamming might desync
  - Console commands are not synced. (but there is admin mode to run commands on server side)
- 
- 
+
+
+ --- 5.0.0 --- 09.10.2026 --- Multiplayer V5 --- 
+- Additions
+	New command "spawnpoint [position]" - Set custom spawn location ( Automatically disables rule "SpawnOnPlayer" )
+	New rule "SpawnOnPlayer" - If disabled it spawns player in default spawn location.
+	New rule "MinigameMaxPlayers" - Limit max players for collaborative minigames.
+	New rule "RadlineExtraDamage" - If enabled radiation line damages brain too.
+	New command "pasterunsettings [base64 string]"
+	New command "objdelete [syncid]"
+	New command "objinfo [syncid]" - Print info about an object
+	New command "serverpause"
+	New command "runset [name] [value]" - Set run settings individially.
+	"spectate" command now also accepts a target object or player (ex.: "spectate 1 plr:Friend" or "spectate 1 syncid:123")
+	Changed command "talker-on-cursor-say [message]" to "objtalkersay [syncid] [message]", Now it supports selecting a specific object
+	 - Command argument "syncid" can be "random" or "cursor" or "123" (123 is syncId)
+	Improved admin command handling reference of the caller client.
+	Macro @r can now pick multiple players. Ex." "@r:2"
+	Fixed @r and @o macros not working as expected.
+	Added macro "team:[color]" Ex.: "give team:#FF0000 shotgun" will pick all players in red team.
+	Added player help indicators inside Health Panel.
+	Added ability to give items to players.
+	Chat death message variations (PVP kill, drowning, bleeding out, stuff...)
+	New rule "ConsentForFeeding" - Feeding requires confirmation from target player.
+	New rule "ChatAnnounceDeaths" - To make deaths silent.
+	"unchipped" command now accepts player name.
+	Implemented optimizations by @Jyan-Sei
+- Changes
+	Changed project target .Net Framework to netstandard2.1
+	Using library LiteEntitySystem for better sync.
+	Updated LiteNetLib to 2.1.4
+	Made Oil pipes spawn less oil. (Depending on player count)
+	Improved locale handling for chat.
+	Command "timescale 0" now works.
+	Command player macro @r now supports player count ( @r:2 - random 2 players )
+	Sped up overdose death.
+	Removed CO-OP MOD watermark on top left. (Instead it's in the beta disclaimer on top now)
+- Fixes
+	Fixed players sometimes not spawning for some clients.
+	Fixed Server browser sorting.
+	Fixed Manual Defibrilator infinitely falling when spawned in a lifepod.
+	Fixed errors from crafting with insufficient materials.
+	Fixed host favourited items breaking it crafts for clients.
+	Fixed sometimes some structures having green backgrounds.
+	Fixes starter lifepod doors spawning in client's spawn location instead of their real spawn point.
+	Fixed "Has crafted before" recipes persisting after restarting world.
+	You can now join while server is still generating world.
+	Fixed global Autopump sound.
+ - (And many more undocumented changes because I lost track)
+	
 
  --- 4.1.2 --- 27.09.2026 --- Just around the corner --- 
 Removed Autoupdater in NexusMods.

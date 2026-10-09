@@ -47,9 +47,9 @@ Download Co-op Mod: [https://www.nexusmods.com/scavprototype/mods/67](https://ww
     - Click `Manage > Browse local files`
 
 
-3. Unzip `BepInEx.zip` into the game root directory.
+3. Unzip `BepInEx*.zip` into the game root directory.
 
-4. Unzip `KrokMP.zip`, open `mod` folder and move the contents into the game root directory.
+4. Unzip `MPMod*.zip`, open `mod` folder and move the contents into the game root directory.
 
 5. Now it should look like this 
    
@@ -76,17 +76,16 @@ Download Co-op Mod: [https://www.nexusmods.com/scavprototype/mods/67](https://ww
 
     
 # Warning:
-If it doesn't work: It's a skill issue - Don't whine and try again.
+If installation doesn't work, Try again.
  - Or cry at people in "Casualties: Together" discord server: [https://discord.gg/FrBX3srzzG](https://discord.gg/FrBX3srzzG)
 
-Make sure to launch the game through Steam Library. For the Steam Lobbies to work.
+Make sure to launch the game through Steam Library if Steam Lobbies don't work.
 
-It's recommended to play at max 4 people because of the poor optimization.<br/>
-You need good internet connection and being physically close to your friends for optimal experience.
+It's recommended to have good internet connection for optimal experience.
 
 
 !!!<br>
-IF YOU ENCOUNTER ANY GLITCHES, CRASHES, OTHER ISSUES - BLAME ME AND THE MOD, NOT THE ORIGINAL DEVELOPER OF THE GAME<br>
+IF YOU ENCOUNTER ANY GLITCHES, CRASHES, OTHER ISSUES - BLAME THE MOD, NOT THE ORIGINAL DEVELOPER OF THE GAME<br>
 !!!
 
 To go back to singleplayer you need to press the `Deactivate MP Mod` button in `Settings > General`!
@@ -117,29 +116,27 @@ This mod only adds a simple co-op experience to the game.<br>
 
 
 
-
-# FULL LIST OF FEATURES DIFFERENT FROM THE MAIN GAME:
+# Full feaure list:
 
 Disabled sleeping. (tied to the rule "EnableSleep" )<br>
 Disabled time scale buttons. (don't try re-enable this actually)<br>
-Player friendly fire can be enabled with the "FriendlyFire" rule.<br>
+Player friendly fire can be enabled with the "PVP" rule.<br>
 Middle mouse click to highlight a location at your cursor, for the other players to see.<br>
 Stand close to other players to share body temperature.<br>
-Minigames like Keypad are also co-op, where you see others players inputs.<br>
 
-Unchipped is individual. ( rule "UnchippedIsIndividual" )<br>
 Text chat and Voice chat are dependent on your characters ability to speak, same distortions apply to your messages.<br>
 MP3 Player now is a boombox instead of replacing background music.<br>
 
 Right click on a player to open a player interaction context menu.
  - Inspect health panel and perform any actions.
  - Inspect their inventory and take their items. 
- - Feed any food or any usable item, like AutoPump.
+ - Use any usable item on them (Feeding).
 
 When a player dies, they are put into spectator mode.
  - All dead players respawn after living players reach the next level.
  - (if rule "Permadeath" is true, respawns are disabled)
-
+ - Player can be revived from traders.
+   
 To continue to the next layer, half of all players must reach the end. 
  - Straggles will get killed if they take too long.
  - Only the Host gets prompted to continue the run.
@@ -160,7 +157,7 @@ Traders first impression reputation is calculated from the prettiest of the bunc
 
 
 
-# How to enable cheats:
+# How to enable all console commands:
 
 The Host must enter this console command:<br>
 ```rule sv_cheats 1```<br>
