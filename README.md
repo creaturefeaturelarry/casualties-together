@@ -1,7 +1,9 @@
 
 
 <div align="center">
+<a href="https://www.nexusmods.com/scavprototype/mods/67">
 <img alt="Casualties: Together" src=".github/ct6.png">
+</a>
 </div>
 
 <div align="center">
