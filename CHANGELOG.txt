@@ -4,11 +4,40 @@ Support the developer: https://buymeacoffee.com/casualtiestogether
 
 
 KNOWN ISSUES:
- - Catastrophic desync for clients 
- - Extreme lag for clients.
- - Extreme lag with larger time scale.
- - Gun jamming might desync
- - Console commands are not synced. (but there is admin mode to run commands on server side)
+ - This mod is ass :crying_emoji:
+
+ 
+ --- 5.1.4 --- 21.10.2026 --- V5 Sync Upgrade --- 
+- Additions
+	Trap sync.
+	Added multiplayer settings to the vanilla settings menu
+	Earthquakes now affect blocks around all players
+	Spanish and Chinese locales added
+	RealKeepInventory mod merged; inventories of other players are now saved properly & autosave!
+- Fixes
+	Fixed Updater
+	Fixed all trader bugs and desyncs
+	Fixed crafting INT gain
+	Fixed --mp-ip-port argument
+	Settings menu no longer pauses the game
+	The prompt to accept an item from another player no longer displays the raw color code
+	Ropes/vines/ladders should now be synced properly for late joiners
+	Fixed issue where items desync on other players after joining a lobby
+	Multiple optimizations for large lobbies to prevent exponential lag increases. Increases are now linear per player or better.
+	Enemy sync improved, less jitter / desynced movement.
+	More memory leak fixes
+	Bugs fixed related to player id mapping between rejoins
+	Loading a save with dismembered limbs no longer causes bleeding
+	Bug fixed related to client vs host loot generation
+	Resolved issue where very laggy players in a server lag more over time
+	Crafting system rewritten, with new API for mod developers. No more lag or failed crafts.
+	Inventories now persist for players in MP; people won't lose their items when the host restarts or plays without them.
+
+
+ --- 5.0.1 --- 11.10.2026 --- V5 Hotfix --- 
+- Fixes
+	Fixed singleplayer minigames not opening.
+	Fixed bug where netId is not freeing properly?
 
 
  --- 5.0.0 --- 09.10.2026 --- Multiplayer V5 --- 
@@ -35,6 +64,7 @@ KNOWN ISSUES:
 	New rule "ConsentForFeeding" - Feeding requires confirmation from target player.
 	New rule "ChatAnnounceDeaths" - To make deaths silent.
 	"unchipped" command now accepts player name.
+	Synced geyser liquid type.
 	Implemented optimizations by @Jyan-Sei
 - Changes
 	Changed project target .Net Framework to netstandard2.1
