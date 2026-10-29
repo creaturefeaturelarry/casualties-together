@@ -13,7 +13,7 @@ Default port: 7790
 %LocalAppData%Low/Orsoniks/CasualtiesUnknown/mp_save/   - is new location for save files  
 
 # Console commands:
-This mod adds mutliplayer-exclusive console commands.
+This mod adds multiplayer-exclusive console commands.
 
 Write "help" into the console to see them all.
 

@@ -5,6 +5,32 @@ Support the developer: https://buymeacoffee.com/casualtiestogether
 
 KNOWN ISSUES:
  - This mod is ass :crying_emoji:
+ 
+
+ --- 5.2.0 --- 29.10.2026 --- V5 Extra optimization --- 
+Thx to contributors @JyanSei and @VtLoader and our playtesters
+- Optimization
+	Item & entity gameobjects are disabled when outside of 3x3 culling window
+- Bug fixes
+	Craft XP bonuses getting reset on rejoin now fixed
+	Favorited items getting reset on rejoin now fixed
+	Fracture / Shrapnel minigame getting 'stuck' now fixed
+	Bug where liquid containers could get stuck with tiny amounts of liquid forever now fixed
+	Bug that caused UI to break when player leaves while victim has that players UI open now fixed
+	Bug that caused player to become on 'waiting for spawn location' from host when joining now fixed
+	Bug that caused trader hostile / reputation state to desync now fixed
+	Bug that caused major desync when `saveandquit` was used in a normal run prior to entering tutorial world now fixed
+	Bug that caused geysers to fail when far from host now fixed
+	Desync related to inventory usage, 'ghost items' dropping from crates, etc, all fixed
+- Locale tweaks:
+	Filled missing locale entries
+	All rules finally have detailed descriptions
+
+
+ --- 5.1.5 --- 22.10.2026 --- V5 Hotfix --- 
+Fixed bug that makes explosion damage range infinite for clients
+Fixed phantom camera shake from player bone breaks/dislocations
+Fixed bruisekit not working correctly
 
  
  --- 5.1.4 --- 21.10.2026 --- V5 Sync Upgrade --- 

@@ -146,7 +146,6 @@ To continue to the next layer, half of all players must reach the end.
  - DrillPod works the same, all players must be in the pod to continue.
  - (tweaked by the rule "LayerFinishConditionPlayerPercent")
 
-Slowed down hunger and thirst ( rule "MetabolismMultiplier")<br>
 Player health regen and decay is tweaked.
  - Death is much faster if there are no comrades nearby. ( tweaked by the "AdditionalHealthDecay" rule )
  - Health regeneration is boosted. ( tweaked by the "AdditionalHealthRegen" rule)
