@@ -6,9 +6,6 @@
 _ready_cas_dev_build_patch/
 CasualtiesUnknownDemo/
 build_release.bat
-scripts/AssetRipper/
-scripts/USSR/
-scripts/clumsy-0.3-win64-a/
 convert_to_debug_build.bat
 create_prerelease_test_build.bat
 git_repo/
@@ -23,6 +20,7 @@ CUDecomp_Fullgame/*
 CUDecomp_Demo/*
 libs/
 randomassscreenshots/
+MPReleaseCasualtiesUnknown*
 KrokoshaCasualtiesMPCheats*
 log_collection/
 release/
@@ -34,4 +32,21 @@ MyApp/obj/
 **.7z
 build/*
 logs/
+scripts/AssetRipper/
+scripts/clumsy-0.3-win64-a/
+scripts/USSR/
+*.rar
 ScavPrototypeMP/Fullgame/*
+ScavPrototypeMP/Proprietary*
+scripts/proprietary*
+scripts/__pycache__/
+**/__pycache__/
+*.pyc
+ScavPrototypeMP/Optimizinator/Evidence/archived/
+
+# Build artis
+CasualtiesTogether.Local.props
+
+# Local editor and language-server configuration
+.vscode/
+omnisharp.json

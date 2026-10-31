@@ -1,0 +1,113 @@
+<Project>
+	<Import Project="CasualtiesTogether.Local.props" Condition="Exists('CasualtiesTogether.Local.props')" />
+  
+	<PropertyGroup>
+
+		<ModVersion>5.2.1</ModVersion>
+		<FullModVersion>$(ModVersion)</FullModVersion>
+
+		<SlnRoot>$(SolutionDir)</SlnRoot>
+
+		<OutputDir>$(SlnRoot)\build\artifacts\$(MSBuildProjectName)</OutputDir>
+		<BaseOutputPath>$(OutputDir)\bin</BaseOutputPath>
+		<BaseIntermediateOutputPath>$(OutputDir)\obj</BaseIntermediateOutputPath>
+		<MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+		<RestoreOutputPath>$(BaseIntermediateOutputPath)</RestoreOutputPath>
+		<CompilerGeneratedFilesOutputPath>$(OutputDir)\Generated</CompilerGeneratedFilesOutputPath>
+		
+		<DefineConstants Condition="'$(DefineConstants)'==''">CASUALTIESTOGETHER</DefineConstants>
+
+		<BuildId>$([System.Guid]::NewGuid().ToString("N"))</BuildId>
+		<BuildIdShort>$(BuildId.Substring(0, 4).ToUpper())</BuildIdShort>
+	</PropertyGroup>
+
+
+	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
+		<BuildType>Debug</BuildType>
+		<GameType>Demo</GameType>
+		<DefineConstants>$(DefineConstants);DEMOGAME;TESTING</DefineConstants>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)'=='Playtest'">
+		<BuildType>Playtest</BuildType>
+		<GameType>Demo</GameType>
+		<DefineConstants>$(DefineConstants);RELEASE;DEMOGAME;PRERELEASE;TESTING;PLAYTEST</DefineConstants>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
+		<GameType>Demo</GameType>
+		<DefineConstants>$(DefineConstants);DEMOGAME</DefineConstants>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)'=='DebugFullgame'">
+		<BuildType>Debug</BuildType>
+		<GameType>Fullgame</GameType>
+		<DefineConstants>$(DefineConstants);FULLGAME;TESTING</DefineConstants>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)'=='PlaytestFullgame'">
+		<BuildType>Playtest</BuildType>
+		<GameType>Fullgame</GameType>
+		<DefineConstants>$(DefineConstants);RELEASE;FULLGAME;PRERELEASE;TESTING;PLAYTEST</DefineConstants>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)'=='ReleaseFullgame'">
+		<GameType>Fullgame</GameType>
+		<DefineConstants>$(DefineConstants);FULLGAME</DefineConstants>
+	</PropertyGroup>
+
+
+	<PropertyGroup>
+
+		<LibsDir>$(SlnRoot)\libs\dlls</LibsDir>
+
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<SteamGameFolder Condition="'$(GameType)' == 'Demo'">Casualties Unknown Demo</SteamGameFolder>
+		<SteamGameFolder Condition="'$(GameType)' == 'Fullgame'">Casualties Unknown Playtest</SteamGameFolder>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<BaseGamePath Condition="'$(BaseGamePath)' == '' and '$(CASUALTIESTOGETHER_GAME_PATH)' != ''">$(CASUALTIESTOGETHER_GAME_PATH)</BaseGamePath>
+		<BaseGamePath Condition="'$(BaseGamePath)' == '' and Exists('$(SlnRoot)CU_$(GameType)\CasualtiesUnknown.exe')">$(SlnRoot)CU_$(GameType)</BaseGamePath>
+		<BaseGamePath Condition="'$(BaseGamePath)' == '' and Exists('$(SlnRoot)CU_Fullgame\CasualtiesUnknown.exe')">$(SlnRoot)CU_Fullgame</BaseGamePath>
+		<BaseGamePath Condition="'$(BaseGamePath)' == '' and Exists('$(SlnRoot)CU_Demo\CasualtiesUnknown.exe')">$(SlnRoot)CU_Demo</BaseGamePath>
+		<BaseGamePath Condition="'$(BaseGamePath)' == '' and '$(SteamGameFolder)' != '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\$(SteamGameFolder)\CasualtiesUnknown.exe')">C:\Program Files (x86)\Steam\steamapps\common\$(SteamGameFolder)</BaseGamePath>
+		<BaseGamePath Condition="'$(BaseGamePath)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Casualties Unknown Demo\CasualtiesUnknown.exe')">C:\Program Files (x86)\Steam\steamapps\common\Casualties Unknown Demo</BaseGamePath>
+		<!-- Honestly, this one's probably not needed as it'll be decomissioned soon -->
+		<BaseGamePath Condition="'$(BaseGamePath)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Casualties Unknown Playtest\CasualtiesUnknown.exe')">C:\Program Files (x86)\Steam\steamapps\common\Casualties Unknown Playtest</BaseGamePath>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<GameDir Condition="'$(GameDir)' == ''">$(BaseGamePath)</GameDir>
+		<GameManagedDir Condition="'$(GameManagedDir)' == '' and '$(GameDir)' != ''">$(GameDir)\CasualtiesUnknown_Data\Managed</GameManagedDir>
+		<BepInExDir Condition="'$(BepInExDir)' == '' and '$(GameDir)' != ''">$(GameDir)\BepInEx</BepInExDir>
+		<BepInExCoreDir Condition="'$(BepInExCoreDir)' == '' and '$(BepInExDir)' != ''">$(BepInExDir)\core</BepInExCoreDir>
+		<BepInExPluginsDir Condition="'$(BepInExPluginsDir)' == '' and '$(BepInExDir)' != ''">$(BepInExDir)\plugins</BepInExPluginsDir>
+		<BepInExPatchersDir Condition="'$(BepInExPatchersDir)' == '' and '$(BepInExDir)' != ''">$(BepInExDir)\patchers</BepInExPatchersDir>
+		<ModPluginOutputDir Condition="'$(ModPluginOutputDir)' == '' and '$(BepInExPluginsDir)' != ''">$(BepInExPluginsDir)\Together</ModPluginOutputDir>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(BuildType)'!='Debug'">
+		<Deterministic>False</Deterministic>
+		<DebugType>none</DebugType>
+		<Optimize>True</Optimize>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(BuildType)'=='Playtest' and '$(PlaytestVersion)' == ''">
+		<FullModVersion>$(ModVersion)fork$(BuildIdShort)</FullModVersion>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(BuildType)'=='Playtest' and '$(PlaytestVersion)' != ''">
+		<FullModVersion>$(ModVersion)$(PlaytestVersion)</FullModVersion>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(BuildType)'=='Debug'">
+		<FullModVersion>$(ModVersion)dev</FullModVersion>
+	</PropertyGroup>
+	<PropertyGroup Condition="!Exists('$(SlnRoot)ScavPrototypeMP\Proprietary\file.cs')">
+		<FullModVersion>$(ModVersion)fork$(BuildIdShort)</FullModVersion>
+	</PropertyGroup>
+
+	<Target Name="EnsureGamePathsResolved" BeforeTargets="PrepareForBuild">
+		<PropertyGroup>
+			<ErrorText>This project requires a Casualties Unknown game installation to build. Set CASUALTIESTOGETHER_GAME_PATH environment variable, create a CU_Fullgame or CU_Demo folder next to the solution!</ErrorText>
+		</PropertyGroup>
+		<Error Condition="'$(GameManagedDir)' == '' or !Exists('$(GameManagedDir)\Assembly-CSharp.dll')" Text="Assembly-CSharp.dll was not found at '$(GameManagedDir)'. $(ErrorText)" />
+	</Target>
+
+</Project>

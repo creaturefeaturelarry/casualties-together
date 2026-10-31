@@ -1,0 +1,45 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+
+
+
+
+
+
+
+
+
+	<PropertyGroup>
+		<TargetFramework>net48</TargetFramework>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+		<AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+		<Version>1.0.3</Version>
+		<AssemblyName>autoupdater_patcher</AssemblyName>
+		<Product>autoupdater_patcher</Product>
+		<Authors>autoupdater_patcher</Authors>
+		<PackageId>autoupdater_patcher</PackageId>
+		<Configurations>Debug;Release;Playtest;DebugFullgame;ReleaseFullgame;PlaytestFullgame</Configurations>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
+		<DebugType>none</DebugType>
+		<Deterministic>False</Deterministic>
+	</PropertyGroup>
+
+	
+
+	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
+		<MakeDir Directories="$(BepInExPatchersDir)" />
+		<ItemGroup>
+			<CopyFilePath Include="$(TargetDir)$(TargetFileName)" />
+		</ItemGroup>
+
+		<Copy SourceFiles="@(CopyFilePath)" DestinationFolder="$(BepInExPatchersDir)" SkipUnchangedFiles="true" />
+	</Target>
+
+
+
+	<ItemGroup>
+		<PackageReference Include="Mono.Cecil" Version="0.11.6" />
+	</ItemGroup>
+</Project>

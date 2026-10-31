@@ -1,0 +1,3 @@
+[submodule "LiteEntitySystem"]
+	path = LiteEntitySystem
+	url = https://github.com/creaturefeaturelarry/LiteEntitySystem.git

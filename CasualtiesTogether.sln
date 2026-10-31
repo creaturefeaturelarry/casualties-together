@@ -1,0 +1,65 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37314.3
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CasualtiesTogether", "ScavPrototypeMP\CasualtiesTogether.csproj", "{281829E4-96C0-CACE-D811-56E87BD0B3D9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoUpdater", "ScavPrototypeMP-AutoUpdater\AutoUpdater.csproj", "{A63C7100-E551-A659-C17F-6A4C54C0C8B3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CT_AutoUpdateApplier", "ScavPrototypeMP-AutoUpdaterPatcher\CT_AutoUpdateApplier.csproj", "{73B6C19B-307C-C445-9A48-9C76A72A62B0}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		DebugFullgame|Any CPU = DebugFullgame|Any CPU
+		Playtest|Any CPU = Playtest|Any CPU
+		PlaytestFullgame|Any CPU = PlaytestFullgame|Any CPU
+		Release|Any CPU = Release|Any CPU
+		ReleaseFullgame|Any CPU = ReleaseFullgame|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.DebugFullgame|Any CPU.ActiveCfg = DebugFullgame|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.DebugFullgame|Any CPU.Build.0 = DebugFullgame|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.Playtest|Any CPU.ActiveCfg = Playtest|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.Playtest|Any CPU.Build.0 = Playtest|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.PlaytestFullgame|Any CPU.ActiveCfg = PlaytestFullgame|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.PlaytestFullgame|Any CPU.Build.0 = PlaytestFullgame|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.ReleaseFullgame|Any CPU.ActiveCfg = ReleaseFullgame|Any CPU
+		{281829E4-96C0-CACE-D811-56E87BD0B3D9}.ReleaseFullgame|Any CPU.Build.0 = ReleaseFullgame|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.DebugFullgame|Any CPU.ActiveCfg = DebugFullgame|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.DebugFullgame|Any CPU.Build.0 = DebugFullgame|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.Playtest|Any CPU.ActiveCfg = Playtest|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.Playtest|Any CPU.Build.0 = Playtest|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.PlaytestFullgame|Any CPU.ActiveCfg = PlaytestFullgame|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.PlaytestFullgame|Any CPU.Build.0 = PlaytestFullgame|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.ReleaseFullgame|Any CPU.ActiveCfg = ReleaseFullgame|Any CPU
+		{A63C7100-E551-A659-C17F-6A4C54C0C8B3}.ReleaseFullgame|Any CPU.Build.0 = ReleaseFullgame|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.DebugFullgame|Any CPU.ActiveCfg = DebugFullgame|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.DebugFullgame|Any CPU.Build.0 = DebugFullgame|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.Playtest|Any CPU.ActiveCfg = Playtest|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.Playtest|Any CPU.Build.0 = Playtest|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.PlaytestFullgame|Any CPU.ActiveCfg = PlaytestFullgame|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.PlaytestFullgame|Any CPU.Build.0 = PlaytestFullgame|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.ReleaseFullgame|Any CPU.ActiveCfg = ReleaseFullgame|Any CPU
+		{73B6C19B-307C-C445-9A48-9C76A72A62B0}.ReleaseFullgame|Any CPU.Build.0 = ReleaseFullgame|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {48977962-5431-4D37-A32C-5A391B8F4FFE}
+	EndGlobalSection
+EndGlobal
