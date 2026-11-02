@@ -900,7 +900,7 @@ public class SyncInfo : PredictableEntityLogic {
     public SyncVar<float> nondesc_food;
     public SyncVar<float> nondesc_happiness;
     public SyncVar<float> nondesc_sickness;
-    public SyncList<LiquidStackPart> nondesc_liquids;
+    private readonly SyncList<LiquidStackPart> nondesc_liquids = new();
     
     // BuildingSyncPacket:  
     public SyncVar<bool> building_backgroundified;
