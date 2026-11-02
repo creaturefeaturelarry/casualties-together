@@ -1,0 +1,1664 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>LiteEntitySystem</name>
+    </assembly>
+    <members>
+        <member name="T:LiteEntitySystem.ClientEntityManager">
+            <summary>
+            Client entity manager
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.ServerTick">
+            <summary>
+            Current interpolated server tick
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.IsExecutingRPC">
+            <summary>
+            Is server->client rpc currently executing
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.RawServerTick">
+            <summary>
+            Current state server tick
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.RawTargetServerTick">
+            <summary>
+            Target state server tick
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.LocalPlayer">
+            <summary>
+            Our local player
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.StoredCommands">
+            <summary>
+            Stored input commands count for prediction correction
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.LastProcessedTick">
+            <summary>
+            Player tick processed by server
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.LastReceivedTick">
+            <summary>
+            Last received player tick by server
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.ServerInputBuffer">
+            <summary>
+            Inputs count in server input buffer
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.ServerSendRate">
+            <summary>
+            Send rate of server
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.LerpBufferCount">
+            <summary>
+            States count in interpolation buffer
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.LerpBufferTimeLength">
+            <summary>
+            Total states time in interpolation buffer
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.StateSize">
+            <summary>
+            Current state size in bytes
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.NetPeer">
+            <summary>
+            Client network peer
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.NetworkJitter">
+            <summary>
+            Network jitter in milliseconds
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.AverageJitter">
+            <summary>
+            Average jitter
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ClientEntityManager.PreferredBufferTimeLowest">
+            <summary>
+            Preferred input and incoming states buffer length in seconds lowest bound
+            Buffer automatically increases to Jitter time + PreferredBufferTimeLowest
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ClientEntityManager.PreferredBufferTimeHighest">
+            <summary>
+            Preferred input and incoming states buffer length in seconds lowest bound
+            Buffer automatically decreases to Jitter time + PreferredBufferTimeHighest
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ClientEntityManager.PendingToRemoveEntites">
+            <summary>
+            Entities that waiting for remove
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ClientEntityManager.InputBufferSize">
+            <summary>
+            Maximum stored inputs count
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.ClientEntityManager.GetPlayerController``1">
+            <summary>
+            Return client controller if exist
+            </summary>
+            <typeparam name="T">controller type</typeparam>
+            <returns>controller if exist otherwise null</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ClientEntityManager.#ctor(LiteEntitySystem.EntityTypesMap,LiteEntitySystem.Transport.AbstractNetPeer,System.Byte,LiteEntitySystem.MaxHistorySize)">
+            <summary>
+            Constructor
+            </summary>
+            <param name="typesMap">EntityTypesMap with registered entity types</param>
+            <param name="netPeer">Local AbstractPeer</param>
+            <param name="headerByte">Header byte that will be used for packets (to distinguish entity system packets)</param>
+            <param name="maxHistorySize">Maximum size of lag compensation history in ticks</param>
+        </member>
+        <member name="M:LiteEntitySystem.ClientEntityManager.AddLocalEntity``1(LiteEntitySystem.EntityLogic,System.Action{``0})">
+            <summary>
+            Add local entity that will be not synchronized
+            </summary>
+            <typeparam name="T">Entity type</typeparam>
+            <returns>Created entity or null if entities limit is reached (<see cref="F:LiteEntitySystem.EntityManager.MaxEntityCount"/>)</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ClientEntityManager.Deserialize(System.ReadOnlySpan{System.Byte})">
+            Read incoming data
+            <param name="inData">Incoming data including header byte</param>
+            <returns>Deserialization result</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ClientEntityManager.CatchUpQueuedStates">
+            <summary>
+            A hitch queues every server snapshot. Apply the extras in order here.
+            Prediction replay stays on the single blend into the newest one.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.ClientEntityManager.Update">
+            <summary>
+            Update method, call this every frame
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Collections.AVLTree`1.Count">
+            <summary>
+            Elements count
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.Collections.CircularBuffer`1">
+            <summary>
+            Circular buffer.
+            
+            When writing to a full buffer:
+            PushBack -> removes this[0] / Front()
+            PushFront -> removes this[Size-1] / Back()
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Collections.CircularBuffer`1._start">
+            <summary>
+            The _start. Index of the first element in buffer.
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Collections.CircularBuffer`1._end">
+            <summary>
+            The _end. Index after the last element in the buffer.
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Collections.CircularBuffer`1._size">
+            <summary>
+            The _size. Buffer size.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.#ctor(System.Int32)">
+            <summary>
+            Initializes a new instance of the <see cref="T:LiteEntitySystem.Collections.CircularBuffer`1"/> class.
+            </summary>
+            <param name='capacity'>
+            Buffer capacity. Must be positive.
+            </param>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.#ctor(System.Int32,`0[])">
+            <summary>
+            Initializes a new instance of the <see cref="T:LiteEntitySystem.Collections.CircularBuffer`1"/> class.
+            </summary>
+            <param name='capacity'>
+            Buffer capacity. Must be positive.
+            </param>
+            <param name='items'>
+            Items to fill buffer with. Items length must be less or equal than capacity.
+            </param>
+        </member>
+        <member name="P:LiteEntitySystem.Collections.CircularBuffer`1.Capacity">
+            <summary>
+            Maximum capacity of the buffer. Elements pushed into the buffer after
+            maximum capacity is reached (IsFull = true), will remove an element.
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Collections.CircularBuffer`1.IsFull">
+            <summary>
+            Boolean indicating if Circular is at full capacity.
+            Adding more elements when the buffer is full will
+            cause elements to be removed from the other end
+            of the buffer.
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Collections.CircularBuffer`1.IsEmpty">
+            <summary>
+            True if has no elements.
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Collections.CircularBuffer`1.Count">
+            <summary>
+            Current buffer size (the number of elements that the buffer has).
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.Front">
+            <summary>
+            Element at the front of the buffer - this[0].
+            </summary>
+            <returns>The value of the element of type T at the front of the buffer.</returns>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.Back">
+            <summary>
+            Element at the back of the buffer - this[Size - 1].
+            </summary>
+            <returns>The value of the element of type T at the back of the buffer.</returns>
+        </member>
+        <member name="P:LiteEntitySystem.Collections.CircularBuffer`1.Item(System.Int32)">
+            <summary>
+            Index access to elements in buffer.
+            Index does not loop around like when adding elements,
+            valid interval is [0;Size]
+            </summary>
+            <param name="index">Index of element to access.</param>
+            <exception cref="T:System.IndexOutOfRangeException">Thrown when index is outside of [; Size[ interval.</exception>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.PushBack(`0)">
+            <summary>
+            Pushes a new element to the back of the buffer. Back()/this[Size-1]
+            will now return this element.
+            
+            When the buffer is full, the element at Front()/this[0] will be 
+            popped to allow for this new element to fit.
+            </summary>
+            <param name="item">Item to push to the back of the buffer</param>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.PushFront(`0)">
+            <summary>
+            Pushes a new element to the front of the buffer. Front()/this[0]
+            will now return this element.
+            
+            When the buffer is full, the element at Back()/this[Size-1] will be 
+            popped to allow for this new element to fit.
+            </summary>
+            <param name="item">Item to push to the front of the buffer</param>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.PopBack">
+            <summary>
+            Removes the element at the back of the buffer. Decreasing the 
+            Buffer size by 1.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.PopFront">
+            <summary>
+            Removes the element at the front of the buffer. Decreasing the 
+            Buffer size by 1.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.Clear">
+            <summary>
+            Clears the contents of the array. Size = 0, Capacity is unchanged.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.Increment(System.Int32@)">
+            <summary>
+            Increments the provided index variable by one, wrapping
+            around if necessary.
+            </summary>
+            <param name="index"></param>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.Decrement(System.Int32@)">
+            <summary>
+            Decrements the provided index variable by one, wrapping
+            around if necessary.
+            </summary>
+            <param name="index"></param>
+        </member>
+        <member name="M:LiteEntitySystem.Collections.CircularBuffer`1.InternalIndex(System.Int32)">
+            <summary>
+            Converts the index in the argument to an index in <code>_buffer</code>
+            </summary>
+            <returns>
+            The transformed index.
+            </returns>
+            <param name='index'>
+            External index.
+            </param>
+        </member>
+        <member name="T:LiteEntitySystem.ControllerLogic">
+            <summary>
+            Base class for Controller entities
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ControllerLogic.IsBot">
+            <summary>
+            Is controller - AI controller
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.ControllerLogic.GetControlledEntity``1">
+            <summary>
+            Controlled pawn
+            </summary>
+            <typeparam name="T">pawn type</typeparam>
+            <returns>controlled pawn</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ControllerLogic.BeforeControlledUpdate">
+            <summary>
+            Called before controlled entity update. Useful for input
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.ControllerLogic.DestroyWithControlledEntity">
+            <summary>
+            Destroy controller and controlled pawn
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.ControllerLogic.StartControl(LiteEntitySystem.PawnLogic)">
+            <summary>
+            Start control pawn
+            </summary>
+            <param name="target"></param>
+        </member>
+        <member name="M:LiteEntitySystem.ControllerLogic.OnControlledEntityChanged(LiteEntitySystem.PawnLogic)">
+            <summary>
+            Called when ControlledEntity changed
+            </summary>
+            <param name="prevPawn">previous controlled entity</param>
+        </member>
+        <member name="M:LiteEntitySystem.ControllerLogic.StopControl">
+            <summary>
+            Stop control pawn
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.AiControllerLogic">
+            <summary>
+            Base class for AI Controller entities
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.AiControllerLogic`1">
+            <summary>
+            Base class for AI Controller entities with typed ControlledEntity field
+            </summary>
+        </member>
+        <member name="E:LiteEntitySystem.EntityFilter`1.OnDestroyed">
+            <summary>
+            Called when entity is removed/destroyed
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityFilter`1.SubscribeToConstructed(System.Action{`0},System.Boolean)">
+            <summary>
+            Called when entity created and synced
+            <param name="onConstructed">callback</param>
+            <param name="callOnExisting">call that callback on existing entities in this filter/list</param>
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityFilter`1.UnsubscribeToConstructed(System.Action{`0})">
+            <summary>
+            Called when entity created and synced
+            <param name="onConstructed">callback</param>
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityFlags.UpdateOnClient">
+            <summary>
+            Update entity on client even when entity isn't owned
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityFlags.Updateable">
+            <summary>
+            Update entity on server and on client if entity is owned 
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityFlags.OnlyForOwner">
+            <summary>
+            Sync entity only for owner player
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.EntityLogic">
+            <summary>
+            Base class for simple (not controlled by controller) entity
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityLogic.Childs">
+            <summary>
+            Child entities (can be used for transforms or as components)
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityLogic.ParentId">
+            <summary>
+            Parent entity shared reference
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityLogic.Parent">
+            <summary>
+            Parent entity
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityLogic.SharedReference">
+            <summary>
+            Shared reference of this entity
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.IsSyncGroupEnabled(LiteEntitySystem.SyncGroup)">
+            <summary>
+            Client only. Is synchronization of this entity to local player enabled
+            </summary>
+            <returns>true - when we have data on client or when called on server</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.OnSyncGroupsChanged(LiteEntitySystem.SyncGroup)">
+            <summary>
+            Called when SyncGroups enabled or disabled on client
+            </summary>
+            <param name="enabledGroups">groups that are currently enabled</param>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.EnableLagCompensationForOwner">
+            <summary>
+            Enable lag compensation for player that owns this entity
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.DisableLagCompensationForOwner">
+            <summary>
+            Disable lag compensation for player that owns this entity
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.TryGetOwnerTick(System.UInt16@)">
+            <summary>
+            Gets owner tick on client if entity is owned, and on server it returns owner tick.
+            Useful as seed for random generators based on current tick.
+            </summary>
+            <returns>true if owner tick accessible, false if you trying get remote player tick</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.AddPredictedEntity``1(System.Action{``0})">
+            <summary>
+            Create predicted entity (like projectile) that will be replaced by server entity if prediction is successful
+            Should be called also in rollback mode
+            Don't call this method inside Server->Client RPC! This will break many things.
+            </summary>
+            <typeparam name="T">Entity type</typeparam>
+            <param name="initMethod">Method that will be called before entity OnConstructed</param>
+            <returns>Created predicted local entity</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.AddPredictedEntity``1(LiteEntitySystem.SyncVar{LiteEntitySystem.EntitySharedReference}@,System.Action{``0})">
+            <summary>
+            Create predicted entity (like projectile) that will be replaced by server entity if prediction is successful
+            Should be called also in rollback mode if you use EntityLogic.Childs
+            </summary>
+            <typeparam name="T">Entity type</typeparam>
+            <param name="targetReference">SyncVar of class that will be set to predicted entity and synchronized once confirmation will be received</param>
+            <param name="initMethod">Method that will be called before entity OnConstructed</param>
+            <returns>Created predicted local entity</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.SetParent(LiteEntitySystem.EntityLogic)">
+            <summary>
+            Set parent entity
+            </summary>
+            <param name="newParent">parent entity</param>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.GetParent``1">
+            <summary>
+            Get parent entity
+            </summary>
+            <typeparam name="T">Type of entity</typeparam>
+            <returns>parent entity</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.OnLagCompensationStart">
+            <summary>
+            Called when lag compensation was started for this entity
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.OnLagCompensationEnd">
+            <summary>
+            Called when lag compensation ended for this entity
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.OnBeforeParentDestroy">
+            <summary>
+            Called before parent destroy
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.OnParentChanged(LiteEntitySystem.EntityLogic)">
+            <summary>
+            Called when parent changed
+            </summary>
+            <param name="oldParent"></param>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.OnChildAdded(LiteEntitySystem.EntityLogic)">
+            <summary>
+            Called when child added
+            </summary>
+            <param name="child"></param>
+        </member>
+        <member name="M:LiteEntitySystem.EntityLogic.OnChildRemoved(LiteEntitySystem.EntityLogic)">
+            <summary>
+            Called when child removed
+            </summary>
+            <param name="child"></param>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.SendToOwner">
+            <summary>Execute RPC for owner of entity</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.SendToOther">
+            <summary>Execute RPC for non owners</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.SendToAll">
+            <summary>Execute RPC for all players</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.ExecuteOnPrediction">
+            <summary>Execute RPC on client for owner of entity on prediction</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.ExecuteOnServer">
+            <summary>Execute RPC directly on server</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.All">
+            <summary>All flags, send to owner, to others, execute on prediction and on server</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.SyncGroup1">
+            <summary>Toggleable sync group 1. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.SyncGroup2">
+            <summary>Toggleable sync group 2. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.SyncGroup3">
+            <summary>Toggleable sync group 3. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.SyncGroup4">
+            <summary>Toggleable sync group 4. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="F:LiteEntitySystem.ExecuteFlags.SyncGroup5">
+            <summary>Toggleable sync group 5. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="T:LiteEntitySystem.IEntitySyncVarInfoPrinter">
+            <summary>
+            Helper interface for printing entity syncVar names and values
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.EntityManager">
+            <summary>
+            Base class for client and server manager
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityManager.MaxSyncedEntityCount">
+            <summary>
+            Maximum synchronized (without LocalOnly) entities
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityManager.MaxLocalEntityCount">
+            <summary>
+            Maximum count of predicted local entities
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityManager.ServerPlayerId">
+            <summary>
+            Server player Id - always 0 and reserved
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityManager.InvalidEntityId">
+            <summary>
+            Invalid entity id
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.EntitiesCount">
+            <summary>
+            Total entities count (including local)
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.Tick">
+            <summary>
+            Current tick
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.LerpFactor">
+            <summary>
+            Interpolation time between logic and render
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.UpdateMode">
+            <summary>
+            Current update mode (can be used inside entities to separate logic for rollbacks)
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityManager.Mode">
+            <summary>
+            Current mode (Server or Client)
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityManager.IsServer">
+            <summary>
+            Is server
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityManager.IsClient">
+            <summary>
+            Is client
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.Tickrate">
+            <summary>
+            tick rate of game logic (logic FPS, not visual)
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.DeltaTime">
+            <summary>
+            Fixed delta time
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.DeltaTimeF">
+            <summary>
+            Fixed delta time (float for less precision)
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityManager.MaxHistorySize">
+            <summary>
+            Size of history (in ticks) for lag compensation. Tune for your game fps 
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.PlayerId">
+            <summary>
+            Local player id (0 on server)
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityManager.HeaderByte">
+            <summary>
+            EntityManager packets header byte (can be used to distinguish LES packets from custom made)
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.VisualDeltaTime">
+            <summary>
+            Delta time between visual Updates
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.VisualDeltaTimeF">
+            <summary>
+            Delta time between visual Updates (float)
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.IsRunning">
+            <summary>
+            Is entity manager running
+            IsRunning - true after first update
+            IsRunning - sets to false after Reset() call
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.EntityManager.IsLagCompensationEnabled">
+            <summary>
+            Is lag compensation currently enabled
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.RegisterFieldType``1(LiteEntitySystem.Internal.InterpolatorDelegateWithReturn{``0})">
+            <summary>
+            Register custom field type with interpolation
+            </summary>
+            <param name="interpolationDelegate">interpolation function</param>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.GetCurrentFrameDebugInfo(LiteEntitySystem.DebugFrameModes)">
+            <summary>
+            Get information about current update frame
+            </summary>
+            <returns>debug formatted string</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.RegisterFieldType``1">
+            <summary>
+            Register custom field type
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.GetEntityTypeFromClassId(System.UInt16)">
+            <summary>
+            Get type of entity from classId. Returns null if classId is unknown
+            </summary>
+            <param name="classId"></param>
+            <returns></returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.GetEntitySyncVarInfo(LiteEntitySystem.Internal.InternalEntity,LiteEntitySystem.IEntitySyncVarInfoPrinter)">
+            <summary>
+            Prints names and values of entity syncVars using IEntitySyncVarInfoPrinter
+            </summary>
+            <param name="entity">entity to show</param>
+            <param name="resultPrinter">IEntitySyncVarInfoPrinter implementation</param>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.Reset">
+            <summary>
+            Remove all entities and reset all counters and timers
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.GetEntityById``1(LiteEntitySystem.EntitySharedReference)">
+            <summary>
+            Get entity by id
+            </summary>
+            <param name="id">Id of entity</param>
+            <returns>Entity if it exists, null if id == InvalidEntityId or entity is another type or version</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.TryGetEntityById``1(LiteEntitySystem.EntitySharedReference,``0@)">
+            <summary>
+            Try get entity by id
+            throws exception if entity is null or invalid type
+            </summary>
+            <param name="id">Id of entity</param>
+            <param name="entity">out entity if exists otherwise null</param>
+            <returns>true if it exists, false if id == InvalidEntityId or entity is another type or version</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.GetEntities``1">
+            <summary>
+            Get all entities with type
+            </summary>
+            <typeparam name="T">Entity type</typeparam>
+            <returns>Entity filter that can be used in foreach</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.GetControllers``1">
+            <summary>
+            Get all controller entities with type
+            </summary>
+            <typeparam name="T">Entity type</typeparam>
+            <returns>Entity filter that can be used in foreach</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.GetSingleton``1">
+            <summary>
+            Get existing singleton entity
+            </summary>
+            <typeparam name="T">Singleton entity type</typeparam>
+            <returns>Singleton entity, can throw exceptions on invalid type</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.HasSingleton``1">
+            <summary>
+            Is singleton exists and has correct type
+            </summary>
+            <typeparam name="T"></typeparam>
+            <returns></returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.AddLocalSingleton``1(``0)">
+            <summary>
+            Add local (not synchronized) singleton.
+            </summary>
+            <param name="singleton">Signleton to add</param>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.GetLocalSingleton``1">
+            <summary>
+            Get local (not synchronized) singleton.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.TryGetLocalSingleton``1(``0@)">
+            <summary>
+            TryGet local (not synchronized) singleton.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.TryGetSingleton``1(``0@)">
+            <summary>
+            Try get singleton entity
+            </summary>
+            <param name="singleton">result singleton entity</param>
+            <typeparam name="T">Singleton type</typeparam>
+            <returns>true if entity exists</returns>
+        </member>
+        <member name="M:LiteEntitySystem.EntityManager.Update">
+            <summary>
+            Main update method, updates internal fixed timer and do all other stuff
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.RegisteredTypeInfo">
+            <summary>
+            Information about registered type
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityTypesMap.MaxId">
+            <summary>
+            Maximum registered id. Ids start with 1
+            Modify only in case when you know what you doing
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.EntityTypesMap.RegisteredTypes">
+            <summary>
+            Currently registered types
+            Modify only in case when you know what you doing
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.EntityTypesMap.EvaluateEntityClassDataHash">
+            <summary>
+            Can be used to detect that server/client has difference
+            </summary>
+            <returns>hash</returns>
+        </member>
+        <member name="T:LiteEntitySystem.EntityTypesMap`1">
+            <summary>
+            Entity types map that will be used for EntityManager
+            </summary>
+            <typeparam name="T"></typeparam>
+        </member>
+        <member name="M:LiteEntitySystem.EntityTypesMap`1.Register``1(`0,LiteEntitySystem.EntityConstructor{``0})">
+            <summary>
+            Register new entity type that will be used in game
+            </summary>
+            <param name="id">Enum value that will describe entity class id</param>
+            <param name="constructor">Constructor of entity</param>
+            <typeparam name="TEntity">Type of entity</typeparam>
+        </member>
+        <member name="T:LiteEntitySystem.Extensions.FloatAngle">
+            <summary>
+            Float angle in degress with correct interpolation and overlaps
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.Extensions.BusSubscription">
+            <summary>
+            Represents a subscription to a message bus channel that can be disposed to unsubscribe.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Extensions.BusSubscription.Dispose">
+            <summary>
+            Disposes the subscription, unsubscribing the handler from the message bus.
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.Extensions.IBusMessage`1">
+            <summary>
+            Marker interface for message bus messages. TSender declares the expected sender type for the message.
+            </summary>
+            <typeparam name="TSender">The type of the entity that sends this message.</typeparam>
+        </member>
+        <member name="T:LiteEntitySystem.Extensions.LocalMessageBus">
+            <summary>
+            A local message bus for publishing and subscribing to typed messages within a local singleton context.
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Extensions.LocalMessageBus.DebugToLog">
+            <summary>
+            If true, all published messages will be logged for debugging purposes.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Extensions.LocalMessageBus.Subscribe``2(System.Action{``0,``1})">
+            <summary>
+            Subscribes a handler to receive messages of a specific type.
+            </summary>
+            <typeparam name="TSender">The type of the sender of the message.</typeparam>
+            <typeparam name="TMessage">The type of message to subscribe to.</typeparam>
+            <param name="handler">The handler delegate to invoke when messages are published.</param>
+            <returns>A subscription token that can be disposed to unsubscribe.</returns>
+        </member>
+        <member name="M:LiteEntitySystem.Extensions.LocalMessageBus.Send``2(``0,``1@)">
+            <summary>
+            Publishes a message to all subscribers.
+            </summary>
+            <typeparam name="TSender">The type of the sender of the message.</typeparam>
+            <typeparam name="TMessage">The type of message to publish.</typeparam>
+            <param name="sender">The entity sending the message.</param>
+            <param name="msg">The message to publish.</param>
+        </member>
+        <member name="M:LiteEntitySystem.Extensions.LocalMessageBus.Destroy">
+            <summary>
+            Destroys the message bus, disposing all channels and unsubscribing all handlers.
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.Extensions.LocalMessageBusExtensions">
+            <summary>
+            Extension methods for accessing the local message bus from entities.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Extensions.LocalMessageBusExtensions.GetOrCreateLocalMessageBus(LiteEntitySystem.Internal.InternalEntity)">
+            <summary>
+            Gets or creates a local message bus singleton for the entity manager.
+            </summary>
+            <param name="ent">The entity to get the message bus from.</param>
+            <returns>The local message bus instance, creating it if it doesn't exist.</returns>
+        </member>
+        <member name="M:LiteEntitySystem.Extensions.LocalMessageBusExtensions.GetLocalMessageBus(LiteEntitySystem.Internal.InternalEntity)">
+            <summary>
+            Gets the local message bus singleton from the entity manager.
+            </summary>
+            <param name="ent">The entity to get the message bus from.</param>
+            <returns>The local message bus instance, or null if not yet created.</returns>
+        </member>
+        <member name="M:LiteEntitySystem.Extensions.LocalMessageBusExtensions.GetLocalMessageBus(LiteEntitySystem.EntityManager)">
+            <summary>
+            Gets the local message bus singleton from the entity manager.
+            </summary>
+            <param name="ent">The entity to get the message bus from.</param>
+            <returns>The local message bus instance, or null if not yet created.</returns>
+        </member>
+        <member name="P:LiteEntitySystem.Extensions.SyncArray`1.Value">
+            <summary>
+            Changes to this array will NOT sync,
+            so it should be used as readonly!
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Extensions.SyncHashSet`1.ToArray">
+            <summary>
+            To array
+            </summary>
+            <returns>hashset copied array. Returns null if HashSet is empty</returns>
+        </member>
+        <member name="P:LiteEntitySystem.Extensions.SyncSquare`1.Value">
+            <summary>
+            Changes to this array will NOT sync,
+            so it should be used as readonly!
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.HumanControllerLogic.GetAssignedPlayer">
+            <summary>
+            Get player that uses this controller
+            </summary>
+            <returns>assigned player</returns>
+        </member>
+        <member name="T:LiteEntitySystem.HumanControllerLogic`1">
+            <summary>
+            Base class for human Controller entities
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.HumanControllerLogic`1.GetDefaultInput">
+            <summary>
+            Returns default new input for custom cases where not all values should be 0
+            </summary>
+            <returns>New clean input</returns>
+        </member>
+        <member name="M:LiteEntitySystem.HumanControllerLogic`1.ModifyPendingInput">
+            <summary>
+            Get pending input reference for modifications
+            Pending input resets to default after it was assigned to CurrentInput inside logic tick
+            </summary>
+            <returns>Pending input reference</returns>
+        </member>
+        <member name="P:LiteEntitySystem.HumanControllerLogic`1.CurrentInput">
+            <summary>
+            Current player input
+            On client created from PendingInput inside logic tick if ModifyInput called
+            On server read from players
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.HumanControllerLogic`2">
+            <summary>
+            Base class for human Controller entities with typed ControlledEntity field
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Internal.EntityFieldInfo.Offset">
+            <summary>
+            Direct field offset which for Entities - is SyncVar&lt;T&gt;, and for SyncableField - SyncableField
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.Internal.InternalBaseClass">
+            <summary>
+            Base class for SyncableFields and Entities
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalBaseClass.OnSyncRequested">
+            <summary>
+            Method for executing RPCs containing initial sync data that need to be sent after entity creation
+            to existing players or when new player connected
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Internal.InternalEntity.ClassId">
+            <summary>
+            Entity class id
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Internal.InternalEntity.Id">
+            <summary>
+            Entity instance id
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Internal.InternalEntity.EntityManager">
+            <summary>
+            Entity manager
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsServer">
+            <summary>
+            Is entity on server
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsClient">
+            <summary>
+            Is entity on server
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.ClassIdName">
+            <summary>
+            Entity ClassId name
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Internal.InternalEntity.Version">
+            <summary>
+            Entity version (for id reuse)
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsDestroyed">
+            <summary>
+            Is entity is destroyed
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsLocalControlled">
+            <summary>
+            Is entity local controlled
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsRemoteControlled">
+            <summary>
+            Is entity remote controlled
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsServerControlled">
+            <summary>
+            Is entity is controlled by server
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.ClientManager">
+            <summary>
+            ClientEntityManager that available only on client. Will throw exception if called on server
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.ServerManager">
+            <summary>
+            ServerEntityManager that available only on server. Will throw exception if called on client
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.OwnerId">
+            <summary>
+            Owner player id
+            ServerPlayerId - 0
+            Singletons always controlled by server
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsLocal">
+            <summary>
+            Is locally created entity
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsSingleton">
+            <summary>
+            Is entity based on SingletonEntityLogic
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsConstructed">
+            <summary>
+            Is entity constructed (OnConstruct called)
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.IsRemoved">
+            <summary>
+            Is entity released and not used after destroy.
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.InternalEntity.CreationState">
+            <summary>
+            Entity state. New, Constructed, Destroyed, Removed
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.Internal.InternalEntity.IsBaseRegisterRPCCalled">
+            <summary>
+            Used to detect situation when base.RegisterRPC isn't called
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalEntity.Destroy">
+            <summary>
+            Destroy entity
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalEntity.OnDestroy">
+            <summary>
+            Event called on entity destroy
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalEntity.Update">
+            <summary>
+            Fixed update. Called if entity has attribute <see cref="T:LiteEntitySystem.EntityFlagsAttribute"/> and flag Updateable
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalEntity.OnBeforeRollback">
+            <summary>
+            Called at rollback begin before all values reset to first frame in rollback queue.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalEntity.OnRollback">
+            <summary>
+            Called at rollback begin after all values reset to first frame in rollback queue.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalEntity.VisualUpdate">
+            <summary>
+            Called only on <see cref="M:LiteEntitySystem.ClientEntityManager.Update"/> and if entity has attribute <see cref="T:LiteEntitySystem.EntityFlagsAttribute"/> and flag Updateable
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalEntity.OnConstructed">
+            <summary>
+            Called when entity constructed
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalEntity.OnLateConstructed">
+            <summary>
+            Called when entity constructed but at end of frame
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.Internal.InternalEntity.RegisterRPC(LiteEntitySystem.RPCRegistrator@)">
+            <summary>
+            Method for registering RPCs and OnChange notifications
+            </summary>
+            <param name="r"></param>
+        </member>
+        <member name="P:LiteEntitySystem.Internal.StateSerializer.MaximumSize">
+            <summary>
+            Get maximum delta size
+            </summary>
+            <returns>FullDataSize + ushort(size of data) + ushort(entityId) + _fieldFlagsSize</returns>
+        </member>
+        <member name="T:LiteEntitySystem.ILogger">
+            <summary>
+            Logger implementation for different situations (client/server/different engine)
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.PawnLogic">
+            <summary>
+            Base class for entites that can be controlled by Controller
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.PredictableEntityLogic">
+            <summary>
+            Entity that can be spawned on client prediction
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.PredictableEntityLogic.IsRecreated">
+            <summary>
+            Is entity is recrated from server when created using AddPredictedEntity
+            Can be true only on client
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.PredictableEntityLogic.OnEntityRecreated(LiteEntitySystem.PredictableEntityLogic)">
+            <summary>
+            Called when client replaces predicted entity with matched server entity
+            </summary>
+            <param name="localPredictedEntity">previous local entity</param>
+        </member>
+        <member name="F:LiteEntitySystem.BindOnChangeFlags.ExecuteOnSync">
+            <summary>
+            Execute in OnSync stage. Mostly useful for RemoteControlled entities to trigger change notification
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.BindOnChangeFlags.ExecuteOnPrediction">
+            <summary>
+            Execute on local prediction on Client and on rollback
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.BindOnChangeFlags.ExecuteOnServer">
+            <summary>
+            Execute when value changed on server
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.BindOnChangeFlags.ExecuteOnRollbackReset">
+            <summary>
+            Execute when SyncVar values reset in rollback (before OnRollback() called)
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.BindOnChangeFlags.ExecuteAlways">
+            <summary>
+            Combines ExecuteOnSync, ExecuteOnPrediction and ExecuteOnServer flags
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.BindOnChange``2(LiteEntitySystem.SyncVar{``1}@,System.Action{``0,``1},LiteEntitySystem.BindOnChangeFlags)">
+            <summary>
+            Bind notification of SyncVar changes to action
+            </summary>
+            <param name="syncVar">Variable to bind</param>
+            <param name="onChangedAction">Action that will be called when variable changes by sync</param>
+            <param name="flags">different bind options</param>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.BindOnChange``2(``0,LiteEntitySystem.SyncVar{``1}@,System.Action{``1},LiteEntitySystem.BindOnChangeFlags)">
+            <summary>
+            Bind notification of SyncVar changes to action
+            </summary>
+            <param name="self">Target entity for binding</param>
+            <param name="syncVar">Variable to bind</param>
+            <param name="onChangedAction">Action that will be called when variable changes by sync</param>
+            <param name="flags">different bind options</param>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.CreateRPCAction``1(``0,System.Action,LiteEntitySystem.RemoteCall@,LiteEntitySystem.ExecuteFlags)">
+            <summary>
+            Creates cached rpc action
+            </summary>
+            <param name="self">Target entity with RPC</param>
+            <param name="methodToCall">RPC method to call</param>
+            <param name="remoteCallHandle">output handle that should be used to call rpc</param>
+            <param name="flags">RPC execution flags</param>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.CreateRPCAction``2(``0,System.Action{``1},LiteEntitySystem.RemoteCall{``1}@,LiteEntitySystem.ExecuteFlags)">
+            <summary>
+            Creates cached rpc action with valueType argument
+            </summary>
+            <param name="self">Target entity with RPC</param>
+            <param name="methodToCall">RPC method to call</param>
+            <param name="remoteCallHandle">output handle that should be used to call rpc</param>
+            <param name="flags">RPC execution flags</param>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.CreateRPCAction``2(``0,LiteEntitySystem.SpanAction{``1},LiteEntitySystem.RemoteCallSpan{``1}@,LiteEntitySystem.ExecuteFlags)">
+            <summary>
+            Creates cached rpc action with Span argument
+            </summary>
+            <param name="self">Target entity with RPC</param>
+            <param name="methodToCall">RPC method to call</param>
+            <param name="remoteCallHandle">output handle that should be used to call rpc</param>
+            <param name="flags">RPC execution flags</param>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.CreateRPCAction``2(``0,System.Action{``1},LiteEntitySystem.RemoteCallSerializable{``1}@,LiteEntitySystem.ExecuteFlags)">
+            <summary>
+            Creates cached rpc action with ISpanSerializable argument
+            </summary>
+            <param name="self">Target entity with RPC</param>
+            <param name="methodToCall">RPC method to call</param>
+            <param name="remoteCallHandle">output handle that should be used to call rpc</param>
+            <param name="flags">RPC execution flags</param>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.CreateRPCAction``1(System.Action{``0},LiteEntitySystem.RemoteCall@,LiteEntitySystem.ExecuteFlags)">
+            <summary>
+            Creates cached rpc action
+            This method can be used for virtual methods
+            </summary>
+            <param name="methodToCall">RPC method to call</param>
+            <param name="remoteCallHandle">output handle that should be used to call rpc</param>
+            <param name="flags">RPC execution flags</param>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.CreateRPCAction``2(System.Action{``0,``1},LiteEntitySystem.RemoteCall{``1}@,LiteEntitySystem.ExecuteFlags)">
+            <summary>
+            Creates cached rpc action with valueType argument
+            This method can be used for virtual methods
+            </summary>
+            <param name="methodToCall">RPC method to call</param>
+            <param name="remoteCallHandle">output handle that should be used to call rpc</param>
+            <param name="flags">RPC execution flags</param>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.CreateRPCAction``2(LiteEntitySystem.SpanAction{``0,``1},LiteEntitySystem.RemoteCallSpan{``1}@,LiteEntitySystem.ExecuteFlags)">
+            <summary>
+            Creates cached rpc action with Span argument
+            This method can be used for virtual methods
+            </summary>
+            <param name="methodToCall">RPC method to call</param>
+            <param name="remoteCallHandle">output handle that should be used to call rpc</param>
+            <param name="flags">RPC execution flags</param>
+        </member>
+        <member name="M:LiteEntitySystem.RPCRegistrator.CreateRPCAction``2(System.Action{``0,``1},LiteEntitySystem.RemoteCallSerializable{``1}@,LiteEntitySystem.ExecuteFlags)">
+            <summary>
+            Creates cached rpc action with ISpanSerializable argument
+            This method can be used for virtual methods
+            </summary>
+            <param name="methodToCall">RPC method to call</param>
+            <param name="remoteCallHandle">output handle that should be used to call rpc</param>
+            <param name="flags">RPC execution flags</param>
+        </member>
+        <member name="M:LiteEntitySystem.SyncableRPCRegistrator.BindOnChange``2(LiteEntitySystem.SyncVar{``1}@,System.Action{``0,``1},LiteEntitySystem.BindOnChangeFlags)">
+            <summary>
+            Bind notification of SyncVar changes to action
+            </summary>
+            <param name="syncVar">Variable to bind</param>
+            <param name="onChangedAction">Action that will be called when variable changes by sync</param>
+            <param name="flags">different bind options</param>
+        </member>
+        <member name="M:LiteEntitySystem.SyncableRPCRegistrator.BindOnChange``2(``0,LiteEntitySystem.SyncVar{``1}@,System.Action{``1},LiteEntitySystem.BindOnChangeFlags)">
+            <summary>
+            Bind notification of SyncVar changes to action
+            </summary>
+            <param name="self">Target entity for binding</param>
+            <param name="syncVar">Variable to bind</param>
+            <param name="onChangedAction">Action that will be called when variable changes by sync</param>
+            <param name="flags">different bind options</param>
+        </member>
+        <member name="T:LiteEntitySystem.ServerSendRate">
+            <summary>
+            Rate at which server sends state packets
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ServerSendRate.EqualToFPS">
+            <summary>
+            Send rate is equal to Tickrate
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ServerSendRate.HalfOfFPS">
+            <summary>
+            Send rate is Tickrate / 2
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ServerSendRate.ThirdOfFPS">
+            <summary>
+            Send rate is Tickrate / 3
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.ServerEntityManager">
+            <summary>
+            Server entity manager
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.ServerEntityManager.PlayersCount">
+            <summary>
+            Network players count
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ServerEntityManager.PlayerResyncTimeout">
+            <summary>
+            Timeout after which player will receive baseline state if player cannot receive big partial state
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ServerEntityManager.BeforeLogicTick">
+            <summary>
+            Called at the start of each logic tick, before input and the send.
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ServerEntityManager.ShouldSendEntityDiff">
+            <summary>
+            Partial sync asks this before writing an entity diff.
+            Return false to skip that entity for this player on this tick. It stays dirty and is visited again.
+            Full baselines ignore it, and so does any player that is not <see cref="F:LiteEntitySystem.NetPlayerState.Active"/>.
+            Null sends every dirty entity.
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ServerEntityManager.SendRate">
+            <summary>
+            Rate at which server will make and send packets
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.ServerEntityManager.SafeEntityUpdate">
+            <summary>
+            Add try catch to entity updates
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.#ctor(LiteEntitySystem.EntityTypesMap,System.Byte,System.Byte,LiteEntitySystem.ServerSendRate,LiteEntitySystem.MaxHistorySize)">
+            <summary>
+            Constructor
+            </summary>
+            <param name="typesMap">EntityTypesMap with registered entity types</param>
+            <param name="packetHeader">Header byte that will be used for packets (to distinguish entity system packets)</param>
+            <param name="framesPerSecond">Fixed framerate of game logic</param>
+            <param name="sendRate">Send rate of server (depends on fps)</param>
+            <param name="maxHistorySize">Maximum size of lag compensation history in ticks</param>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.ToggleSyncGroup(System.Byte,LiteEntitySystem.EntityLogic,LiteEntitySystem.SyncGroup,System.Boolean)">
+            <summary>
+            Change SyncVar and RPC synchronization by SyncGroup for player
+            constructor and destruction will be synchronized anyways
+            works only on server
+            </summary>
+            <param name="forPlayer">For which player</param>
+            <param name="entity">entity</param>
+            <param name="syncGroup">syncGroup to enable/disable</param>
+            <param name="enable">true - enable sync (if was disabled), disable otherwise</param>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.ToggleSyncGroup(LiteEntitySystem.NetPlayer,LiteEntitySystem.EntityLogic,LiteEntitySystem.SyncGroup,System.Boolean)">
+            <summary>
+            Change SyncVar and RPC synchronization by SyncGroup for player
+            constructor and destruction will be synchronized anyways
+            works only on server
+            </summary>
+            <param name="forPlayer">For which player</param>
+            <param name="entity">entity</param>
+            <param name="syncGroup">syncGroup to enable/disable</param>
+            <param name="enable">true - enable sync (if was disabled), disable otherwise</param>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.AddPlayer(LiteEntitySystem.Transport.AbstractNetPeer)">
+            <summary>
+            Create and add new player
+            </summary>
+            <param name="peer">AbstractPeer to use</param>
+            <returns>Newly created player, null if players count is maximum</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.GetPlayer(System.Byte)">
+            <summary>
+            Get player by owner id
+            </summary>
+            <param name="ownerId">id of player owner (Entity.OwnerId)</param>
+            <returns></returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.RequestFullBaseline(LiteEntitySystem.NetPlayer)">
+            <summary>
+            Ask for another full baseline on the next send.
+            New and constructed calls are queued again, and every current field is included.
+            An object the player already has is updated. A missing one is created.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.RemovePlayer(LiteEntitySystem.Transport.AbstractNetPeer)">
+            <summary>
+            Remove player using NetPeer.Tag (is you assigned it or used <see cref="M:LiteEntitySystem.ServerEntityManager.AddPlayer(LiteEntitySystem.Transport.AbstractNetPeer)"/> with assignToTag)
+            </summary>
+            <param name="player">player to remove</param>
+            <returns>true if player removed successfully, false if player not found</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.RemovePlayer(LiteEntitySystem.NetPlayer)">
+            <summary>
+            Remove player and it's owned entities
+            </summary>
+            <param name="player">player to remove</param>
+            <returns>true if player removed successfully, false if player not found</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.GetPlayerController(LiteEntitySystem.Transport.AbstractNetPeer)">
+            <summary>
+            Returns controller owned by the player
+            </summary>
+            <param name="player">player</param>
+            <returns>Instance if found, null if not</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.GetPlayerController(System.Byte)">
+            <summary>
+            Returns controller owned by the player
+            </summary>
+            <param name="playerId">player</param>
+            <returns>Instance if found, null if not</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.GetPlayerController(LiteEntitySystem.NetPlayer)">
+            <summary>
+            Returns controller owned by the player
+            </summary>
+            <param name="player">player to remove</param>
+            <returns>Instance if found, null if not</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.AddController``1(LiteEntitySystem.NetPlayer,System.Action{``0})">
+            <summary>
+            Add new player controller entity
+            </summary>
+            <param name="owner">Player that owns this controller</param>
+            <param name="initMethod">Method that will be called after entity construction</param>
+            <typeparam name="T">Entity type</typeparam>
+            <returns>Created entity or null in case of limit</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.AddController``1(LiteEntitySystem.NetPlayer,LiteEntitySystem.PawnLogic,System.Action{``0})">
+            <summary>
+            Add new player controller entity and start controlling entityToControl
+            </summary>
+            <param name="owner">Player that owns this controller</param>
+            <param name="entityToControl">pawn that will be controlled</param>
+            <param name="initMethod">Method that will be called before entity OnConstructed</param>
+            <typeparam name="T">Entity type</typeparam>
+            <returns>Created entity or null in case of limit</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.AddAIController``1(System.Action{``0})">
+            <summary>
+            Add new AI controller entity
+            </summary>
+            <param name="initMethod">Method that will be called before entity OnConstructed</param>
+            <typeparam name="T">Entity type</typeparam>
+            <returns>Created entity or null in case of limit</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.AddSingleton``1(System.Action{``0})">
+            <summary>
+            Add new entity
+            </summary>
+            <param name="initMethod">Method that will be called before entity OnConstructed</param>
+            <typeparam name="T">Entity type</typeparam>
+            <returns>Created entity or null in case of limit</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.AddEntity``1(System.Action{``0})">
+            <summary>
+            Add new entity
+            </summary>
+            <param name="initMethod">Method that will be called before entity OnConstructed</param>
+            <typeparam name="T">Entity type</typeparam>
+            <returns>Created entity or null in case of limit</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.AddEntity``1(LiteEntitySystem.EntityLogic,System.Action{``0})">
+            <summary>
+            Add new entity and set parent entity
+            </summary>
+            <param name="parent">Parent entity</param>
+            <param name="initMethod">Method that will be called before entity OnConstructed</param>
+            <typeparam name="T">Entity type</typeparam>
+            <returns>Created entity or null in case of limit</returns>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.Deserialize(LiteEntitySystem.Transport.AbstractNetPeer,System.ReadOnlySpan{System.Byte})">
+            <summary>
+            Read data for player linked to AbstractNetPeer
+            </summary>
+            <param name="peer">Player that sent input</param>
+            <param name="inData">incoming data with header</param>
+        </member>
+        <member name="M:LiteEntitySystem.ServerEntityManager.Deserialize(LiteEntitySystem.NetPlayer,System.ReadOnlySpan{System.Byte})">
+            <summary>
+            Read data from NetPlayer
+            </summary>
+            <param name="player">Player that sent input</param>
+            <param name="inData">incoming data with header</param>
+        </member>
+        <member name="T:LiteEntitySystem.SingletonEntityLogic">
+            <summary>
+            Base class for singletons entity that can exists in only one instance
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.SpanReader.GetStringArray(System.Int32)">
+            <summary>
+            Note that "maxStringLength" only limits the number of characters in a string, not its size in bytes.
+            Strings that exceed this parameter are returned as empty
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.SpanReader.GetString(System.Int32)">
+            <summary>
+            Note that "maxLength" only limits the number of characters in a string, not its size in bytes.
+            </summary>
+            <returns>"string.Empty" if value > "maxLength"</returns>
+        </member>
+        <member name="M:LiteEntitySystem.SpanReader.PeekString(System.Int32)">
+            <summary>
+            Note that "maxLength" only limits the number of characters in a string, not its size in bytes.
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.SpanWriter.GetMaxStringSize(System.String)">
+            <summary>
+            Return maximum short string size (up to 65535 bytes)
+            </summary>
+            <param name="str"></param>
+            <returns></returns>
+        </member>
+        <member name="M:LiteEntitySystem.SpanWriter.GetMaxLargeStringSize(System.String)">
+            <summary>
+            Return maximum large string size
+            </summary>
+            <param name="str"></param>
+            <returns></returns>
+        </member>
+        <member name="M:LiteEntitySystem.SpanWriter.Put(System.String,System.Int32)">
+            <summary>
+            Note that "maxLength" only limits the number of characters in a string, not its size in bytes.
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.ISyncFieldChanged`1">
+            <summary>
+            Provides a standard interface for receiving SyncVar change notifications.
+            </summary>
+        </member>
+        <member name="E:LiteEntitySystem.ISyncFieldChanged`1.ValueChanged">
+            <summary>
+            Argument contains old value
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.ISyncFieldChanged">
+            <summary>
+            Provides a standard interface for receiving SyncVar change notifications.
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.SyncableField">
+            <summary>
+            Base class for fields with custom serialization (strings,lists,etc)
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.SyncableField.IsClient">
+            <summary>
+            Is syncableField on client
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.SyncableField.IsServer">
+            <summary>
+            Is syncableField on server
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.SyncableField.ParentEntity">
+            <summary>
+            Owner of this syncable field
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.SyncableField.ParentEntityLogic">
+            <summary>
+            Owner of this syncable field casted to EntityLogic
+            </summary>
+        </member>
+        <member name="T:LiteEntitySystem.SyncableFieldCustomRollback">
+            <summary>
+            Syncable fields with custom rollback notifications and implementation
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.SyncableFieldCustomRollback.MarkAsChanged">
+            <summary>
+            Marks that SyncableField was modified on client and add parent entity to Rollback list
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.SyncChilds.ToArray">
+            <summary>
+            To array
+            </summary>
+            <returns>hashset copied array. Returns null if HashSet is empty</returns>
+        </member>
+        <member name="T:LiteEntitySystem.SyncFlags">
+            <summary>
+            Synchronization flags. 
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.Interpolated">
+            <summary>
+            Is value interpolated inside VisualUpdate and in LagCompensation checks
+            best use for Position, Rotation
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.LagCompensated">
+            <summary>
+            Is value lag compensated (returned in history) when EnableLagCompensation called
+            for hit checks on server and on client in rollback state 
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.OnlyForOtherPlayers">
+            <summary>
+            Value synchronized only for non owners
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.OnlyForOwner">
+            <summary>
+            Value synchronized only for owner
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.AlwaysRollback">
+            <summary>
+            Always rollback value even when entity is not owned
+            useful for enemy health and damage prediction
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.NeverRollBack">
+            <summary>
+            Never rollback value even when entity is owned
+            </summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.SyncGroup1">
+            <summary>Toggleable sync group 1. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.SyncGroup2">
+            <summary>Toggleable sync group 2. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.SyncGroup3">
+            <summary>Toggleable sync group 3. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.SyncGroup4">
+            <summary>Toggleable sync group 4. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="F:LiteEntitySystem.SyncFlags.SyncGroup5">
+            <summary>Toggleable sync group 5. Can include SyncVars and RPCs.</summary>
+        </member>
+        <member name="T:LiteEntitySystem.SyncVar`1">
+            <summary>
+            Synchronized variable
+            </summary>
+            <typeparam name="T">Variable type</typeparam>
+        </member>
+        <member name="P:LiteEntitySystem.SyncVar`1.InterpolatedValue">
+            <summary>
+            Interpolated value on client (on server equals to Value)
+            </summary>
+        </member>
+        <member name="P:LiteEntitySystem.SyncVar`1.Value">
+            <summary>
+            Actual logical value
+            </summary>
+        </member>
+        <member name="M:LiteEntitySystem.SyncVar`1.SetValueWithoutOnSyncNotification(`0)">
+            <summary>
+            Set value without triggering local OnSync notifications if there is any
+            </summary>
+            <param name="value"></param>
+        </member>
+        <member name="M:LiteEntitySystem.SyncVar`1.MarkDirty">
+            <summary>
+            Mark the current value dirty so the next diff includes it.
+            Writing the same value does not. Local OnSync is not called.
+            </summary>
+        </member>
+    </members>
+</doc>
