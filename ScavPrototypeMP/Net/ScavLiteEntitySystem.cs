@@ -900,9 +900,8 @@ public class SyncInfo : PredictableEntityLogic {
     public SyncVar<float> nondesc_food;
     public SyncVar<float> nondesc_happiness;
     public SyncVar<float> nondesc_sickness;
-    public SyncVar<List<string>> nondesc_liquidIds;
-    public SyncVar<List<float>> nondesc_liquidWeights;
-
+    public SyncList<LiquidStackPart> nondesc_liquids;
+    
     // BuildingSyncPacket:  
     public SyncVar<bool> building_backgroundified;
 
@@ -1670,13 +1669,12 @@ public class SyncInfo : PredictableEntityLogic {
 
             {
                 if (_nondescLive && _nondesc != null) {
-                    nondesc_water = _nondesc.waterValue;
-                    nondesc_fat = _nondesc.fatValue;
-                    nondesc_food = _nondesc.foodValue;
-                    nondesc_happiness = _nondesc.happinessValue;
-                    nondesc_sickness = _nondesc.sicknessValue;
-                    nondesc_liquidIds = _nondesc.liquidIds;
-                    nondesc_liquidWeights = _nondesc.liquidWeights;
+                    nondesc_water.Value = _nondesc.waterValue;
+                    nondesc_fat.Value = _nondesc.fatValue;
+                    nondesc_food.Value = _nondesc.foodValue;
+                    nondesc_happiness.Value = _nondesc.happinessValue;
+                    nondesc_sickness.Value = _nondesc.sicknessValue;
+                    SyncNonDesc(_nondesc);
                 }
             }
 
@@ -1752,6 +1750,34 @@ public class SyncInfo : PredictableEntityLogic {
                 LiquidId = id,
                 LiquidMl = amount
             });
+        }
+    }
+
+    // functions for syncing nondesc liquids across the network
+    // might be messy and not ideal, but this should only run once. i think
+    private void SyncNonDesc(NonDescriptCan can) {
+        var ids = can.liquidIds;
+        var weights = can.liquidWeights;
+        var reg = Item_SetupItems_Listener.LiquidIdRegistry;
+
+        nondesc_liquids.Clear(); // yes, this is necessary
+
+        for (int i = 0; i < ids.Count; i++) {
+            byte id = (byte)reg[ids[i]];
+            nondesc_liquids.Add(new LiquidStackPart {
+            LiquidId = id,
+            LiquidMl = weights[i]
+            });
+        }
+    }
+
+    private void UpdateNonDesc(NonDescriptCan can) {
+        can.liquidIds.Clear();
+        can.liquidWeights.Clear();
+
+        for (int i = 0; i < nondesc_liquids.Count; i++) {
+            can.liquidIds.Add(Item_SetupItems_Listener.LiquidNetIdToId[nondesc_liquids[i].LiquidId]);
+            can.liquidWeights.Add(nondesc_liquids[i].LiquidMl);
         }
     }
 
@@ -2241,8 +2267,7 @@ public class SyncInfo : PredictableEntityLogic {
             nondesc.foodValue = nondesc_food;
             nondesc.happinessValue = nondesc_happiness;
             nondesc.sicknessValue = nondesc_sickness;
-            nondesc.liquidIds = nondesc_liquidIds;
-            nondesc.liquidWeights = nondesc_liquidWeights;
+            UpdateNonDesc(nondesc);
         }
     }
 
