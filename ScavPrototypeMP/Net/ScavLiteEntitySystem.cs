@@ -894,6 +894,15 @@ public class SyncInfo : PredictableEntityLogic {
     public SyncVar<bool> gun_roundInChamber;
     public SyncVar<bool> gun_roundInChamber_is_casing;
 
+    // NonDescCanSyncPacket
+    public SyncVar<float> nondesc_water;
+    public SyncVar<float> nondesc_fat;
+    public SyncVar<float> nondesc_food;
+    public SyncVar<float> nondesc_happiness;
+    public SyncVar<float> nondesc_sickness;
+    public SyncVar<List<string>> nondesc_liquidIds;
+    public SyncVar<List<float>> nondesc_liquidWeights;
+
     // BuildingSyncPacket:  
     public SyncVar<bool> building_backgroundified;
 
@@ -1230,6 +1239,7 @@ public class SyncInfo : PredictableEntityLogic {
     private bool _gunLive;
     private bool _ammoLive;
     private bool _waterLive;
+    private bool _nondescLive;
     private bool _customLive;
     private bool _plushLive;
     private bool _freshLive;
@@ -1241,6 +1251,7 @@ public class SyncInfo : PredictableEntityLogic {
     private GunScript _gun;
     private AmmoScript _ammo;
     private WaterContainerItem _water;
+    private NonDescriptCan _nondesc;
     private CustomItemBehaviour _custom;
     private PlushScript _plush;
     private FreshItemDrop _fresh;
@@ -1261,6 +1272,7 @@ public class SyncInfo : PredictableEntityLogic {
         _gunLive = false;
         _ammoLive = false;
         _waterLive = false;
+        _nondescLive = false;
         _customLive = false;
         _plushLive = false;
         _freshLive = false;
@@ -1292,6 +1304,7 @@ public class SyncInfo : PredictableEntityLogic {
             || (_gunLive && _gun == null)
             || (_ammoLive && _ammo == null)
             || (_waterLive && _water == null)
+            || (_nondescLive && _nondesc == null)
             || (_customLive && _custom == null)
             || (_plushLive && _plush == null)
             || (_freshLive && _fresh == null)
@@ -1308,6 +1321,7 @@ public class SyncInfo : PredictableEntityLogic {
         _gunLive = go.TryGetComponent(out _gun);
         _ammoLive = go.TryGetComponent(out _ammo);
         _waterLive = go.TryGetComponent(out _water);
+        _nondescLive = go.TryGetComponent(out _nondesc);
         _customLive = go.TryGetComponent(out _custom);
         _plushLive = go.TryGetComponent(out _plush);
         _freshLive = go.TryGetComponent(out _fresh);
@@ -1651,6 +1665,19 @@ public class SyncInfo : PredictableEntityLogic {
             {
                 if (_waterLive && _water != null)
                     SyncLiquidStack(_water);
+            }
+
+
+            {
+                if (_nondescLive && _nondesc != null) {
+                    nondesc_water = _nondesc.waterValue;
+                    nondesc_fat = _nondesc.fatValue;
+                    nondesc_food = _nondesc.foodValue;
+                    nondesc_happiness = _nondesc.happinessValue;
+                    nondesc_sickness = _nondesc.sicknessValue;
+                    nondesc_liquidIds = _nondesc.liquidIds;
+                    nondesc_liquidWeights = _nondesc.liquidWeights;
+                }
             }
 
         } else if (_buildLive && _build != null) {
@@ -2206,6 +2233,16 @@ public class SyncInfo : PredictableEntityLogic {
             } else if (item.TryGetComponent(out AmmoScript ammo)) {
                 ammo.rounds = rounds;
             }
+        }
+
+        if (item.TryGetComponent(out NonDescriptCan nondesc)) {
+            nondesc.waterValue = nondesc_water;
+            nondesc.fatValue = nondesc_fat;
+            nondesc.foodValue = nondesc_food;
+            nondesc.happinessValue = nondesc_happiness;
+            nondesc.sicknessValue = nondesc_sickness;
+            nondesc.liquidIds = nondesc_liquidIds;
+            nondesc.liquidWeights = nondesc_liquidWeights;
         }
     }
 
