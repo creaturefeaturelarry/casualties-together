@@ -16,7 +16,7 @@ namespace Together
         static void Prefix()
         {
 #if !DEBUG
-            if (!(Plugin.юзер_прошаренный)) { 
+            if (!(Plugin.AnyCmdArgsPassed)) { 
                 return;
             }
 #endif

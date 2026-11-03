@@ -181,7 +181,8 @@ Hit F5
 
 You have to launch multiple instances of the game manually or using scripts.
 
-Uuhh <img src="https://media1.tenor.com/m/qPyvaruhJsYAAAAd/drooling-cat-lord-im-one.gif" width="32" height="32">  
+Uuhh <img src="https://media1.tenor.com/m/qPyvaruhJsYAAAAd/drooling-cat-lord-im-one.gif" width="32" height="32">   
+
 
 # Credits:
 
@@ -192,7 +193,7 @@ Credits are listed in "About" menu inside the mod.<br>
 ### Contributors:
 [Dune](https://github.com/Jyan-sei) - Sync, Optimizations<br>
 [VtLoader](https://github.com/vtloader) - Bug fixes, Locale<br>
-[Gary the Cat](https://github.com/Garythecat89), [Dannad](https://github.com/danxnader), [Meow](https://github.com/SprightlyHawk8), [Jimmyking](https://github.com/jimmyking9999999), [Kidihh](https://github.com/Kidihh), [Dawn](https://github.com/hehdawn), ItsVoidSK<br>
+[Gary the Cat](https://github.com/Garythecat89), [Dannad](https://github.com/danxnader), [Meow](https://github.com/SprightlyHawk8), [Jimmyking](https://github.com/jimmyking9999999), [Kidihh](https://github.com/Kidihh), [Dawn](https://github.com/hehdawn), [mayzmae](https://github.com/mayzmae), ItsVoidSK<br>
 ...And a bunch of playtesters
 
 ### Supporters:
