@@ -208,17 +208,25 @@ public class CPRHandler : MonoBehaviour {
         }
         return false;
     }
+    public static bool PlayerIsPerformingCPR(ScavPlayer plr, out NetBody targetNb) {
+        targetNb = null;
+        if (!plr.IsInMinigame) {
+            return false;
+        }
+        var t = plr.MinigameType;
+        var hasTarget = plr.minigame_targetobject.TryGetNetBody(out targetNb);
+        return hasTarget && (t == typeof(CPRMinigame) || (t == typeof(AEDMinigame) && targetNb.body != plr.body));
+    }
+    public static bool PlayerIsPerformingCPR(ScavPlayer plr) {
+        if (!plr.IsInMinigame) return false;
+        var t = plr.MinigameType;
+        return (t == typeof(CPRMinigame) || (t == typeof(AEDMinigame) && (!plr.minigame_targetobject.TryGetPlayer(out var p) || p != plr)));
+    }
     public static bool IsCPRBeingPerformedOnThisBody(Body b, out ScavPlayer who) {
         foreach (var plr in ScavPlayer.AllLivingPlayers) {
-            if (plr.body.conscious && plr.IsInMinigame) {
-                var isincprminigame =
-                    plr.minigame_current_type == MinigameMPManager.GetMinigameTypeId(typeof(CPRMinigame))
-                    || plr.minigame_current_type == MinigameMPManager.GetMinigameTypeId(typeof(AEDMinigame));
-
-                if (isincprminigame && plr.minigame_targetobject.TryGetNetBody(out var nb) && nb.body == b) {
-                    who = plr;
-                    return true;
-                }
+            if (plr.body.conscious && PlayerIsPerformingCPR(plr) && plr.minigame_targetobject.TryGetNetBody(out var nb) && nb.body == b) {
+                who = plr;
+                return true;
             }
         }
         who = null;
@@ -696,9 +704,8 @@ public class CPRHandler : MonoBehaviour {
         cpr_rot = Mathf.MoveTowards(cpr_rot, cprrot_target, Time.deltaTime * 360f);
 
         {
-
-            smooth_cpr_handscale = Mathf.Lerp(smooth_cpr_handscale, cpr_press_target, Time.deltaTime *
-                GetPushSpeed(Util.GetLocalBody(), pacient, game.handClicking)
+            smooth_cpr_handscale = Mathf.Lerp(smooth_cpr_handscale, cpr_press_target, 
+                Time.deltaTime * GetPushSpeed(Util.GetLocalBody(), pacient, game.handClicking)
             );
         }
 

@@ -5,7 +5,6 @@ using LiteNetLib.Utils;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -164,7 +163,15 @@ static class WorldGeneration_GenerateOres_MultiplayerPatch {
 [HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.Start))]
 static class WorldGeneration_Start_MultiplayerPatch {
     static bool Prefix(WorldGeneration __instance) {
-        __instance.GetOrAddComponent<TrackerWorld>();
+        if (Multiplayer.WorldSingletons != null) {
+            foreach (var type in Multiplayer.WorldSingletons) {
+                try {
+                    __instance.GetOrAddComponent(type);
+                } catch (Exception e) {
+                    log.error(e);
+                }
+            }
+        }
         return true;
     }
 }

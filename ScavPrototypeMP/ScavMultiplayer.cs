@@ -35,6 +35,14 @@ namespace Together;
 
 
 [AttributeUsage(AttributeTargets.Field)]
+public class MultiplayerRuleChoiceAttribute : Attribute {
+    public string[] choices;
+    public MultiplayerRuleChoiceAttribute(string[] choices) {
+        this.choices = choices;
+    }
+}
+
+[AttributeUsage(AttributeTargets.Field)]
 public class MultiplayerRuleByteAttribute : Attribute {
     public byte min = 0;
     public byte limit;
@@ -352,8 +360,8 @@ public class ClientReceiverAttribute : NetworkMessageReceiverAttribute {
 }
 
 
-abstract public class CasualtiesTogetherSingleton : MonoBehaviour {
-}
+abstract public class CasualtiesTogetherSingleton : MonoBehaviour { }
+abstract public class CasualtiesTogetherSingletonWorldOnly : MonoBehaviour { }
 
 
 
@@ -1631,6 +1639,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
     }
 
     static internal List<Component> Singletons = new();
+    static internal List<Type> WorldSingletons = new();
 
     // CALLED ONLY FROM PLUGIN ENTRY POINT
     internal static void _FIRST_INIT()  {
@@ -1763,12 +1772,21 @@ S_LerpFactor: {_entityManager.LerpFactor}";
                 UIMainMenu.GetSettingsFromStaticClass(type); // to trigger the default value saver thing
 
 
-                if (type.IsClass && !type.IsAbstract && type.IsSubclassOf(typeof(CasualtiesTogetherSingleton))) {
-#if DEBUG && false
-                    Plugin.log.LogInfo($"DEV: Found Singleton to add: {type.Name}");
+                if (type.IsClass && !type.IsAbstract) {
+                    if (type.IsSubclassOf(typeof(CasualtiesTogetherSingleton))) {
+#if DEBUG
+                        Plugin.log.LogInfo($"DEV: Found Singleton to add: {type.Name}");
 #endif
-                    Singletons.Add(Plugin.s.AddComponent(type));
+                        Singletons.Add(Plugin.s.AddComponent(type));
+                    }
+                    if (type.IsSubclassOf(typeof(CasualtiesTogetherSingletonWorldOnly))) {
+#if DEBUG
+                        Plugin.log.LogInfo($"DEV: Found World-Only Singleton to add: {type.Name}");
+#endif
+                        WorldSingletons.Add(type);
+                    }
                 }
+
 
 
                 MethodInfo[] methods = type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
@@ -1948,7 +1966,6 @@ S_LerpFactor: {_entityManager.LerpFactor}";
         
     }
 
-    
 
 
 
@@ -1957,6 +1974,15 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
 
 
+
+
+    public static bool IsFullgameOrMPDebugBuild() {
+#if DEBUG
+        return true;
+#else
+        return Util.GameIsFull();
+#endif
+    }
 
 
 

@@ -963,9 +963,7 @@ public class ScavPlayer : MonoBehaviour {
 
 
     public void CreateCharacter() {
-        if (Util.IsInMainMenu()) {
-            return;
-        }
+        if (Util.IsInMainMenu()) return;
         if (Net.IsServer) {
             NetBody.CreateNewPlayerCharacter(this);
         }

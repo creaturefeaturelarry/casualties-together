@@ -321,12 +321,12 @@ public struct AnyObjectNetId : INetSerializeByMemcpy {
         }
         string objinfo = $"type:{type}, netId:{netId}, data1:{data1}";
 
-        if (TryGetPlayer(out var foundplr)) {
-            objinfo = foundplr.ToString();
-        } else if (TryGetLimb(out var foundlimb)) {
-            objinfo = $"{foundlimb.shortName}, {foundlimb.GetNetBody()}";
+        if (TryGetLimb(out var foundlimb)) {
+            objinfo = $"{foundlimb.shortName}, {foundlimb.GetNetBody()}"; 
         } else if (TryGetNetBody(out var nb)) {
             objinfo = nb.ToString();
+        } else if (TryGetPlayer(out var foundplr)) {
+            objinfo = foundplr.ToString();
         } else if (TryGetSyncInfo(out var si)) {
             objinfo = si.ToString();
         } else {

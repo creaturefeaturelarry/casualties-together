@@ -132,70 +132,6 @@ public class BodyDamageEvent {
 }
 
 
-public static class Util_MPExtensions {
-    public static NetBody GetNetBody(this Limb limb) {
-        return limb.body.GetComponent<NetBody>();
-    }
-    public static NetBody GetNetBody(this Body body) {
-        return body.GetComponent<NetBody>();
-    }
-    public static bool TryGetNetBody(this Limb limb, out NetBody nb) {
-        return limb.body.TryGetComponent(out nb);
-    }
-    public static bool TryGetNetBody(this Body body, out NetBody nb) {
-        return body.TryGetComponent(out nb);
-    }
-    public static bool TryGetNetBody(this Vomiter vomiter, out NetBody nb) {
-        return vomiter.TryGetComponent(out nb);
-    }
-    public static bool TryGetNetPlayer(this Limb limb, out ScavPlayer plr) {
-        return limb.body.TryGetNetPlayer(out plr);
-    }
-    public static bool TryGetNetPlayer(this Body body, out ScavPlayer plr) {
-        if (body.TryGetNetBody(out var nb) && nb.IsPlayer) {
-            plr = nb.plr;
-            return true;
-        }
-        plr = null;
-        return false;
-    }
-
-    public static bool TryGetSyncInfo(this Item i, out SyncInfo si) {
-        return NetObjectRegistry.TryGetSyncInfo(i, out si);
-    }
-    public static bool TryGetSyncInfo(this BuildingEntity b, out SyncInfo si) {
-        return NetObjectRegistry.TryGetSyncInfo(b, out si);
-    }
-    //public static bool TryGetTracker(this Item i, out SyncInfoGameObjectTracker tracker) => i.TryGetComponent(out tracker);
-    //public static bool TryGetTracker(this BuildingEntity b, out SyncInfoGameObjectTracker tracker) => b.TryGetComponent(out tracker);
-    public static bool TryGetTracker(this Component c, out SyncInfoGameObjectTracker tracker) => c.TryGetComponent(out tracker);
-    public static bool TryGetTracker(this GameObject go, out SyncInfoGameObjectTracker tracker) => go.TryGetComponent(out tracker);
-    
-
-
-
-
-
-    public static short QuantizeFloatToShort(float value, float max) {
-        float normalized = Mathf.Clamp(value / max, -1f, 1f);
-        return (short)Math.Round(normalized * short.MaxValue);
-    }
-
-    public static float UnquantizeFloatFromShort(short quantizedValue, float max) {
-        return (quantizedValue / (float)short.MaxValue) * max;
-    }
-
-    public static ushort QuantizeFloatToUShort(float value, float max) {
-        float normalized = Mathf.Clamp01(value / max);
-        return (ushort)Math.Round(normalized * ushort.MaxValue);
-    }
-
-    public static float UnquantizeFloatFromUShort(ushort quantizedValue, float max) {
-        return (quantizedValue / (float)ushort.MaxValue) * max;
-    }
-
-
-}
 
 
 
@@ -208,6 +144,7 @@ public static class Util_MPExtensions {
 
 
 public class NetBody : MonoBehaviour {
+    public static implicit operator Body(NetBody nb) => nb.body;
 
     #region STATIC_NETBODY_GETTERS
 
@@ -723,13 +660,44 @@ public class NetBody : MonoBehaviour {
             }
 
             last_mood = body.happiness;
-        }
+        
 
-        if (NearBodiesDistanceIs5) {
-            //TODO if sleeping bump up the sleep qual
-            // BUT CURRENTLY NOT POSSIBLE CUZ ITS DONE IN ONE FRAME LIKE THAT IN THE Body AA
+
+
+            if (NearBodiesDistanceIs5) {
+                //TODO if sleeping bump up the sleep qual
+                // BUT CURRENTLY NOT POSSIBLE CUZ ITS DONE IN ONE FRAME LIKE THAT IN THE Body AA
+            }
+
+            NetBody cprPacient = null;
+            var doCPR = IsPlayer && CPRHandler.PlayerIsPerformingCPR(plr, out cprPacient);
+
+            if (doCPR) {
+                if (plr != null) {
+                    var targetHeight = 0f;
+                    if (plr.BasePlayer.ButtonAttack.Value) {
+                        targetHeight = 1f;
+                    }
+                    cprPress = Mathf.Lerp(cprPress, targetHeight, Time.deltaTime * CPRHandler.GetPushSpeed(this, cprPacient, plr.BasePlayer.ButtonAttack.Value));
+                }
+
+                if (cprPacient.body.IsRagdolling() || cprPacient.body.crouching) {
+                    body.crouching = true;
+                }
+                
+            } else {
+                if (lastCpr) {
+                    cprPress = 0;
+                    body.armsAnimator.StopPlayback();
+                    body.armsAnimator.Play("Grounded");
+                }
+            }
+            lastCpr = doCPR;
+
         }
     }
+    internal float cprPress = 0;
+    bool lastCpr = false;
 
 
     public void HearinglossDistortMessage(NetBody yapper, ref string message, ref string chattag) {
@@ -1162,6 +1130,7 @@ public class NetBody : MonoBehaviour {
             name = "bot_" + sb.Id.ToString();
         }
 
+        //TODO sb.characterSelected
         var chara = UnityEngine.Object.Instantiate(ServerMain.CHARACTER_PREFAB, Vector3.zero, Quaternion.identity);
         chara.name = "Character_" + name;
         chara.SetActive(true);

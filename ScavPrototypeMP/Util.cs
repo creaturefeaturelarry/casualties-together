@@ -14,7 +14,9 @@ using TMPro;
 using Together;
 using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.U2D.IK;
 using static Unity.VisualScripting.Member;
+using static UnityEngine.EventSystems.EventTrigger;
 
 namespace CasualtiesTogetherUtils;
 
@@ -88,6 +90,12 @@ public static class Util_UnityExtensions {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void SetParent(this Transform t, GameObject p, bool worldPositionStays = true) => t.SetParent(p.transform, worldPositionStays);
 
+    public static Component GetOrAddComponent(this UnityEngine.Object uo, Type componentType) {
+        var go = uo.GameObject();
+        if (go == null) 
+            throw new NotSupportedException(uo.GetType().ToString());
+        return go.GetComponent(componentType) ?? go.AddComponent(componentType);
+    }
 }
 
 public static class Util_MiscSystemExtensions {
@@ -100,6 +108,11 @@ public static class Util_MiscSystemExtensions {
     public static T PickRandom<T>(this IEnumerable<T> source) {
         return source.ElementAt(UnityEngine.Random.Range(0, source.Count()));
     }
+
+    public static bool IsSimpleType(this Type type) {
+        return type.IsPrimitive
+        || type == typeof(string);
+    }   
 
     public static int CountOccurences(this string text, string substring) {
         int c = 0;
@@ -364,6 +377,7 @@ public static class Util_ItemExtensions {
         return item.GetComponent<SpriteRenderer>().sprite;
     }
 
+
     public static bool IsItemOrBuilding(this GameObject go) {
         return go.GetComponent<Item>() != null || go.GetComponent<BuildingEntity>() != null;
     }
@@ -404,6 +418,7 @@ public static class Util_LimbExtensions {
     public static bool IsBodyLocal(this Limb limb) {
         return limb.body.IsBodyLocal();
     }
+
 
 }
 
@@ -458,6 +473,9 @@ public static class Util_BodyExtensions {
     public static Limb GetHead(this Body body) => body.limbs[(int)Body.LimbNum.Head];
     public static Limb GetUpperTorso(this Body body) => body.limbs[(int)Body.LimbNum.UpTorso];
     public static Limb GetLowerTorso(this Body body) => body.limbs[(int)Body.LimbNum.DownTorso];
+    public static Limb GetLimb(this Body body, Body.LimbNum limbNum) => body.limbs[(int)limbNum];
+    public static Limb GetLimb(this Body body, int limbNum) => body.limbs[limbNum];
+    public static Limb GetLimb(this Body body, byte limbNum) => body.limbs[limbNum];
 
 
 
@@ -481,121 +499,120 @@ public static class Util_BodyExtensions {
         }
         body.corpsesSeen = 0;
         body.desensitizedMult = 1;
+    }
 
+    public static void ResetLimbHealth(this Limb limb) {
+        if (limb.TryGetComponent(out SplintLimb splint)) {
+            splint.condition = 0;
+            splint.TakeOff();
+        }
+        if (limb.TryGetComponent(out TourniquetScript tour)) {
+            tour.condition = 0;
+            tour.TakeOff();
+        }
+        limb.muscleHealth = 100f;
+        limb.skinHealth = 100f;
+        limb.boneHealTimer = 0f;
+        limb.dislocationTimer = 0f;
+        limb.infectionAmount = 0f;
+        limb.bleedAmount = 0f;
+        limb.pain = 0f;
+        limb.shrapnel = 0;
+        limb.furBloodAmount = 0f;
+        limb.infected = false;
     }
 
     public static void ResetHealth(this Body body, bool unmindwipe = true) {
-        
-        // regrow missing limbs (ts kinda broken still)
-        body.RegrowAllLimbs();
+        try {
+            // regrow missing limbs (ts kinda broken still)
+            body.RegrowAllLimbs();
 
-
-        foreach (var limb in body.limbs) {
-            limb.muscleHealth = 100f;
-            limb.skinHealth = 100f;
-            limb.boneHealTimer = 0f;
-            limb.dislocationTimer = 0f;
-            limb.infectionAmount = 0f;
-            limb.bleedAmount = 0f;
-            limb.pain = 0f;
-            limb.shrapnel = 0;
-            limb.furBloodAmount = 0f;
-            limb.infected = false;
-            
-            if (limb.TryGetComponent(out SplintLimb splint)) {
-                splint.condition = 0;
-                splint.TakeOff();
+            foreach (var limb in body.limbs) {
+                ResetLimbHealth(limb);
             }
-            if (limb.TryGetComponent(out TourniquetScript tour)) {
-                tour.condition = 0;
-                tour.TakeOff();
+
+            body.brainHealth = 100f;
+
+            body.bloodVolume = 100f;
+            body.bloodOxygen = 100f;
+            body.bloodPressure = 120f;
+            body.heartRate = 70f;
+            body.bloodVesselSize = 1f;
+            body.bloodViscosity = 0f;
+            body.respiratoryRate = 100f;
+            body.strokeAmount = 0f;
+            body.hasPulmonaryEmbolism = false;
+            body.fibrillationProgress = 0f;
+
+            body.hunger = 100f;
+            body.thirst = 100f;
+            body.septicShock = 0f;
+            body.temperature = 37f;
+            body.sicknessAmount = 0f;
+            body.consciousness = 100f;
+            body.stamina = 100f;
+            body.energy = 100f;
+            body.happiness = 0f;
+            body.weightOffset = 0f;
+            body.radiationSickness = 0f;
+            body.disfigured = false;
+            body.eyeGone = false;
+            body.bothEyesGone = false;
+            body.internalBleeding = 0f;
+            body.hemothorax = 0f;
+            body.traumaAmount = 0f;
+            body.dirtyness = 0f;
+            body.wetness = 0f;
+            body.badSleepAmount = 0f;
+            body.hearingLoss = 0f;
+            body.antidepressantHappiness = 0f;
+            body.antibioticImmunityTime = 0f;
+            body.brainGrowSickness = 0f;
+            body.triedRollingLastStand = false;
+            body.succesfullyRolledLastStand = false;
+            body.reversedControls = false;
+            body.lastStandTime = -1000f;
+            body.adrenaline = 0f;
+            body.curAdrenaline = 0f;
+            body.opiateHappiness = 0f;
+            body.venomCurrent = 0f;
+            body.venomTotal = 0f;
+            body.clawHealth = 100f;
+            body.bloodPressureChangeFromMedicine = 0f;
+            body.caffeinated = 0f;
+            body.clawRegrowTime = 0f;
+            body.painShock = 0f;
+
+
+            if (body.TryGetComponent(out Painkillers component))
+                UnityEngine.Object.Destroy(component);
+            if (body.TryGetComponent(out SleepingPills component2))
+                UnityEngine.Object.Destroy(component2);
+            if (body.TryGetComponent(out Antidepressants component3))
+                UnityEngine.Object.Destroy(component3);
+
+            if (body.TryGetNetBody(out var nb)) {
+                // To ensure attempt to get the real coutils instance
+                if (nb.IsPlayer && nb.plr.CoUtilsInstance != null) {
+                    var coutil = nb.plr.CoUtilsInstance;
+                    coutil.CancelAll();
+                }
+                nb.OnDamageEvent(new BodyDamageEvent(BodyDamageEvent.DamageEventType.Revive, nb));
             }
-        }
 
-        body.brainHealth = 100f;
+            body.GetCoUtilsInstance().CancelAll();
 
-        body.bloodVolume = 100f;
-        body.bloodOxygen = 100f;
-        body.bloodPressure = 120f;
-        body.heartRate = 70f;
-        body.bloodVesselSize = 1f;
-        body.bloodViscosity = 0f;
-        body.respiratoryRate = 100f;
-        body.strokeAmount = 0f;
-        body.hasPulmonaryEmbolism = false;
-        body.fibrillationProgress = 0f;
-
-        body.hunger = 100f;
-        body.thirst = 100f;
-        body.septicShock = 0f;
-        body.temperature = 37f;
-        body.sicknessAmount = 0f;
-        body.consciousness = 100f;
-        body.stamina = 100f;
-        body.energy = 100f;
-        body.happiness = 0f;
-        body.weightOffset = 0f;
-        body.radiationSickness = 0f;
-        body.disfigured = false;
-        body.eyeGone = false;
-        body.bothEyesGone = false;
-        body.internalBleeding = 0f;
-        body.hemothorax = 0f;
-        body.traumaAmount = 0f;
-        body.dirtyness = 0f;
-        body.wetness = 0f;
-        body.badSleepAmount = 0f;
-        body.hearingLoss = 0f;
-        body.antidepressantHappiness = 0f;
-        body.antibioticImmunityTime = 0f;
-        body.brainGrowSickness = 0f;
-        body.triedRollingLastStand = false;
-        body.succesfullyRolledLastStand = false;
-        body.reversedControls = false;
-        body.lastStandTime = -1000f;
-        body.adrenaline = 0f;
-        body.curAdrenaline = 0f;
-        body.opiateHappiness = 0f;
-        body.venomCurrent = 0f;
-        body.venomTotal = 0f;
-        body.clawHealth = 100f;
-        body.bloodPressureChangeFromMedicine = 0f;
-        body.caffeinated = 0f;
-        body.clawRegrowTime = 0f;
-        body.painShock = 0f;
-
-        if (body.TryGetComponent(out Painkillers component)) 
-            UnityEngine.Object.Destroy(component);
-        if (body.TryGetComponent(out SleepingPills component2)) 
-            UnityEngine.Object.Destroy(component2);
-        if (body.TryGetComponent(out Antidepressants component3))
-            UnityEngine.Object.Destroy(component3);
-
-        if (body.TryGetNetBody(out var nb)) {
-            // To ensure attempt to get the real coutils instance
-            if (nb.IsPlayer && nb.plr.CoUtilsInstance != null) {
-                var coutil = nb.plr.CoUtilsInstance;
-                coutil.CancelAll();
+            if (unmindwipe) {
+                if (body.TryGetComponent(out MindwipeScript component222222))
+                    UnityEngine.Object.Destroy(component222222); // the vignette is removed by other patch
+                                                                 //component222222.active = false; // or do i do this???
             }
-            nb.OnDamageEvent(new BodyDamageEvent(BodyDamageEvent.DamageEventType.Revive, nb));
+
+        } catch (Exception ex) {
+            log.error(ex);
+            throw ex;
         }
-
-        var OGcoutil = CoUtils_instance_MultiplayerPatch.cur_override_instance;
-        CoUtils_instance_MultiplayerPatch.cur_override_instance = body.GetCoUtilsInstance();
-
-        CoUtils.instance.CancelAll();
-
-        CoUtils_instance_MultiplayerPatch.cur_override_instance = OGcoutil;
-
-        if (unmindwipe) {
-            if (body.TryGetComponent(out MindwipeScript component222222))
-                UnityEngine.Object.Destroy(component222222); // the vignette is removed by other patch
-                                                             //component222222.active = false; // or do i do this???
-        }
-
     }
-
-
 
 
 
@@ -901,11 +918,15 @@ public static class Util {
         }
         return false;
     }
-    public static void OpenBrightnessPanel(bool open_or_nah) {
+
+    [Obsolete("Use OpenPauseMenu")]
+    public static void OpenBrightnessPanel(bool open_or_nah) => OpenPauseMenu(open_or_nah);
+    public static void OpenPauseMenu(bool open_or_nah) {
         if (PauseHandler.main != null && PauseHandler.main.isPaused != open_or_nah) {
             PauseHandler.TogglePause();
         }
     }
+
     public static void OpenSettingsPanel(bool open_or_nah) {
         OpenSettingsPanel(open_or_nah, 0);
     }
@@ -1266,9 +1287,9 @@ public static class Util {
     public static Body GetBodyOnPos(Vector2 pos) {
         var a = Physics2D.OverlapPointAll(pos);
         foreach (var item in a) {
-            if (item.TryGetComponent<Limb>(out var c)) {
+            if (item.TryGetComponent(out Limb c)) {
                 return c.body;
-            } else if (item.TryGetComponent<Body>(out var b)) {
+            } else if (item.TryGetComponent(out Body b)) {
                 return b;
             }
         }
@@ -1416,14 +1437,18 @@ public static class Util {
         return body.limbs.Any(x => x.dismembered);
     }
 
+
+
+
+
     // I don't know how this works, or if it works
     public static void RegrowAllLimbs(this Body body) {
         if (body.IsAnyLimbMissing()) {
-            
+
             var ogbodypos = body.transform.position;
 
             var wasstanding = body.standing;
-            
+
             if (!body.isRight) {
                 body.ForceSwitchDir();
             }
@@ -1431,19 +1456,19 @@ public static class Util {
 
 
             var a = body.GetComponentsInChildren<ClientMain.SavedHingeJointState>(true);
-            
+
             foreach (var item in a) {
-            
+
                 item.transform.localPosition = item.a;
                 item.transform.localRotation = item.b;
-            
+
                 item.connectedBody.transform.localPosition = item.aa;
-            
+
                 var euler_with_reference = item.bb.eulerAngles;
                 euler_with_reference.z = item.transform.localRotation.eulerAngles.z - item.referenceAngle;
-            
+
                 item.connectedBody.transform.localRotation = Quaternion.Euler(euler_with_reference);
-            
+
             }
             for (int i = 0; i < body.limbs.Length; i++) {
                 var limb = body.limbs[i];
@@ -1479,6 +1504,7 @@ public static class Util {
             body.transform.position = ogbodypos;
         }
     }
+
 
     public static void Body_DropAllItems(this Body body) {
         for (int i = 0; i < body.slots.Length; i++) 
@@ -1611,6 +1637,11 @@ public static class Util {
     }
     public static bool IsFinite(this Vector2 value) {
         return IsFinite(value.x) && IsFinite(value.y);
+    }
+
+
+    public static object InvokeStatic(this MethodInfo method, params object[] parameters) {
+        return method.Invoke(null, parameters);
     }
 
     // Get field, with backup names

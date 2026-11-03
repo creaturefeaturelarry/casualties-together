@@ -2,21 +2,22 @@ using CasualtiesTogetherUtils;
 using HarmonyLib;
 using LiteEntitySystem;
 using LiteNetLib;
+using Steamworks;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using System.Text;
+using TMPro;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
-using Steamworks;
-using System.Reflection.Emit;
-using System.Runtime.CompilerServices;
 using Random = UnityEngine.Random;
-using System.Diagnostics;
 
 namespace Together;
 
@@ -138,7 +139,7 @@ static class PlayerCamera_HandleBlockHover_MultiplayerPatch {
 internal static class GlobalDark_Awake_MultiplayerPatch {
     internal static void SetBetaBuildMPText() {
         if (GlobalDark.main != null && Plugin.SUCCESFULLY_INITIALIZED) {
-            var betaBuild = GlobalDark.main.betaBuild;
+            var betaBuild = Traverse.Create(GlobalDark.main).Field("betaBuild").GetValue<TextMeshProUGUI>();
             if (betaBuild != null) {
                 //betaBuild.text = "This is a beta build (" + Application.version + "); Things are subject to change.";
                 //betaBuild.text += " (Demo)";
@@ -168,7 +169,42 @@ internal static class GlobalDark_Awake_MultiplayerPatch {
 public static class PlayerCamera_LateUpdate_TraderHold {
     private static void Postfix(PlayerCamera __instance) {
         TraderPinLog.Hold(__instance);
+
+        // Keep the vanilla body-based reading for living players. Once the
+        // local player is dead, make the reading follow the spectator camera.
+        UpdateSpectatorDepthMeter(__instance);
     }
+
+    // The vanilla depth meter reads PlayerCamera.body, which is correct while
+    // alive but stale after death when the spectator/free camera moves away.
+    static void UpdateSpectatorDepthMeter(PlayerCamera camera) {
+        if (!Net.IsRunning || camera == null) return;
+        if (camera.body.alive && !(UIInGame.SpectatorModeActive || Con._DEV_FREECAM)) 
+            return;
+        
+
+        var world = WorldGeneration.world;
+        var depthLine = camera.depthLine;
+        if (world == null || depthLine == null || depthLine.parent == null || world.height <= 0) 
+            return;
+        
+
+        var depthUnits = (float)world.halfHeight - camera.transform.position.y;
+        var meterHeight = depthLine.parent.GetComponent<RectTransform>().rect.size.y;
+        depthLine.anchoredPosition = new Vector2(
+            0f,
+            -depthUnits / world.height * meterHeight
+        );
+
+        var depthLabel = depthLine.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+        if (depthLabel != null) {
+            var totalDepthMeters = depthUnits * 0.3f + world.totalTraveled;
+            
+            depthLabel.text = $"{Mathf.RoundToInt(totalDepthMeters)}m";
+            
+        }
+    }
+
 }
 
 //override some UI
@@ -244,39 +280,8 @@ public static class PlayerCamera_Update_MultiplayerPatch {
 
         }
 
-        // Keep the vanilla body-based reading for living players. Once the
-        // local player is dead, make the reading follow the spectator camera.
-        UpdateSpectatorDepthMeter(__instance);
     }
 
-    // by @VtLoader
-    // The vanilla depth meter reads PlayerCamera.body, which is correct while
-    // alive but stale after death when the spectator/free camera moves away.
-    static void UpdateSpectatorDepthMeter(PlayerCamera camera) {
-        if (!Net.IsRunning || camera == null || camera.body == null || camera.body.alive
-            || (!UIInGame.SpectatorModeActive && !Con._DEV_FREECAM)) {
-            return;
-        }
-
-        var world = WorldGeneration.world;
-        var depthLine = camera.depthLine;
-        if (world == null || depthLine == null || depthLine.parent == null || world.height <= 0) {
-            return;
-        }
-
-        var depthUnits = (float)world.halfHeight - camera.transform.position.y;
-        var meterHeight = depthLine.parent.GetComponent<RectTransform>().rect.size.y;
-        depthLine.anchoredPosition = new Vector2(
-            0f,
-            -depthUnits / world.height * meterHeight
-        );
-
-        var depthLabel = depthLine.GetComponentInChildren<TMPro.TextMeshProUGUI>();
-        if (depthLabel != null) {
-            var totalDepthMeters = depthUnits * 0.3f + world.totalTraveled;
-            depthLabel.text = $"{Mathf.RoundToInt(totalDepthMeters)}m";
-        }
-    }
 
 
 }
@@ -299,14 +304,10 @@ public static class PlayerCamera_HandleScreenShaders_MultiplayerPatch {
             var body = pc.body;
 
             CURRENTLY_OVERRIDING_VISUALS = ShouldOverrideVisualsToDefault();
-            if (
-                CURRENTLY_OVERRIDING_VISUALS
-            ) {
+            if ( CURRENTLY_OVERRIDING_VISUALS ) {
                 forceDefaultShaderForNextFrame = false;
 
-
                 __instance.blackAmount = 0;
-
 
                 __instance.consciousnessFade.color = new Color(0f, 0f, 0f, 0f);
                 __instance.consciousnessVignette.color = new Color(0f, 0f, 0f, 0f);
@@ -326,7 +327,11 @@ public static class PlayerCamera_HandleScreenShaders_MultiplayerPatch {
                 __instance.mainScreenPass.SetVector("_PlayerPos", PlayerCamera.main.transform.position);
                 __instance.mainScreenPass.SetFloat("_Dirtyness", 0f); // apparently default in the .asset is 0.032681547
                 __instance.mainScreenPass.SetFloat("_SaturationMult", 1f);
-
+                if (__instance.mainScreenPass.HasFloat("_PosterizeSteps"))
+                    __instance.mainScreenPass.SetFloat("_PosterizeSteps", 124);
+                if (__instance.mainScreenPass.HasFloat("_NightVisAmount"))
+                    __instance.mainScreenPass.SetFloat("_NightVisAmount", 0);
+                
 
                 __instance.blurPass.SetFloat("_BlurIntensity", 0f);
                 __instance.blurPass.SetFloat("_DropletAmount", 0f);
@@ -346,8 +351,6 @@ public static class PlayerCamera_HandleScreenShaders_MultiplayerPatch {
                 __instance.damagePass.SetFloat("_DirectionMult", 0f); // but 1 is default
                 __instance.damagePass.SetFloat("_RadAmount", 0f);
 
-
-
                 WorldGeneration.world.fogMat.SetVector("_PlayerPos", PlayerCamera.main.transform.position);
 
                 if (!body.alive) {
@@ -362,7 +365,7 @@ public static class PlayerCamera_HandleScreenShaders_MultiplayerPatch {
             } else {
                 if (!Util.IsUnchipped() || PlayerCamera_SetIrradiateIntensity_MultiplayerPatch.forceSetIrradiateIntensity) {
                     PlayerCamera_SetIrradiateIntensity_MultiplayerPatch.forceSetIrradiateIntensity = false;
-                    if (ScavPlayer.TryGetLocalNetBody(out var nb)) {
+                    if (NetBody.TryGetLocalNetBody(out var nb)) {
                         __instance.damagePass.SetFloat("_RadAmount", Mathf.Clamp01(nb.irradiateIntensity));
                         PlayerCamera.main.irradiateIntensity = nb.irradiateIntensity;
                         PlayerCamera.main.timeSinceRadUpdate = nb.timeSinceRadUpdate;
@@ -692,7 +695,7 @@ static class PlayerCamera_HandleWhileDragging_MultiplayerPatch {
                 if (uiCast.gameObject == __instance.liquidDrainObject) {
                     //OG:  PlayerCamera.HandleWhileDragging  V5t4 + LiquidAffect check
                     if ((bool)__instance.dragItem && !dragItem.IsInWater()) {
-                        
+
                         if (ItemSync.TryGetSyncInfo(__instance.dragItem, out var si)) {
                             si.SetIgnoreTimeForRoundTrip();
                         }
@@ -1022,6 +1025,7 @@ static class PlayerCamera_ToggleTradeMenu_MultiplayerPatch {
             return;
         }
         log.l($"Recruiting {trader_si} -> to respawn {available_plr}");
+
         available_plr.Server_RespawnCharacter(trader_si.transformPosition + Vector2.up * 1.5f, true);
         for (int i = 0; i < Math.Min(trader_tracker.og.items.Count, RANDOM_ITEMS_TO_GIVE_AFTER_RESPAWN); i++) {
             int randindex = UnityEngine.Random.Range(0, trader_tracker.og.items.Count);
@@ -1033,6 +1037,7 @@ static class PlayerCamera_ToggleTradeMenu_MultiplayerPatch {
             }
             available_plr.body.AutoPickUpItem(spawned.GetComponent<Item>());
         }
+
         GameObject.Destroy(trader_si.go);
     }
 

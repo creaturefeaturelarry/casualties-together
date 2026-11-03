@@ -1417,65 +1417,71 @@ public static class MyLiteNetLibExtensions {
     #region CARELESS_SERIALIZERS 
 
 
-    public static void PutAny<T>(this NetDataWriter writer, T value) {
+    public static void PutAny(this NetDataWriter writer, object value) {
         //if (value == null)  throw new ArgumentNullException(nameof(value));
 
-        var type = typeof(T);
+        var type = value.GetType();
 
         // bool
         if (type == typeof(bool))
-            writer.Put((bool)(object)value);
+            writer.Put((bool)value);
 
         // byte/sbyte
         else if (type == typeof(byte))
-            writer.Put((byte)(object)value);
+            writer.Put((byte)value);
         else if (type == typeof(sbyte))
-            writer.Put((sbyte)(object)value);
+            writer.Put((sbyte)value);
 
         // short/ushort
         else if (type == typeof(short))
-            writer.Put((short)(object)value);
+            writer.Put((short)value);
         else if (type == typeof(ushort))
-            writer.Put((ushort)(object)value);
+            writer.Put((ushort)value);
 
         // int/uint
         else if (type == typeof(int))
-            writer.Put((int)(object)value);
+            writer.Put((int)value);
         else if (type == typeof(uint))
-            writer.Put((uint)(object)value);
+            writer.Put((uint)value);
 
         // long/ulong
         else if (type == typeof(long))
-            writer.Put((long)(object)value);
+            writer.Put((long)value);
         else if (type == typeof(ulong))
-            writer.Put((ulong)(object)value);
+            writer.Put((ulong)value);
 
         // float/double
         else if (type == typeof(float))
-            writer.Put((float)(object)value);
+            writer.Put((float)value);
         else if (type == typeof(double))
-            writer.Put((double)(object)value);
+            writer.Put((double)value);
 
         // char/string
         else if (type == typeof(char))
-            writer.Put((char)(object)value);
+            writer.Put((char)value);
         else if (type == typeof(string))
-            writer.Put((string)(object)value);
+            writer.Put((string)value);
 
         // arrays
         else if (type == typeof(byte[]))
-            writer.Put((byte[])(object)value);
+            writer.Put((byte[])value);
 
         // Guid
         else if (type == typeof(Guid))
-            writer.Put((Guid)(object)value);
+            writer.Put((Guid)value);
 
         else
             throw new NotSupportedException($"Type {type} is not supported.");
     }
 
-    public static bool GetAny<T>(this NetDataReader reader, out T value) {
+
+  public static bool GetAny<T>(this NetDataReader reader, out T value) {
         var type = typeof(T);
+  var b = GetAny(reader, out var result, type);
+    value = (T)result;
+    return b;
+  }
+  public static bool GetAny(this NetDataReader reader, out object value, Type type) {
         object result;
 
         try {
@@ -1513,7 +1519,7 @@ public static class MyLiteNetLibExtensions {
                 result = reader.GetString();
 
             else if (type == typeof(byte[]))
-                result = reader.GetRemainingBytes();
+                result = reader.GetBytesWithLength();
 
             else if (type == typeof(Guid))
                 result = reader.GetGuid();
@@ -1521,7 +1527,7 @@ public static class MyLiteNetLibExtensions {
             else
                 throw new NotSupportedException($"Type {type} is not supported.");
 
-            value = (T)result;
+            value = result;
             return true;
         } catch {
             value = default!;

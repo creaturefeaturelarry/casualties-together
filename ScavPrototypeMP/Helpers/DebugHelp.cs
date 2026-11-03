@@ -103,7 +103,10 @@ namespace Together {
         public static void error(string s, bool console) {
             s.Replace('\r', ' ');
 
-            Plugin.log.LogError(do_timestamp(s));
+            if (Plugin.log == null)
+                Debug.LogError(do_timestamp(s));
+            else
+                Plugin.log.LogError(do_timestamp(s));
 
             if (console && con != null) {
                 con.LogToConsole($"<color=red>{name} ERROR: {s}</color>");
@@ -154,7 +157,7 @@ namespace Together {
                 if (l.TryGetNetBody(out var nb)) {
                     bodyname = nb.ToString();
                 }
-                return $"LIMB({l.name} - {bodyname}, pos: {((Vector2)l.transform.position)})";
+                return $"LIMB({l.name} - {bodyname})";
             }
             if (Util.TryGetBodyFromObject(go, out var b)) {
                 return (GetPlayerFullDebugString(b));   
@@ -169,7 +172,7 @@ namespace Together {
             if (body.TryGetNetBody(out var nb)) {
                 return nb.ToString();
             }
-            return $"BODY({body.name}, pos: {((Vector2)body.transform.position)})";
+            return $"BODY({body.name})";
         }
         public static string GetPlayerFullDebugString(knetid cid) {
             if (ScavPlayer.TryGetPlayerFromClientId(cid, out var plr)) {

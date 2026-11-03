@@ -134,6 +134,7 @@ public struct BodyTeleportPacket : INetSerializeByMemcpy {
 [EntityFlags(EntityFlags.UpdateOnClient)]
 public class SyncBody : PredictableEntityLogic {
     public NetBody nb;
+    public SyncVar<byte> characterSelected;
 
     [SyncVarFlags(SyncFlags.Interpolated | SyncFlags.LagCompensated | SyncFlags.AlwaysRollback)]
     internal SyncVar<Vector2> _position;

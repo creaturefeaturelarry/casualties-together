@@ -485,9 +485,9 @@ namespace Together {
         public static bool cmd_start__is_client = false;
         public static bool cmd_start__is_dedicated_server = false;
 
+        public static bool dowindowposthing { get; private set; }
 #if !RELEASE
         public static bool starterkit { get; private set; }
-        public static bool dowindowposthing { get; private set; }
 #endif
 
 
@@ -589,10 +589,10 @@ namespace Together {
                     DebugMenuSettings.is_verbose = true;
                     DebugMenuSettings._DEV_VISUALISE_NET_EVENTS = true;
                 }
-#if !RELEASE
                 if (arg == ("--mpdev-sort-windowpos")) {
                     dowindowposthing = true;
                 }
+#if !RELEASE
                 if (arg == ("--kmultidev-starterkit")) {
                     starterkit = true;
                 }

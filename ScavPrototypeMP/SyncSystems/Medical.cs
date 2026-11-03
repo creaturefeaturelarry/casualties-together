@@ -1,5 +1,5 @@
-using HarmonyLib;
 using CasualtiesTogetherUtils;
+using HarmonyLib;
 using LiteNetLib;
 using System;
 using System.Collections;
@@ -8,9 +8,12 @@ using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
+using TMPro;
 using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.PlayerLoop;
 using UnityEngine.UI;
+using static Mono.Security.X509.X520;
 using static WoundView;
 
 namespace Together;
@@ -1378,8 +1381,6 @@ public static class PlayerCamera_ToggleWoundView_MultiplayerPatch {
         // always force set it idk
         wv.body = b;
 
-        //OG: PlayerCamera.ToggleWoundView V5t2
-        const string defaultname = "EXPERIMENT"; // default
 
         var looking_at_someone_else = !Util.IsBodyLocal(wv.body);
 
@@ -1439,8 +1440,11 @@ public static class PlayerCamera_ToggleWoundView_MultiplayerPatch {
         }
 
 
-        if (looking_at_someone_else) {
 
+
+        SetWoundviewSpeciesSprite(wv, b);
+
+        if (looking_at_someone_else) {
             if (b.TryGetNetBody(out var nb)) {
                 wv.nameText.text = nb.bodyName;
 
@@ -1452,16 +1456,24 @@ public static class PlayerCamera_ToggleWoundView_MultiplayerPatch {
 
             } else { // thats a problem
                 Plugin.log.LogError($"Couldnt get NetBody of a body, what??? {wv.body} ");
-                wv.nameText.text = defaultname;
+                wv.nameText.text = GetSpeciesName(b);
                 wv.bodyStatText.text = "ERROR";
             }
 
         } else { // set it back to myself
-            wv.nameText.text = defaultname;
+            wv.nameText.text = GetSpeciesName(b);
             wv.SetCharDetails(wv.cInfo[0], wv.cInfo[1], wv.cInfo[2], wv.cInfo[3]);
         }
 
         WoundView_AddImageToLimb_MultiplayerPatch.RefreshAllLimbImages();
+    }
+
+    static string GetSpeciesName(Body body) {
+        var defaultname = "EXPERIMENT"; 
+        return defaultname;
+    }
+    static void SetWoundviewSpeciesSprite(WoundView wv, Body body) {
+
     }
 
     public static bool IsOpen() {
@@ -1527,7 +1539,7 @@ public static class PlayerCamera_ToggleWoundView_MultiplayerPatch {
                 }
             }
 
-            if (body_to_open == null && UIInGame.SpectatorModeActive && __instance.following != null && __instance.following.TryGetComponent<Body>(out var targetbody)) {
+            if (body_to_open == null && UIInGame.SpectatorModeActive && Spectator.GetCameraFollow() != null && Spectator.GetCameraFollow().TryGetComponent(out Body targetbody)) {
                 WoundView_SetTargetBody(targetbody);
             } else {
                 WoundView_SetTargetBody(body_to_open ?? PlayerCamera.main.body);
@@ -1613,14 +1625,10 @@ public static class WoundView_AddImageToLimb_MultiplayerPatch {
         __instance.body = limb.body;
     }
     static void Postfix(WoundView __instance, ref UnityEngine.UI.Image __result, Limb limb, Sprite sprite, bool flip, LimbCondition removeCondition ) {
-        try {
-            var compo = __result.AddComponent<WoundviewLimbImagePerPlayerTrackerComponent>();
-            compo.limb = limb;
-            __instance.body = oldbody;
-            compo.RefreshLimbImage();
-        } finally {
-            __instance.body = oldbody;
-        }
+        var compo = __result.AddComponent<WoundviewLimbImagePerPlayerTrackerComponent>();
+        compo.limb = limb;
+        __instance.body = oldbody;
+        compo.RefreshLimbImage();
     }
 }
 
@@ -1689,7 +1697,7 @@ public static class PlayerCamera_WoundSpecialAction_MultiplayerPatch {
         if (targetLimb.TryGetNetBody(out var nbPacient) && healerIsLocal) {
             nbPacient.SetNetHealthSyncIgnoreTime(0.01f);
         }
-            
+        
     }
 
 
@@ -2183,14 +2191,39 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
         return !b.aboveMedicalCutoff && b.conscious ;
     }
 
+    void UpdateCPREffects() {
+        if (PlayerCamera.main != null && NetBody.TryGetLocalNetBody(out var locNb)) {
+
+            var imPacientOfCPR = CPRHandler.IsCPRBeingPerformedOnThisBody(locNb, out var plr);
+
+            if (imPacientOfCPR && locNb.body.IsRagdolling() && locNb.body.moveDir == Vector2.zero && !PlayerCamera.main.wantsJumpInput) {
+                locNb.body.Ragdoll(); // Make player stay ragdolling
+            }
+
+            //Realistically this shouldn't show on ECG, but I think it's cool for visualization
+            //I specifically won't want to do this for health panel ECG because of it
+            var consciousnessECG = PlayerCamera.main.consciousnessECG;
+            if (consciousnessECG != null && consciousnessECG.active) {
+
+                consciousnessECG.followBody = !imPacientOfCPR;
+
+                if (plr != null) {
+                    consciousnessECG.writeHeight = KM.Clamp11(locNb.body.GetECGHeight(Mathf.Min(0.1f, Time.unscaledDeltaTime) - 0.028f) - plr.netBody.cprPress);
+                }
+            }
+        }
+    }
+
     internal static ECGVisualizer woundview_ecg = null;
     void LateUpdate() {
 
+        UpdateCPREffects();
+
         if (!Util.IsInWoundView()) {
             stolenformp_lastHeartBeating = false;
-            return; 
+            return;
         }
-            
+
         // override woundview stuff
 
         var body = WoundView.view.body;

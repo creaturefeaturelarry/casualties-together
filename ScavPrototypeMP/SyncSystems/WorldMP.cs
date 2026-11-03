@@ -24,7 +24,7 @@ namespace Together;
 
 
 
-class TrackerWorld : MonoBehaviour {
+class TrackerWorld : CasualtiesTogetherSingletonWorldOnly {
 
     void Awake() {
 

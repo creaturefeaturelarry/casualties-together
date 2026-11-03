@@ -2,10 +2,10 @@ using CasualtiesTogetherUtils;
 using HarmonyLib;
 using LiteNetLib;
 using LiteNetLib.Utils;
+using Newtonsoft.Json;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -14,6 +14,58 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 
 namespace Together;
+
+[Saveable]
+[JsonObject(MemberSerialization.OptIn)]
+public class SaveDataComponent : MonoBehaviour {
+    static ulong IdCounter = 0;
+    [JsonProperty]
+    public ulong persistentId { get; private set; }
+    [JsonProperty]
+    public Dictionary<string, string> dict = new();
+    void Awake() {
+    }
+    void Start() {
+        if (persistentId == 0) 
+            persistentId = IdCounter;
+        IdCounter = Math.Max(IdCounter + 1, persistentId + 1);
+
+        // give @a smallbattery pizzaslice epda smallbattery
+#if DEBUG
+        if (dict.Count > 0)
+        log.l($"SaveDataComponent {DebugHelp.GetGameObjectFullDebugString(gameObject)}SaveDataComponent : \"{dict.Count}\" \"{dict.ToCommaSeparatedString()}\" pid:{persistentId}");
+#endif
+    }
+    public void Set(string key, string val) {
+        dict[key] = val;
+    }
+
+
+    public bool WasntTouched(string key) {
+        if (!dict.TryGetValue(key, out var val) || (val == (object)false || val == null)) {
+            dict[key] = "1";
+            return true;
+        }
+        return false;
+    }
+
+    public string GetOrDefault(string key, string d) {
+        if (dict.TryGetValue(key, out var val)) {
+            return val;
+        }
+        return d;
+    }
+
+    public string this[string key] {
+        get {
+            return dict[key];
+        }
+        set {
+            dict[key] = value;
+        }
+    }
+
+}
 
 public class AnyDataContainerComponent : MonoBehaviour {
     public readonly Dictionary<string, object> dict = new();
@@ -500,6 +552,63 @@ public static class TranspilerHelpers {
         }
 
         return codes;
+    }
+
+}
+
+
+public static class ReflectionHelp {
+
+    public static FieldInfo Field(Type type, string name) {
+        if (type == null) {
+            if (Multiplayer.IsFullgameOrMPDebugBuild())
+                Debug.LogError($"ReflectionHelp: Null type! {name} {new System.Diagnostics.StackTrace()}");
+            return null;
+        }
+        var a = AccessTools.Field(type, name);
+        if (a == null) {
+            if (Multiplayer.IsFullgameOrMPDebugBuild())
+                log.error($"ReflectionHelp: Field {type} {name} wasn't found!");
+        } else {
+#if DEBUG
+            Debug.Log($"ReflectionHelp: Found  {type} {name} :)");
+#endif
+        }
+        return a;
+    }
+    public static MethodInfo PropertyGetter(Type type, string name) {
+        if (type == null) {
+            if (Multiplayer.IsFullgameOrMPDebugBuild())
+                Debug.LogError($"ReflectionHelp: Null type! {name} {new System.Diagnostics.StackTrace()}");
+            return null;
+        }
+        var a = AccessTools.PropertyGetter(type, name);
+        if (a == null) {
+            if (Multiplayer.IsFullgameOrMPDebugBuild())
+                Debug.LogError($"ReflectionHelp: Property {type} {name} wasn't found!");
+        } else {
+#if DEBUG
+            Debug.Log($"ReflectionHelp: Found  {type} {name} :)");
+#endif
+        }
+        return a;
+    }
+    public static MethodInfo Method(Type type, string name) {
+        if (type == null) {
+            if (Multiplayer.IsFullgameOrMPDebugBuild())
+                Debug.LogError($"ReflectionHelp: Null type! {name} {new System.Diagnostics.StackTrace()}");
+            return null;
+        }
+        var a = Util.GetMethod(type, name);
+        if (a == null) {
+            if (Multiplayer.IsFullgameOrMPDebugBuild())
+                Debug.LogError($"ReflectionHelp: Method {type} {name} wasn't found!");
+        } else {
+#if DEBUG
+            Debug.Log($"ReflectionHelp: Found  {type} {name} :)");
+#endif
+        }
+        return a;
     }
 
 }

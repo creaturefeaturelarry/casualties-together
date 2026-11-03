@@ -9,6 +9,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Unity.VisualScripting;
@@ -40,16 +41,19 @@ public class KSteam : MonoBehaviour {
     public static bool IS_IN_LOBBY { get; private set; }
     public static bool IS_IN_STEAMOVERLAY { get; private set; }
 
-    public const uint CONST_STEAMAPPID_SPACEWAR = 480;
+    public static readonly string Filename_steam_appid_txt = "steam_appid.txt";
+  
     public const uint CONST_STEAMAPPID_CASUALTIESUNKNOWN_DEMO = 4576510;
     public const uint CONST_STEAMAPPID_CASUALTIESUNKNOWN_PLAYTEST = 4584420;
+    public const uint CONST_STEAMAPPID_CASUALTIESUNKNOWN_FULL = 4576490;
 
 
-    public static bool APP_IS_PIRATE { get; private set; }// 480
-    public static bool APP_IS_DEMO { get; private set; }// 4576510
-    public static bool APP_IS_PLAYTEST { get; private set; }// 4584420
 
-    //public static bool USER_OWNS_PLAYTEST { get; private set; }
+    public static bool APP_IS_PIRATE { get; private set; }//    480
+    public static bool APP_IS_DEMO { get; private set; }//      4576510
+    public static bool APP_IS_PLAYTEST { get; private set; }//  4584420
+    public static bool APP_IS_FULL { get; private set; }//      4576490
+
 
 
     public static uint STEAM_APPID { get; private set; }
@@ -352,12 +356,28 @@ public class KSteam : MonoBehaviour {
     
     // this is called before creating this component, it checks if steamworks dll is present, if steam is working and everything is in order
     public static void CheckSteam() {
+
+        try {
+            string path = System.IO.Path.Combine(BepInEx.Paths.GameRootPath, Filename_steam_appid_txt);
+
+            if (!File.Exists(path))
+                File.WriteAllText(path, (Util.GameIsFull() ? 
+                    CONST_STEAMAPPID_CASUALTIESUNKNOWN_FULL // Kinda useless?
+                    : CONST_STEAMAPPID_CASUALTIESUNKNOWN_DEMO // Demo doesn't have steam_appid.txt bundled
+                    ).ToString());
+
+        } catch (Exception e) {
+#if TESTING
+            Together.log.error($"Failed to get or create {Filename_steam_appid_txt} {e}");
+#endif
+            //Don't return yet, let Init crash and say what's wrong
+        }
+
         if (Loaded || Plugin.FORCE_NO_STEAM) {
             return;
         }
-        
-
         Loaded = false;
+
 
 
         if (!Packsize.Test()) {
@@ -381,7 +401,7 @@ public class KSteam : MonoBehaviour {
                 }
             }
         } catch (Exception e) {
-            Together.log.error(e);
+            Together.log.error($"Fatally failed to initialize Steam: {e}");
             return;
         }
         STEAM_APPID = SteamUtils.GetAppID().m_AppId;
@@ -390,7 +410,8 @@ public class KSteam : MonoBehaviour {
 
         APP_IS_DEMO = STEAM_APPID == CONST_STEAMAPPID_CASUALTIESUNKNOWN_DEMO;
         APP_IS_PLAYTEST = STEAM_APPID == CONST_STEAMAPPID_CASUALTIESUNKNOWN_PLAYTEST;
-        APP_IS_PIRATE = STEAM_APPID == CONST_STEAMAPPID_SPACEWAR;
+        APP_IS_FULL = STEAM_APPID == CONST_STEAMAPPID_CASUALTIESUNKNOWN_FULL;
+        APP_IS_PIRATE = Util.GameIsFull() && !(APP_IS_PLAYTEST || APP_IS_FULL);
 
 
 

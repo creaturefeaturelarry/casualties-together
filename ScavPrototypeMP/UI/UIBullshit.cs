@@ -245,8 +245,9 @@ public class UIBullshit : CasualtiesTogetherSingleton {
     [SettingDeclarerThingyBool("setting_ui_usegamefont")]
     public static bool USE_GAME_FONT = true;
 
-	public static bool USE_NEW_UI = false;
-	
+    //[SettingDeclarerThingyBool("setting_ui_modernui")] //V6
+    public static bool USE_NEW_UI = false;
+
     public static float CUSTOM_UI_SCALE_FOR_UIBULLSHIT = 1;
     public static float DEFAULT_RETROGAME_FONTSIZE = 20;
 	public static float THING_FOR_UI_SCALE = 3;// its that  m_PixelsToUnits: 33.3
@@ -1061,8 +1062,11 @@ public class UIInGame : MonoBehaviour {
 
 
     public static bool SpectatorModeActive { get; private set; }
-    static bool spectator_only_alive = true;
-    static Transform _last_spectator_plr_transform;
+    public static Transform SpectatorCurrentTarget { get; private set; }
+    public static Transform SpectatorLastTarget { get; private set; }
+    internal static bool spectator_only_alive = true;
+    static int curspectatefolowing = 0;
+    static string curspectatefolowingname = "EROR";
 
     public static Vector2 _DEV_FREECAM_CURPOS {
         get {
@@ -1252,7 +1256,7 @@ public class UIInGame : MonoBehaviour {
         spectator_only_alive = GUI.Toggle(new Rect(halfsc - wdth / 2, sypos, wdth, hght), spectator_only_alive, Lang.Get("spectate_alive"));
         sypos += hght;
 
-        if (PlayerCamera.main.following && PlayerCamera.main.following.TryGetComponent<Body>(out var bbbbbbbbbbb) && !Util.IsInWoundView()) {
+        if (Spectator.GetCameraFollow() != null && Spectator.GetCameraFollow().TryGetComponent<Body>(out var bbbbbbbbbbb) && !Util.IsInWoundView()) {
             if (GUI.Button(new Rect(halfsc - wdth / 2, sypos, wdth, hght), Lang.Get("spectate_openwoundview"))) {
                 PlayerCamera.main.ToggleWoundView();
                 return;
@@ -1312,9 +1316,9 @@ public class UIInGame : MonoBehaviour {
 
         if (Util.TryGetLocalBody(out var locbody)) {
             if (
-                PlayerCamera.main.following == _last_spectator_plr_transform
+                Spectator.GetCameraFollow() == SpectatorLastTarget
             ) {
-                PlayerCamera.main.following = null;
+                Spectator.SetCameraFollow(null);
             }
 
 
@@ -1441,7 +1445,7 @@ public class UIInGame : MonoBehaviour {
 
                 curspectatefolowing = ScavPlayer.BodyToPlayerDict.Values.AsReadOnlyList().IndexOf(plr);
 
-                if (PlayerCamera.main.following == null)
+                if (Spectator.GetCameraFollow() == null)
                     Spectator_SetTarget(plr.body);
             } else {
                 curspectatefolowingname = "NOBODY";
@@ -1471,9 +1475,9 @@ public class UIInGame : MonoBehaviour {
                 PlayerCamera.main.endScreen.gameObject.SetActive(true);
             }
 
-            PlayerCamera.main.following = null;
+            Spectator.SetCameraFollow(null);
 
-
+            
             MoodleManager.main.body = (Util.GetLocalBody());
         }
     }
@@ -1493,8 +1497,8 @@ public class UIInGame : MonoBehaviour {
                 MoodleManager.main.body = (booooooooooooooooooooodu);
             }
 
-            PlayerCamera.main.following = obj.transform;
-            _last_spectator_plr_transform = obj.transform;
+            Spectator.SetCameraFollow(obj.transform);
+            SpectatorLastTarget = obj.transform;
 
             if (obj.TryGetComponent(out pb)) {
                 if (WoundView.view.gameObject.activeSelf) {
@@ -1514,8 +1518,6 @@ public class UIInGame : MonoBehaviour {
 
 
 
-    static int curspectatefolowing = 0;
-    static string curspectatefolowingname = "EROR";
 
 
 
@@ -1820,7 +1822,7 @@ public class UIInGame : MonoBehaviour {
 
 
         if (Con._DEV_HIDEHUD || Con.IsConsoleOpen()) {
-            Util.OpenBrightnessPanel(false); // close the menu cuz it interferes with console
+            Util.OpenPauseMenu(false); // close the menu cuz it interferes with console
             StopPlayerInteractionMenu();
             return;
         }
@@ -2029,7 +2031,6 @@ public class UIInGame : MonoBehaviour {
 
         if (Util.TryGetLocalBody(out var locbody)) {
 
-
             if (ConsoleScript.instance.fullBright && !Con.CanCheat()) {
                 ConsoleScript.instance.fullBright = false;
             }
@@ -2209,6 +2210,9 @@ public class UIInGame : MonoBehaviour {
     }
 
 
+    void LateUpdate() {
+
+    }
 
 
 

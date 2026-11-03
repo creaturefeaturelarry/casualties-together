@@ -19,7 +19,6 @@
 
 
 ### Online Multiplayer Co-op mod for game ["Casualties: Unknown"](https://store.steampowered.com/app/4576510)<br/>
-Credits are listed in "About" menu inside the mod.
 
 
 [![Casualties: Together](https://img.shields.io/badge/Casualties%3A%20Together%20Mod%20Discord-%235865F2.svg?logo=discord&logoColor=white)](https://discord.gg/SA6H7mA6De)   [![Target Planet](https://img.shields.io/badge/Official%20Casualties%3A%20Unknown%20Discord-%235865F2.svg?logo=discord&logoColor=white)](https://discord.com/channels/955738554129063947/1470206122844618802)
@@ -168,8 +167,37 @@ The Host must enter this console command:<br>
 
 
 
+# Building:
 
+Run script `scripts/prepare_workspace.py`
 
+It copies the game and installs BepInEx.
+
+**Visual Studio 2022** is recommended.
+
+Open the project and compile it.
+
+Hit F5
+
+You have to launch multiple instances of the game manually or using scripts.
+
+Uuhh <img src="https://media1.tenor.com/m/qPyvaruhJsYAAAAd/drooling-cat-lord-im-one.gif" width="32" height="32">  
+
+# Credits:
+
+Credits are listed in "About" menu inside the mod.<br>
+[Creature](https://github.com/creaturefeaturelarry) Current owner.<br>
+[Krokosha666](https://github.com/Krokosha666) Original developer. (Retired)
+
+### Contributors:
+[Dune](https://github.com/Jyan-sei) - Sync, Optimizations<br>
+[VtLoader](https://github.com/vtloader) - Bug fixes, Locale<br>
+[Gary the Cat](https://github.com/Garythecat89), [Dannad](https://github.com/danxnader), [Meow](https://github.com/SprightlyHawk8), [Jimmyking](https://github.com/jimmyking9999999), [Kidihh](https://github.com/Kidihh), [Dawn](https://github.com/hehdawn), ItsVoidSK<br>
+...And a bunch of playtesters
+
+### Supporters:
+ 
+```Bleh :P, EthanTheProtogen, RoyMartini, Jazun, Alexx__, vega, Zmechol1337, plasterjello, Doctor Callico, vivikat, Ariyah, killthebudget, _stuck_, ShaoAZ, JameisonAus, Kidi, BluBerryToaster, Katomou, Nemean_Lion732, Locko2265, Trenchburner, TheBoathead, Diesel, Malbyte, KaliVasquez, Mitirich, Shiro, ChrisTheDragon```
 
 
 

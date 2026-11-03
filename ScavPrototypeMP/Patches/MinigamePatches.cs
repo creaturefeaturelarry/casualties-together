@@ -84,7 +84,6 @@ public class MinigameMPManager : CasualtiesTogetherSingleton {
         public override void Init() {
             base.Init();
 
-
             //OG: ShrapnelMinigame.Start V5t4 
             int num = shrapnel_locations.Count() - limb.shrapnel;
             for (int i = 0; i < shrapnel_locations.Count(); i++) {
@@ -140,9 +139,6 @@ public class MinigameMPManager : CasualtiesTogetherSingleton {
             }
 
 
-
-
-
         }
 
 
@@ -183,7 +179,6 @@ public class MinigameMPManager : CasualtiesTogetherSingleton {
                         client_shrapnel_owners[i] = null;
                     }
                 }
-
             }
         }
 
@@ -257,16 +252,23 @@ public class MinigameMPManager : CasualtiesTogetherSingleton {
 
     public class DislocationMinigameSession : _LimbMedicalMinigameSession {
 
-
         public Vector2 bonepos;
         public Vector2 boneVelocity;
 
+        public Vector2 FinishSpot {
+            get {
+                return GetFinishSpot(limb);
+            }
+        }
+        public static Vector2 GetFinishSpot(Limb limb) {
+            //TODO
+            return new Vector2(375f, 54.6f);
+        }
 
-        public static Vector2 FinishSpot => DislocationMinigame.FinishSpot;
 
-        public static float CalculateDislocationTimer(Vector2 bone_anchoredPosition) {
+        public static float CalculateDislocationTimer(Vector2 bone_anchoredPosition, Limb limb) {
             //OG: DislocationMinigame.Start V5t4
-            return Mathf.Clamp(Vector2.Distance(bone_anchoredPosition, FinishSpot) * 0.2f, 0f, 100f);
+            return Mathf.Clamp(Vector2.Distance(bone_anchoredPosition, GetFinishSpot(limb)) * 0.2f, 0f, 100f);
         }
         public const float dislocation_timer_minigame_end_treshholddddddddddd = 3f;
         
@@ -292,7 +294,7 @@ public class MinigameMPManager : CasualtiesTogetherSingleton {
 
             //OG: DislocationMinigame.Update V5t4 
             BonePositionTick(ref bonepos, ref boneVelocity);
-            limb.dislocationTimer = CalculateDislocationTimer(bonepos);
+            limb.dislocationTimer = CalculateDislocationTimer(bonepos, limb);
             if (limb.dislocationTimer < (dislocation_timer_minigame_end_treshholddddddddddd + disl_timer_tolerance)) { // just larger tolerance
                 limb.UnDislocate();
                 limb.dislocationTimer = 0;
@@ -505,7 +507,7 @@ public class MinigameMPManager : CasualtiesTogetherSingleton {
     }
 
     // create new session or get an existing one 
-    public static MinigameSession Server_GetSessionForObject<T>( GameObject obj, byte minigame_type, ScavPlayer plr_that_requested  ) where T : MinigameSession, new() {
+    public static MinigameSession Server_GetSessionForObject<T>(GameObject obj, byte minigame_type, ScavPlayer plr_that_requested) where T : MinigameSession, new() {
         
         var found_sess = active_sessions.FirstOrDefault((session) => session.obj == obj && session.minigame_type == minigame_type)  ;
         if (found_sess == null) {
@@ -1513,7 +1515,7 @@ public static class MinigameBase_EndMinigame_MultiplayerPatch {
                         Body harmBody = YOU_SHOULD_KILL_YOURSELF_NOOOW.selfHarmMinigameBody;
                         // a stale suicide on somebody else's body still closes through this ui. do not claim we were the victim.
                         if (harmBody == null || Util.IsBodyLocal(harmBody)) {
-                            Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_SelfHarmMinigameMinigameEnd, (byte)(sharm.cutsDone == 5 ? 0 : (sharm.isEye ? 1 : 2)), true);
+                        Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_SelfHarmMinigameMinigameEnd, (byte)(sharm.cutsDone == 5 ? 0 : (sharm.isEye ? 1 : 2)), true);
                         }
 
                     } else if (Net.IsClient) {
@@ -1872,11 +1874,11 @@ public static class DislocationMinigame_CheckForHit_MultiplayerPatch {
         var vel = basedmt.boneVelocity;
 
         MinigameMPManager.DislocationMinigameSession.BonePositionTick(ref pos, ref vel);
-        var new_dislocationTimer = MinigameMPManager.DislocationMinigameSession.CalculateDislocationTimer(pos);
+        var new_dislocationTimer = MinigameMPManager.DislocationMinigameSession.CalculateDislocationTimer(pos, basedmt.limb);
 
         if (new_dislocationTimer <= MinigameMPManager.DislocationMinigameSession.dislocation_timer_minigame_end_treshholddddddddddd) {
 
-            var normal = (pos - MinigameMPManager.DislocationMinigameSession.FinishSpot);
+            var normal = (pos - MinigameMPManager.DislocationMinigameSession.GetFinishSpot(basedmt.limb));
             var magnitude = normal.magnitude;
             if (magnitude > 1E-05f) {
                 normal /= magnitude;
@@ -1884,7 +1886,7 @@ public static class DislocationMinigame_CheckForHit_MultiplayerPatch {
                 normal = Vector2.zero;
             }
 
-            bone.anchoredPosition = MinigameMPManager.DislocationMinigameSession.FinishSpot + normal * 3.01f;
+            bone.anchoredPosition = MinigameMPManager.DislocationMinigameSession.GetFinishSpot(basedmt.limb) + normal * 3.01f;
 
             var reflected_velocity = basedmt.boneVelocity - (normal * Vector2.Dot(basedmt.boneVelocity, normal));
             basedmt.boneVelocity = (reflected_velocity);
@@ -1967,7 +1969,7 @@ public static class DislocationMinigame_CheckForHit_MultiplayerPatch {
             }
             __instance.boneVelocity = (Vector2.Lerp(__instance.boneVelocity, lastreceived_boneVelocity, tolistenscale * Time.deltaTime));
 
-            } else {
+        } else {
             if (just_received_new_packet) {
                 float jump = Vector2.Distance(bone.anchoredPosition, lastreceived_bonepos);
                 if (jump > 40f)
@@ -2355,8 +2357,8 @@ public static class WaterContainerItem_Inject_MultiplayerPatch {
             if (Net.IsServer) {
                 Con.RunCommand("give @a bruisekit combatpen bruisekit combatpen bigpack pistol");
                 foreach (var item in NetBody.all_instances) {
-                    //item.body.GetLimb(Body.LimbNum.LegF).muscleHealth *= 0.4f;
-                    //item.body.GetLimb(Body.LimbNum.LegF).skinHealth *= 0.4f;
+                    item.body.GetLimb(Body.LimbNum.LegF).muscleHealth *= 0.4f;
+                    item.body.GetLimb(Body.LimbNum.LegF).skinHealth *= 0.4f;
                 }
             }
         });
