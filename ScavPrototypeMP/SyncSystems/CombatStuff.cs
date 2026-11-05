@@ -1,17 +1,17 @@
-using HarmonyLib;
 using CasualtiesTogetherUtils;
+using HarmonyLib;
 using KrokV5Optimization;
 using LiteNetLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.WebSockets;
 using System.Reflection;
 using System.Reflection.Emit;
 using Unity.VisualScripting;
 using UnityEngine;
 using static GunScript;
 using Random = UnityEngine.Random;
-using System.Net.WebSockets;
 
 namespace Together;
 
@@ -123,7 +123,7 @@ public static class Body_UseItemInHand_MultiplayerPatch {
     }
     public static void Postfix(Body __instance) {
         if (!Net.IsRunning) return;
-
+        
         if (_pending.on) {
             AnnouncePredictedUse(_pending.item, _pending.body);
             _pending.on = false;
@@ -539,8 +539,12 @@ public static class Body_Attack_MultiplayerPatch {
 
 
     //OG: Body.Attack
-    public static float DamageBuilding(Body attacker, AttackInfo atk, BuildingEntity be, float armstrength, bool do_sound) {
+    public static float DamageBuilding(Body attacker, AttackInfo atk, BuildingEntity be, float armstrength, bool do_sound, Vector2 hitPos) {
 
+        if (be.TryGetComponent(out Rigidbody2D rb2d) && !attacker.IsBodyLocal()) {
+            Vector2 swingDirection = (attacker.targetLookPos - attacker.limbs[1].transform.position).normalized;
+            rb2d.AddForceAtPosition(swingDirection * armstrength * atk.knockBack, hitPos, ForceMode2D.Impulse);
+        }
 
         var building_dmg = (be.animal ? atk.damage : atk.structuralDamage) * armstrength * ((atk.metalMoreDamage && be.metallic) ? 10f : 1f);
 
@@ -566,9 +570,8 @@ public static class Body_Attack_MultiplayerPatch {
             {
                 //OG: Body.Attack V5t4  the part where it checks if the building is an animal,  since i override the attack function i have to do it here
                 attacker.attackCooldown *= 3.5f * atk.attackCooldownMult;
-                if (Util.IsBodyLocal(attacker)) {
+                if (Util.IsBodyLocal(attacker))
                     PlayerCamera.main.lastAttackCool = attacker.attackCooldown;
-                }
             }
         }
 
@@ -582,7 +585,9 @@ public static class Body_Attack_MultiplayerPatch {
 
         int slot = attacker.handSlot;
         if (atk.physicalSwing) {
-            totalArmPower = attacker.slots[slot].armPowerMult;
+            
+            var bonusStrength = Traverse.Create(attacker).Field("bonusStrength").GetValue<float>();
+            totalArmPower = attacker.slots[slot].armPowerMult * (1f + bonusStrength * 0.166f);
             if (slot == 1) {
                 totalArmPower *= 0.75f;
             }
@@ -634,6 +639,7 @@ public static class Body_Attack_MultiplayerPatch {
 
     static Limb _LastHitLimb;
     static BuildingEntity _LastHitBuilding;
+    static Vector2 _LastHitPos;
 
     class _MyAttackState {
         public float PlayerCamera_main_lastAttackCool = 0;
@@ -669,6 +675,7 @@ public static class Body_Attack_MultiplayerPatch {
 
         if (me.CanAttackThisGuy(body)) { // can hit em
             _LastHitLimb = limb;
+            _LastHitPos = hit.point;
 
             breakTheAttackLoop = true; // i assume piercing will never be a thing
 
@@ -700,6 +707,7 @@ public static class Body_Attack_MultiplayerPatch {
       
             if (isphysactive) {
                 _LastHitBuilding = b;
+                _LastHitPos = hit.point;
                 breakTheAttackLoop = true;  // i assume piercing will never be a thing
                 return true; // i will apply damage myself im my handlers
             }
@@ -933,7 +941,7 @@ public static class Body_Attack_MultiplayerPatch {
                         
                     } else if (_LastHitBuilding != null) {
 
-                        var totaldmg = DamageBuilding(__instance, __state.atk, _LastHitBuilding, __state.atkpwr, true);
+                        var totaldmg = DamageBuilding(__instance, __state.atk, _LastHitBuilding, __state.atkpwr, true, _LastHitPos);
                         WorldGeneration.CreateDamageNumber((Vector2)_LastHitBuilding.transform.position + Vector2.up * 2, (int)totaldmg);
 
                         if (Net.IsClient && NetObjectRegistry.TryGetSyncInfo(_LastHitBuilding, out  var b_si)) {
@@ -971,7 +979,6 @@ public static class Body_Attack_MultiplayerPatch {
                         writer.Put((Vector2)(__state.targetlookpos));
                         writer.Put((Vector2)(__state.limb1pos));
                         writer.Put(__state.atk.distance);
-
                         writer.Put(__state.atk.unarmed);
 
                         if (Body_UseItem_MultiplayerPatch.current_used_item != null && NetObjectRegistry.TryGetSyncInfo(Body_UseItem_MultiplayerPatch.current_used_item.gameObject, out var si1)) {
@@ -990,15 +997,15 @@ public static class Body_Attack_MultiplayerPatch {
 
                         writer.Put(victim_netid);
 
+                        writer.Put(_LastHitPos);
+
                         if (_LastHitBuilding != null)
                             EvidenceBag.Line("hit send " + EvidenceBag.Side() + " victim=" + victim_netid + " " + EvidenceBag.Building(_LastHitBuilding));
-
-                        //writer.Truncate();
 
                         Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
                         // WRITER END;
 
-#if DEBUG
+#if DEBUG 
                         log.l($"attacker.stamina {__instance} >>> {__instance.stamina}  ");
 #endif
                     }
@@ -1038,9 +1045,10 @@ public static class Body_Attack_MultiplayerPatch {
             reader.Get(out knetid attackitem_syncid);
             reader.Get(out bool didhit); // unused?
             reader.Get(out AnyObjectNetId hitobj);
-             // later is read netlimb or buildingid
+            reader.Get(out Vector2 hitPos);
+            // later is read netlimb or buildingid
 
-            if (targetlookpos.IsFinite() && limb1pos.IsFinite() && dist_dont_use.IsFinite()) {
+            if (targetlookpos.IsFinite() && limb1pos.IsFinite() && dist_dont_use.IsFinite() && hitPos.IsFinite()) {
             } else {
                 limb1pos = KM.ClampDistance(limb1pos, pb.transform.position, 5);
             }
@@ -1143,7 +1151,11 @@ public static class Body_Attack_MultiplayerPatch {
 #if DEBUG
                     log.l($"{plr}  CALLED DamageBuilding ");
 #endif
-                    var totaldmg = DamageBuilding(plr.body, atkinfo, building_si.building, attackpower, true);
+                    if (building_si.go.TryGetComponent(out Rigidbody2D rb2d)) {
+                        hitPos = rb2d.ClosestPoint(hitPos);
+                    }
+
+                    var totaldmg = DamageBuilding(plr.body, atkinfo, building_si.building, attackpower, true, hitPos);
                     didhitconfirmed = true;
 
 
