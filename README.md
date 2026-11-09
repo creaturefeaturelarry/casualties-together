@@ -201,4 +201,16 @@ Credits are listed in "About" menu inside the mod.<br>
 ```Bleh :P, EthanTheProtogen, RoyMartini, Jazun, Alexx__, vega, Zmechol1337, plasterjello, Doctor Callico, vivikat, Ariyah, killthebudget, _stuck_, ShaoAZ, JameisonAus, Kidi, BluBerryToaster, Katomou, Nemean_Lion732, Locko2265, Trenchburner, TheBoathead, Diesel, Malbyte, KaliVasquez, Mitirich, Shiro, ChrisTheDragon```
 
 
+## All official links for this mod:
+[Casualties: Together Mod Discord](https://discord.gg/MxnmVtveZn)<br>
+[Buy me a Coffee](https://buymeacoffee.com/casualtiestogether)<br>
+[Steam Guide](https://steamcommunity.com/sharedfiles/filedetails/?id=3836775797)<br>
+[NexusMods](https://www.nexusmods.com/scavprototype/mods/67)<br>
+[Github](https://github.com/creaturefeaturelarry/casualties-together)<br>
+[Casualties: Unknown Discord Mod Discussion Thread](https://discord.com/channels/955738554129063947/1569353311231156304/1569353322366902354)<br>
+[Casualties: Unknown Discord Mod Post](https://discord.com/channels/955738554129063947/1569444384825544866)<br>
+
+
+
+
 
