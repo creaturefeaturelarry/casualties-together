@@ -95,6 +95,7 @@ To go back to singleplayer you need to press the `Deactivate MP Mod` button in `
 
 # Features:
 Steam Lobbies<br>
+Discord RPC<br>
 Real voice chat with in-game effects.<br/>
 Middle Mouse Button to point at a location.<br>
 Right click to interact and heal other players.<br> 
