@@ -205,65 +205,54 @@ public class OnWillRenderObject_ForceForMPComponent : MonoBehaviour {
     public SyncInfoGameObjectTracker tracker => GetComponent<SyncInfoGameObjectTracker>();
     public Renderer renderer => GetComponent<Renderer>();
     public MonoBehaviour target;
+    Renderer[] _childRenderers;
+    MethodInfo _willRender;
 
-
-#if (!RELEASE) && false
-    void OnGUI() {
-
-        if (log.verbose) {
-            var ogfont = GUI.skin.label.fontSize;
-
-            var pos = (Vector2)Camera.main.WorldToScreenPoint((Vector2)transform.position + Vector2.up);
-            pos = new Vector2(pos.x, Screen.height - pos.y);
-
-            //if (pos.x > 0 && pos.y > 0 && pos.x < Screen.width && pos.y < Screen.width) 
-                {
-
-                const float bsize = 17;
-                const float elsize = 13;
-
-                float y = -elsize*1.5f;
-
-                GUI.skin.label.normal.textColor = UnityEngine.Color.white;
-
-                GUI.skin.label.fontSize = 10;
-                GUI.Label(new Rect(pos.x, pos.y + y, 400, bsize), $"t: {tracker!=null} renderer:{renderer != null} visible:{renderer?.isVisible} t_inview:{tracker?.is_within_anyones_view}  forcing: {renderer?.isVisible == false && tracker?.is_within_anyones_view == true}");
-                y += elsize;
-
-            }
-
-            GUI.skin.label.normal.textColor = UnityEngine.Color.white;
-            GUI.skin.label.fontSize = ogfont;
+    void CacheRenderers() {
+        if ((target == null) || ((_childRenderers != null) && (_childRenderers.Length > 0))) {
+            return;
         }
+        // traders put sprites on children. root-only lookup never forced combat.
+        _childRenderers = target.GetComponentsInChildren<Renderer>(true);
     }
-#endif
+
+    bool AnyRendererVisible() {
+        CacheRenderers();
+        if ((_childRenderers == null) || (_childRenderers.Length == 0)) {
+            return false;
+        }
+        for (int i = 0; i < _childRenderers.Length; i++) {
+            Renderer r = _childRenderers[i];
+            if ((r != null) && r.isVisible) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     void Update() {
         if (Net.IsClient) {
-            if (target is GunmineScript gun)
+            if (target is GunmineScript gun) {
                 TrapClaim.TickClientGun(gun);
+            }
             return;
         }
         try {
-            if (tracker != null && target.TryGetComponent<Renderer>(out var renderer)) {
-                //is_visible_from_camera = is_visible_from_camera || target.GetComponent<Renderer>()?.isVisible;
-                bool is_visible_from_camera = renderer.isVisible == true;
-
-                if (!is_visible_from_camera && tracker.isVisible) {
-
-                    //MethodInfo method = Util.GetMethod(target, "OnWillRenderObject");
-                    MethodInfo method = target.GetType().GetMethod("OnWillRenderObject", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
-
-                    if (method == null) {
-                        throw new System.Exception($"OnWillRenderObject wasnt found wtf {target.GetType()}");
-                    }
-
-                    method.Invoke(target, null);
-
-
-                }
+            if ((tracker == null) || (target == null) || !tracker.isVisible) {
+                return;
             }
-        } catch (System.Exception e ) {
+            // host camera already driving OnWillRender. don't double-tick ramp/swing.
+            if (AnyRendererVisible()) {
+                return;
+            }
+            if (_willRender == null) {
+                _willRender = target.GetType().GetMethod("OnWillRenderObject", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+            }
+            if (_willRender == null) {
+                throw new System.Exception($"OnWillRenderObject wasnt found wtf {target.GetType()}");
+            }
+            _willRender.Invoke(target, null);
+        } catch (System.Exception e) {
             Plugin.log.LogError($"Failed force OnWillRenderObject for {target?.name}\n{e}");
         }
     }
@@ -935,70 +924,79 @@ public static class BuildingEntity_Update_MultiplayerPatch {
     // a transpiler to set the distance check flag to always true, because it does not matter , i need to check it on my own in FreshItemDrop constructror + i also move the body optimizer to somewhere else, code copied cuz it stops physics outside the hosts view
 
     static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
-        var codes = new List<CodeInstruction>(instructions);
-
-        int i = 0;
-
-        while (!(codes[i].opcode == OpCodes.Ldfld && codes[i].ToString().Contains("ignoreBodyOptimize") )) { // find where it checks ignorebodyoptimize
-            i++;
-        }
-        i++; // now its the brtrue
-
-        var brture_on_bodyoptimizescopestart = i;
-
-        var bodyoptimizescopeendlabel = (System.Reflection.Emit.Label)(codes[brture_on_bodyoptimizescopestart].operand) ;
-
-        var brture_on_bodyoptimizescopeend = i+1;
-
-
-        while (!(codes[i].opcode == OpCodes.Ldstr && codes[i].operand as string == "footstep/Rock/11") ) { // find where it plays the sound
-            if (codes[i].labels.Contains(bodyoptimizescopeendlabel)) {
-                brture_on_bodyoptimizescopeend = i ;
-                if (log.verbose) log.l($"bodyoptimizescopeendlabel FOUND !!!!!!!");
-            }
-
-            i++;
-        }
-
-#if DEBUG
-        if (log.verbose) log.l($"BuildingEntity Update TRANSPILER found the sound string {i}");
-#endif
-
-        while (!(codes[i].opcode == OpCodes.Stloc_1)) { // find where it sets the boolean
-            i++;
-        }
-
-#if DEBUG
-        if (log.verbose) log.l($"BuildingEntity Update TRANSPILER found where it sets the boolean {i}");
-#endif
-
-        int beginning = i;
-
-        while (!(codes[beginning].opcode == OpCodes.Ldarg_0)) { // find the ldarg.0 
-            beginning-- ;
-        }
-
-#if DEBUG
-        if (log.verbose) log.l($"BuildingEntity Update TRANSPILER found ldarg.0  at {beginning}");
-#endif
-
-        codes[beginning].opcode = OpCodes.Ldc_I4_1;
-        
-        codes.RemoveRange(beginning+1,  i -1 - beginning);
-
-
-
-        brture_on_bodyoptimizescopestart++;
-
-        codes.RemoveRange(brture_on_bodyoptimizescopestart, brture_on_bodyoptimizescopeend - brture_on_bodyoptimizescopestart);
-
-
-        if (log.verbose)  {
-            log.l($"BuildingEntity Update TRANSPILER SUCCESS :) ");
-        }
-        return codes;
+        return FullgameBodyOptimizeSkipPatch.Rewrite(instructions);
     }
 
+}
+
+[HarmonyPatch(typeof(BuildingEntity), "CheckDamage")]
+public static class BuildingEntity_CheckDamage_MultiplayerPatch {
+    static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
+        return FullgameBodyOptimizeSkipPatch.Rewrite(instructions);
+    }
+}
+
+internal static class FullgameBodyOptimizeSkipPatch {
+    internal static IEnumerable<CodeInstruction> Rewrite(IEnumerable<CodeInstruction> instructions) {
+        var codes = new List<CodeInstruction>(instructions);
+
+        int ldstr = -1;
+        for (int k = 0; k < codes.Count; k++) {
+            if (codes[k].opcode == OpCodes.Ldstr && codes[k].operand as string == "footstep/Rock/11") {
+                ldstr = k;
+                break;
+            }
+        }
+        if (ldstr < 0) {
+            // log.warn("Sound marker not found?");
+            return codes;
+        }
+
+        int stloc = -1;
+        for (int k = ldstr; k < codes.Count; k++) {
+            if (codes[k].opcode == OpCodes.Stloc_1) { stloc = k; break; }
+        }
+        if (stloc < 0) {
+            // log.warn("Distance now");
+            return codes;
+        }
+
+        int beginning = stloc;
+        while (beginning >= 0 && codes[beginning].opcode != OpCodes.Ldarg_0) {
+            beginning--;
+        }
+        if (beginning < 0) {
+            // log.warn("ldarg.0 not found, this should never occur unless a mod incompatibility occrs");
+            return codes;
+        }
+
+        int bodyCheck = -1;
+        for (int k = 0; k < codes.Count; k++) {
+            if (codes[k].opcode == OpCodes.Ldfld && codes[k].operand?.ToString().Contains("ignoreBodyOptimize") == true) {
+                bodyCheck = k;
+                break;
+            }
+        }
+
+        codes[beginning].opcode = OpCodes.Ldc_I4_1;
+        codes.RemoveRange(beginning + 1, stloc - 1 - beginning);
+
+        if (bodyCheck >= 0 && bodyCheck + 1 < codes.Count &&
+            (codes[bodyCheck + 1].opcode == OpCodes.Brtrue || codes[bodyCheck + 1].opcode == OpCodes.Brtrue_S)) {
+            var brtrue = bodyCheck + 1;
+            var endLabel = (Label)codes[brtrue].operand;
+            int scopeEnd = -1;
+            for (int k = brtrue + 1; k < codes.Count; k++) {
+                if (codes[k].labels.Contains(endLabel)) { scopeEnd = k; break; }
+            }
+            if (scopeEnd > brtrue) {
+                codes.RemoveRange(brtrue + 1, scopeEnd - brtrue - 1);
+            }
+        }
+
+        // if (log.verbose) log.l("All good");
+        return codes;
+    }
 }
 
 // marks a client building that already played its death burst. the health byte stays dead until the destroy arrives.

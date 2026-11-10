@@ -301,7 +301,7 @@ public static class Body_PlaceBody_MultiplayerPatch {
         ogcampos = PlayerCamera.main.transform.position;
 
         if (Multiplayer.rules.LayerFinishKeepXOffset && ScavPlayer.TryGetLocalNetBody(out var pb) && Net.IsServer && ScavPlayer.LocalPlayer.IsAlive()) {
-            pb.SetBodyPosition(Util.PlaceBody_FindSpawnLocation(ScavPlayer.LocalPlayer.ServerPlayerState.layer_transition_x_offset));
+            pb.SetBodyPosition(Util.PlaceBody_FindSpawnLocation(ScavPlayer.LocalPlayer.ServerPlayerState.layer_transition_x_offset, pb.body));
             return false;
         }
 

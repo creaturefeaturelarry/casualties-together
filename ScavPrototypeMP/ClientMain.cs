@@ -526,8 +526,46 @@ public class ClientMain : MonoBehaviour {
 
                 ServerMain.CHARACTER_PREFAB.SetActive(false);
             } else {
-                if (Net.IsRunning) {
-                    Multiplayer.DoMultiplayerStatusMessageError("PLAYER CHARACTER NOT FOUND!!!!!!!!!!!!!!!! RESTART THE GAME! RESTART !!!!!!!!!!!!!!!!!!!!");
+                // Spawn the run body from a prefab instead of keeping Experiment in the scene. We want to use the actual character here
+                Body fallback_body = PlayerCamera.main != null ? PlayerCamera.main.body : null;
+                var fallback_char = fallback_body != null ? fallback_body.gameObject : null;
+
+                if (fallback_char == null) {
+                    foreach (var b in UnityEngine.Object.FindObjectsOfType<Body>()) {
+                        if (b.GetComponent<NetBody>() == null && !b.CompareTag("Enemy") && b.transform.childCount > 0) {
+                            fallback_char = b.gameObject;
+                            break;
+                        }
+                    }
+                }
+
+                if (fallback_char != null) {
+                    {
+                        var a = fallback_char.GetComponentsInChildren<HingeJoint2D>();
+                        foreach (var hinge in a) {
+                            var ogggg = hinge.AddComponent<SavedHingeJointState>();
+                            ogggg.a = hinge.transform.localPosition;
+                            ogggg.b = hinge.transform.localRotation;
+                            ogggg.aa = hinge.connectedBody.transform.localPosition;
+                            ogggg.bb = hinge.connectedBody.transform.localRotation;
+                            ogggg.useLimits = hinge.useLimits;
+                            ogggg.limitsmax = hinge.limits.max;
+                            ogggg.limitsmin = hinge.limits.min;
+                            ogggg.referenceAngle = hinge.referenceAngle;
+
+                            ogggg.hinge = hinge;
+
+                            ogggg.connectedBody = hinge.connectedBody;
+                        }
+                    }
+
+                    ServerMain.CHARACTER_PREFAB = GameObject.Instantiate(fallback_char);
+
+                    ServerMain.CHARACTER_PREFAB.SetActive(false);
+                } else {
+                    if (Net.IsRunning) {
+                        Multiplayer.DoMultiplayerStatusMessageError("PLAYER CHARACTER NOT FOUND!!!!!!!!!!!!!!!! RESTART THE GAME! RESTART !!!!!!!!!!!!!!!!!!!!");
+                    }
                 }
             }
         }

@@ -196,7 +196,7 @@ static class WorldGenerationSetBlockNoUpdatePatch {
         return true;
     }
 }
-[HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.SetBlock))]
+[HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.SetBlock), new[] { typeof(Vector2Int), typeof(ushort) })]
 public static class WorldGeneration_SetBlock_MultiplayerPatch {
     public struct ChangedBlockInfo : INetSerializeByMemcpy {
         public Vector2Int16 pos; 

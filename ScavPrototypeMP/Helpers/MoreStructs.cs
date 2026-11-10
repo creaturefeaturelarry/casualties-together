@@ -298,12 +298,20 @@ public struct LimbNetId : INetSerializeByMemcpy {
 }
 
 public struct AnyObjectNetId : INetSerializeByMemcpy {
-    public byte type; // 0 = unknown, 1 = netbody, 2 = plr, 3 = syncinfo, 4 = limb
+    public byte type; // 0 = unknown, 1 = netbody, 2 = plr, 3 = syncinfo, 4 = limb, 5 = block (hitPos carries world point)
     public knetid netId;
     public byte data1;
 
     public bool IsNothing() {
         return type == 0;
+    }
+
+    public bool IsBlockHit() {
+        return type == 5;
+    }
+
+    public static AnyObjectNetId ForBlockHit() {
+        return new AnyObjectNetId { type = 5 };
     }
 
     public override string ToString() {
@@ -318,6 +326,8 @@ public struct AnyObjectNetId : INetSerializeByMemcpy {
             typename = "SyncInfo";
         } else if (type == 4) {
             typename = "Limb";
+        } else if (type == 5) {
+            typename = "Block";
         }
         string objinfo = $"type:{type}, netId:{netId}, data1:{data1}";
 

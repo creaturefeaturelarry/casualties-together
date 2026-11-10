@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Unity.Collections;
 using LiteNetLib;
 using UnityEngine;
+using HarmonyLib;
 
 namespace Together;
 
@@ -22,6 +23,7 @@ public class SharedMain : MonoBehaviour {
 
     public static bool LocalWorldIsGenerating = false;
     public static bool LocalWorldIsGenerated = false;
+    public static bool IsInCutscene = false;
     public static double LastWorldgenFinishTime = 0;
 
     static bool[,] CHUNKS_VISIBLE_TO_PLAYERS = new bool[16, 16];
@@ -101,20 +103,12 @@ public class SharedMain : MonoBehaviour {
 
 
     public static void CreatePlayerCharacters() {
-        if (Net.IsRunning) {
-            if (ServerMain.CHARACTER_PREFAB != null) {
-                Plugin.log.LogInfo("Creating other player characters!");
-
-                foreach (var plr in ScavPlayer.ClientIdToPlayerDict.Values) {
-                    try {
-                        plr.CreateCharacter();
-                    } catch (Exception e) {
-                        log.error(e);    
-                    }
-                }
-
-            } else {
-                log.error("Tried to create characters before they exist! RESTART THE GAME!");
+        if (!Util.IsInWorld()) return;
+        foreach (var plr in ScavPlayer.ClientIdToPlayerDict.Values) {
+            try {
+                plr.CreateCharacter();
+            } catch (Exception e) {
+                log.error($"CreatePlayerCharacters: {e}");
             }
         }
     }
@@ -134,7 +128,6 @@ public class SharedMain : MonoBehaviour {
                 ScavPlayer.AllDeadPlayers.Add(plr);
             }
         }
-
     }
 
     // Extended for multiplayer
@@ -229,10 +222,11 @@ public class SharedMain : MonoBehaviour {
         LocalWorldIsGenerated = Util.IsWorldGenerated();
         LocalWorldIsGenerating = Util.IsGeneratingWorld();
 
+        IsInCutscene = Util.IsInWorld() && Traverse.Create(Util.world).Field("cutsceneActive").GetValue<bool>();
+
         ForceUpdatePlayerLists();
 
         _UpdatePlayerVisibleChunks();
-
 
         if (!Net.IsConnected) return;
 
@@ -245,31 +239,21 @@ public class SharedMain : MonoBehaviour {
     }
 
     static void UpdateSendPerformanceReport() {
-
         if (Net.IsClient) {
-
             var writer = Net.CreateWriter(NetmsgId.CurrentPerformanceReport_fromclient);
 
             writer.Put(ServerMain.CURRENT_FPS);
             writer.Put(ServerMain.CURRENT_TPS);
             
-            //writer.Truncate();
-
             Net.Client_Send(DeliveryMethod.Unreliable, writer);
-
             // WRITER END;
-
         } else {
-
             var writer = Net.CreateWriter(NetmsgId.CurrentPerformanceReport);
 
             writer.Put(ServerMain.CURRENT_FPS);
             writer.Put(ServerMain.CURRENT_TPS);
 
-            //writer.Truncate();
-
             Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, ServerMain.AllClientIdsExceptHost);
-
             // WRITER END;
         }
 
@@ -277,10 +261,8 @@ public class SharedMain : MonoBehaviour {
 
 	[ClientReceiver((byte)NetmsgId.CurrentPerformanceReport, true)]
 	static void ClientReceiver__CurrentPerformanceReport(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-
 		reader.Get(out ClientMain.SERVER_FPS);
 		reader.Get(out ClientMain.SERVER_TPS);
-
 	}
 
 

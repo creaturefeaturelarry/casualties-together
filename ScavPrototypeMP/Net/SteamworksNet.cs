@@ -49,7 +49,7 @@ public class KSteam : MonoBehaviour {
 
 
 
-    public static bool APP_IS_PIRATE { get; private set; }//    480
+    //public static bool APP_IS_PIRATE { get; private set; }//    480
     public static bool APP_IS_DEMO { get; private set; }//      4576510
     public static bool APP_IS_PLAYTEST { get; private set; }//  4584420
     public static bool APP_IS_FULL { get; private set; }//      4576490
@@ -411,8 +411,14 @@ public class KSteam : MonoBehaviour {
         APP_IS_DEMO = STEAM_APPID == CONST_STEAMAPPID_CASUALTIESUNKNOWN_DEMO;
         APP_IS_PLAYTEST = STEAM_APPID == CONST_STEAMAPPID_CASUALTIESUNKNOWN_PLAYTEST;
         APP_IS_FULL = STEAM_APPID == CONST_STEAMAPPID_CASUALTIESUNKNOWN_FULL;
-        APP_IS_PIRATE = Util.GameIsFull() && !(APP_IS_PLAYTEST || APP_IS_FULL);
+        //APP_IS_PIRATE = Util.GameIsFull() && !(APP_IS_PLAYTEST || APP_IS_FULL);
 
+#if !DEBUG
+        if (Util.GameIsFull() && !(STEAM_APPID == CONST_STEAMAPPID_CASUALTIESUNKNOWN_PLAYTEST || STEAM_APPID == CONST_STEAMAPPID_CASUALTIESUNKNOWN_FULL)) {
+            //Pirate
+            return;
+        }
+#endif
 
 
         Loaded = true;
@@ -692,7 +698,7 @@ public class KSteam : MonoBehaviour {
 
     public static NetPublicServerInfo Client_LobbyBrowser_ReadLobbyIntoServerInfos(KSteam.Lobby slobby) {
         try {
-            var VERSION = slobby.metadata[LOBBYDATAKEY_VERSION];
+            var VERSION = slobby.metadata.GetValueOrDefault(LOBBYDATAKEY_VERSION, null) ?? slobby.metadata[LOBBYDATAKEY_VERSION.ToLower()];
             var LOBBYNAME = slobby.metadata[LOBBYDATAKEY_LOBBYNAME];
             var GAMEMODE = slobby.metadata[LOBBYDATAKEY_GAMEMODE];
             var CURRENTLAYER = slobby.metadata[LOBBYDATAKEY_CURRENTLAYER];
@@ -776,7 +782,7 @@ public class KSteam : MonoBehaviour {
             l.plr_count = int.Parse(PLRCOUNT);
 
 
-            if (l.cur_layer > 4 && STEAM_APPID == CONST_STEAMAPPID_CASUALTIESUNKNOWN_DEMO && CURRENT_LOBBY.lobby_steamID != slobby.lobby_steamID) {
+            if (l.cur_layer > 4 && (Util.GameIsDemo() || (Util.GameIsFull() && !(APP_IS_PLAYTEST || APP_IS_FULL))) && CURRENT_LOBBY.lobby_steamID != slobby.lobby_steamID) {
                 return null; 
             }
 

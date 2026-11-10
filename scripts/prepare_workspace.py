@@ -94,7 +94,7 @@ def main():
     folder = "CU_Demo"
     appid = 4576510
     if aaaa == "fullgame":
-        appid = 4584420
+        appid = 4576490
         folder = "CU_Fullgame"
     
         

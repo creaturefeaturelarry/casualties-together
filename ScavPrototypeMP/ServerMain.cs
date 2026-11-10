@@ -54,7 +54,8 @@ public struct PlayerSavedState {
 
 
 
-        if (Multiplayer.rules.SavePlayerInventory) {
+        // inventory park is host-only. a client SAVESTATE_ left syncinfos live and made leave ghosts.
+        if (Net.IsServer && Multiplayer.rules.SavePlayerInventory) {
             invholder = new GameObject($"SAVESTATE_{nb}");
             inventory = new Item[8];
 
@@ -71,6 +72,15 @@ public struct PlayerSavedState {
 
             foreach (var item in l) {
                 item.transform.SetParent(invholder.transform);
+            }
+
+            // host keeps the meshes for rejoin Apply, but SyncInfo must die or
+            // later clients spawn floaters at the leave spot.
+            Item[] parked = invholder.GetComponentsInChildren<Item>(true);
+            for (int i = 0; i < parked.Length; i++) {
+                if (parked[i] != null) {
+                    NetObjectRegistry.DetachSyncKeepMesh(parked[i].gameObject);
+                }
             }
 
             invholder.SetActive(false);
@@ -544,7 +554,7 @@ public class ServerMain : MonoBehaviour {
                     ) {
                         LateSpawnLocation(pb);
                     } else {
-                        pb.SetBodyPosition(Util.PlaceBody_FindSpawnLocation(plr.ServerPlayerState.layer_transition_x_offset));
+                        pb.SetBodyPosition(Util.PlaceBody_FindSpawnLocation(plr.ServerPlayerState.layer_transition_x_offset, plr.body));
                     }
                 }
             }

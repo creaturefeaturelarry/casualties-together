@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection.Emit;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.VisualScripting;
@@ -888,70 +889,56 @@ public static class DamagingCrate_OnCollisionEnter2D_MultiplayerPatch {
     static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator il) {
         var codes = new List<CodeInstruction>(instructions);
 
-        int i = 10;
-
-        while (!( codes[i-1].ToString().Contains("LimbFromObject") && codes[i ].opcode == OpCodes.Stloc_1 )) { // find the part where it gets the limb
-            i++;
+        int limb_check = -1;
+        for (int k = 2; k < codes.Count - 1 && limb_check < 0; k++) {
+            if ((codes[k].opcode == OpCodes.Call || codes[k].opcode == OpCodes.Callvirt) && codes[k].operand is MethodInfo mi &&
+                mi.Name == "op_Implicit" && mi.DeclaringType == typeof(UnityEngine.Object) && codes[k + 1].opcode == OpCodes.Brfalse) {
+                limb_check = k;
+            }
+        }
+        if (limb_check < 0) {
+            return codes;
         }
 
-        while (!(
-            codes[i + 1].opcode == OpCodes.Ldarg_0
-            &&
-            codes[i + 2].ToString().Contains("DamagingCrate") && codes[i + 2].ToString().Contains("type") ) ) { // find the part where it finished that f statemenmt
-            i++;
+        System.Reflection.FieldInfo prevFrameSpeed_field = null;
+        for (int k = limb_check; k < codes.Count && prevFrameSpeed_field == null; k++) {
+            if (codes[k].operand is System.Reflection.FieldInfo fi && fi.Name == "prevFrameSpeed" && fi.DeclaringType == typeof(DamagingCrate)) {
+                prevFrameSpeed_field = fi;
+            }
+        }
+        if (prevFrameSpeed_field == null) {
+            return codes;
         }
 
-#if TESTING
-        if (log.verbose) log.l($"DamagingCrate OnCollisionEnter2D TRANSPILER LimbFromObject and stloc.1 {i}"); // should be 59
-#endif
-
-        var pfsfieldsearch = i;
-
-        while (!(codes[pfsfieldsearch].ToString().Contains("prevFrameSpeed")) ) { // find the part where it gets the limb
-            pfsfieldsearch++;
+        int limb_load = limb_check - 1;
+        if (limb_load < 0 || (codes[limb_load].opcode != OpCodes.Ldloc_2 && codes[limb_load].opcode != OpCodes.Ldloc_S)) {
+            log.warn("Gunsaw genetics or other multi-limb mods were enabled? Guh.");
+            return codes;
         }
-        var prevFrameSpeed_field = codes[pfsfieldsearch].operand;
-        
 
+        // BEFORE: ldloc limb ; call op_Implicit ; brfalse
+        // AFTER:  call StolenWithFirstCheck(crate, limb, prevFrameSpeed) ; brfalse <vanilla validity check> ; ret
+        //        ldloc limb ; call op_Implicit ; brfalse   
 
-        //ldarg.0
-        //ldloc.1
-        //ldarg.0
-        //ldfld	valuetype [UnityEngine.CoreModule]UnityEngine.Vector2 DamagingCrate::prevFrameSpeed
-        //call	bool [KrokoshaCasualtiesMP]KrokoshaCasualtiesMP.ScavTraps::DamagingCrate_OnCollisionEnter2D_StolenWithFirstCheck(object, class Limb, valuetype [UnityEngine.CoreModule]UnityEngine.Vector2)
-        //brfalse.s	67 (00D8) ldarg.0 
-        //ret
+        // I dunno about this though
 
+        var injected = new List<CodeInstruction> {
+            new CodeInstruction(OpCodes.Ldarg_0),
+            new CodeInstruction(codes[limb_load].opcode, codes[limb_load].operand),
+            new CodeInstruction(OpCodes.Ldarg_0),
+            new CodeInstruction(OpCodes.Ldfld, prevFrameSpeed_field),
+            new CodeInstruction(OpCodes.Call,
+                AccessTools.Method(typeof(ScavTraps), nameof(ScavTraps.DamagingCrate_OnCollisionEnter2D_StolenWithFirstCheck))),
+        };
 
+        var continue_vanilla_label = il.DefineLabel();
+        injected.Add(new CodeInstruction(OpCodes.Brfalse_S, continue_vanilla_label));
+        injected.Add(new CodeInstruction(OpCodes.Ret));
 
-        var newInstructions = new List<CodeInstruction>();
+        codes.InsertRange(limb_load, injected);
+        codes[limb_load + injected.Count].labels.Add(continue_vanilla_label);
 
-
-        newInstructions.Add(new CodeInstruction(OpCodes.Ldarg_0));
-
-        newInstructions.Add(new CodeInstruction(OpCodes.Ldloc_1));
-
-        newInstructions.Add(new CodeInstruction(OpCodes.Ldarg_0));
-
-        newInstructions.Add(new CodeInstruction(OpCodes.Ldfld, prevFrameSpeed_field));
-
-        newInstructions.Add(new CodeInstruction(OpCodes.Call,
-            AccessTools.Method(typeof(ScavTraps), nameof(ScavTraps.DamagingCrate_OnCollisionEnter2D_StolenWithFirstCheck))));
-
-        var endofpatch_label = il.DefineLabel();
-        codes[i + 1].labels.Add(endofpatch_label);
-
-        newInstructions.Add(new CodeInstruction(OpCodes.Brfalse_S, endofpatch_label));
-
-        newInstructions.Add(new CodeInstruction(OpCodes.Ret));
-
-        codes.InsertRange(i + 1, newInstructions);
-
-#if TESTING
-        if (log.verbose) {
-            log.l($"DamagingCrate OnCollisionEnter2D TRANSPILER SUCCESS :)  ");
-        }
-#endif
+        if (log.verbose) log.l($"DamagingCrate OnCollisionEnter2D TRANSPILER SUCCESS :)  ");
         return codes;
     }
 

@@ -146,8 +146,11 @@
 		<Reference Include="LiteEntitySystem">
 			<HintPath>$(LibsDir)\LiteEntitySystem.dll</HintPath>
 		</Reference>
-		<Reference Include="Steamworks.NET">
-			<HintPath>$(LibsDir)\Steamworks.NET.dll</HintPath>
+		<Reference Include="com.rlabrecque.steamworks.net" Condition="'$(GameType)' != 'Fullgame'">
+			<HintPath>$(LibsDir)\com.rlabrecque.steamworks.net.dll</HintPath>
+		</Reference>
+		<Reference Include="com.rlabrecque.steamworks.net" Condition="'$(GameType)' == 'Fullgame'">
+			<HintPath>$(GameManagedDir)\com.rlabrecque.steamworks.net.dll</HintPath>
 		</Reference>
 
 
@@ -490,7 +493,7 @@
 		
 	</Target>
 
-	<Target Name="RunPythonScript" AfterTargets="PostBuildEvent" Condition="('$(Configuration)' == 'Playtest' Or '$(Configuration)' == 'Release') And Exists('$(SlnRoot)scripts/proprietary/build-zip.py')">
+	<Target Name="RunPythonScript" AfterTargets="PostBuildEvent" Condition="('$(Configuration)' == 'Playtest' Or '$(Configuration)' == 'Release' Or '$(Configuration)' == 'PlaytestFullgame' Or '$(Configuration)' == 'ReleaseFullgame') And Exists('$(SlnRoot)scripts/proprietary/build-zip.py')">
 		<Exec WorkingDirectory="$(SlnRoot)" Command="python &quot;$(SlnRoot)scripts/proprietary/build-zip.py&quot; &quot;$(Configuration)&quot; &quot;$(FullModVersion)&quot;" />
 	</Target>
 

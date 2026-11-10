@@ -790,16 +790,13 @@ S_LerpFactor: {_entityManager.LerpFactor}";
         float y = 20;
         const float elsize = 20f;
 
-        var skibidi = Application.version;
-        if (skibidi.IsNullOrWhiteSpace()) {
-            skibidi = Plugin.TARGET_GAME_VERSION;
-        }
+        
 
 #if TESTING
-        GUI.Label(new Rect(20, y, 1100, elsize), $"MULTIPLAYER CO-OP MOD v{Plugin.FULL_MOD_VERSION} FOR  CASUALTIES: UNKNOWN {skibidi} APPID: {KSteam.STEAM_APPID} \"TESTING BUILD\" \"TESTING BUILD\" 2" ); 
+        GUI.Label(new Rect(20, y, 1100, elsize), $"MULTIPLAYER CO-OP MOD v{Plugin.FULL_MOD_VERSION} FOR  CASUALTIES: UNKNOWN {Application.version} APPID: {KSteam.STEAM_APPID} \"TESTING BUILD\" \"TESTING BUILD\" 2" ); 
         y += elsize;
 #elif !RELEASE
-        GUI.Label(new Rect(20, y, 1100, elsize), $"MULTIPLAYER CO-OP MOD v{Plugin.FULL_MOD_VERSION} FOR  CASUALTIES: UNKNOWN {skibidi} APPID: {KSteam.STEAM_APPID} \"TESTING BUILD\" \"TESTING BUILD\" \"TESTING BUILD\" v");
+        GUI.Label(new Rect(20, y, 1100, elsize), $"MULTIPLAYER CO-OP MOD v{Plugin.FULL_MOD_VERSION} FOR  CASUALTIES: UNKNOWN {Application.version} APPID: {KSteam.STEAM_APPID} \"TESTING BUILD\" \"TESTING BUILD\" \"TESTING BUILD\" v");
         y += elsize;
 #endif
 

@@ -20,6 +20,7 @@ public class Spectator : CasualtiesTogetherSingletonWorldOnly {
     static Transform SpectatorTarget;
     public static void SetCameraFollow(Transform t) {
         SpectatorTarget = t;
+        // PlayerCamera.following was removed
         if (PlayerCamera.main != null) {
             var f = Traverse.Create(PlayerCamera.main).Field("following");
             if (f.FieldExists()) {
@@ -31,6 +32,17 @@ public class Spectator : CasualtiesTogetherSingletonWorldOnly {
         return SpectatorTarget;
     }
 
+    void Update() {
+        if (PlayerCamera.main != null) {
+            if (SpectatorTarget != null) {
+                var f = Traverse.Create(PlayerCamera.main).Field("customLookPos");
+                if (f.FieldExists()) {
+                    Vector2? newValue = SpectatorTarget.transform.position;
+                    f.SetValue(newValue);
+                }
+            }
+        }
+    }
 
 }
 

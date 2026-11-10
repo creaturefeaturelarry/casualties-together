@@ -577,6 +577,32 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
             si.Destroy();
     }
 
+    // disconnect save parks gear under SAVESTATE_. kill the SyncInfo so clients drop
+    // their copy, but leave the host mesh for PlayerSavedState.Apply.
+    public static void DetachSyncKeepMesh(GameObject go) {
+        if (!Net.IsServer || go == null) {
+            return;
+        }
+        SyncInfo si = null;
+        if (SyncRegistry.TryGetValue(go, out SyncInfo listed) && listed != null && !listed.IsDestroyed) {
+            si = listed;
+        } else if (go.TryGetComponent(out SyncInfoGameObjectTracker existing) && existing.syncInfo != null && !existing.syncInfo.IsDestroyed) {
+            si = existing.syncInfo;
+        }
+        if (si == null) {
+            return;
+        }
+        if (go.TryGetComponent(out SyncInfoGameObjectTracker tracker)) {
+            tracker.syncInfo = null;
+        }
+        SyncRegistry.Remove(go);
+        si.tracker = null;
+        si.go = null;
+        if (!si.IsDestroyed) {
+            si.Destroy();
+        }
+    }
+
 
 
 

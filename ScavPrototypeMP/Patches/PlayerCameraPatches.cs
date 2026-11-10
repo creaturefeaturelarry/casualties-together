@@ -139,10 +139,15 @@ static class PlayerCamera_HandleBlockHover_MultiplayerPatch {
 internal static class GlobalDark_Awake_MultiplayerPatch {
     internal static void SetBetaBuildMPText() {
         if (GlobalDark.main != null && Plugin.SUCCESFULLY_INITIALIZED) {
-            var betaBuild = Traverse.Create(GlobalDark.main).Field("betaBuild").GetValue<TextMeshProUGUI>();
+            
+            var betaBuild = GlobalDark.main.GetComponentsInChildren<TextMeshProUGUI>(true)
+                .FirstOrDefault(text => text != null &&
+                    (text.text?.StartsWith("This is a beta build (", StringComparison.Ordinal) == true ||
+                     text.text?.StartsWith("This is a modded beta build (", StringComparison.Ordinal) == true)); // <3, based qol/rshlib support btw
             if (betaBuild != null) {
                 //betaBuild.text = "This is a beta build (" + Application.version + "); Things are subject to change.";
                 //betaBuild.text += " (Demo)";
+                // Not needed and won't ever show >>
                 betaBuild.text = "This is a beta build (" + Application.version + "); ";
                 betaBuild.text += $" (Modified) (MP V{Plugin.FULL_MOD_VERSION})";
             }

@@ -201,7 +201,7 @@ public enum NetmsgId : byte {
     ___7,
     ___8,
     ___9,
-    ___10,
+    CLIENT_TraderSwing,
     ___11,
     ___12,
     ___13,

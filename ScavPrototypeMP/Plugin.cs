@@ -40,7 +40,10 @@ namespace Together {
         internal Harmony harmony;
 
 
-        public static readonly string TARGET_GAME_VERSION = "7.0.1";
+        public static readonly string[] TARGET_GAME_VERSION = new string[] {
+            "7.0.1",
+            "1.0",
+        };
         public static readonly string MOD_VERSION = BuildInfo.MOD_VERSION;
         public static string FULL_MOD_VERSION { get; internal set; }
 
@@ -274,7 +277,7 @@ namespace Together {
             harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
             OptimizerMain.Log = Logger;
 
-            if (Application.version != TARGET_GAME_VERSION) {
+            if (!TARGET_GAME_VERSION.Contains(Application.version)) {
                 LoadErrorNotifier.errorstr += $"Mismatching version detected: TARGET: {TARGET_GAME_VERSION} - CURRENT: {Application.version}";
 
                 Together.log.error(LoadErrorNotifier.errorstr);

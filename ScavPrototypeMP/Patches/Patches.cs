@@ -246,7 +246,7 @@ public static class Vomiter_Vomit_MultiplayerPatch {
 
 
 
-[HarmonyPatch(typeof(Body), nameof(Body.Eat))]
+[HarmonyPatch(typeof(Body), nameof(Body.Eat), new[] { typeof(float), typeof(float) })]
 static class Body_Eat_MultiplayerPatch {
     static void Prefix(Body __instance) {
         if (__instance.IsBodyLocal() && __instance.TryGetNetBody(out var nb)) {

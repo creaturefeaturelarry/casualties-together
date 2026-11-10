@@ -36,7 +36,6 @@ scripts/AssetRipper/
 scripts/clumsy-0.3-win64-a/
 scripts/USSR/
 *.rar
-ScavPrototypeMP/Fullgame/*
 ScavPrototypeMP/Proprietary*
 scripts/proprietary*
 scripts/__pycache__/
@@ -50,3 +49,6 @@ CasualtiesTogether.Local.props
 # Local editor and language-server configuration
 .vscode/
 omnisharp.json
+
+# Local Tools
+tools/FakePlayer/

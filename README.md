@@ -12,7 +12,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/creaturefeaturelarry/casualties-together?style=flat-square&include_prereleases&logo=github&label=Version)](https://github.com/creaturefeaturelarry/casualties-together/releases/latest)
 [![Github Downloads](https://img.shields.io/github/downloads/creaturefeaturelarry/casualties-together/total?style=flat-square&color=blue&logo=github&label=Downloads)](https://github.com/creaturefeaturelarry/casualties-together/releases)
 [![Nexus Downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjimmyking9999999%2FMetadata-generator%2Fmain%2Fbadges%2Fcasualties-together.json&style=flat-square)](https://www.nexusmods.com/scavprototype/mods/67?tab=files)
-[![Game Version](https://img.shields.io/badge/Game_Version-v1.0-darkgreen?style=flat-square&logo=steam)](https://store.steampowered.com/app/4576510)
+[![Game Version](https://img.shields.io/badge/Game_Version-v7.0.1-darkgreen?style=flat-square&logo=steam)](https://store.steampowered.com/app/4576510)
 </div>
 
 
@@ -95,7 +95,6 @@ To go back to singleplayer you need to press the `Deactivate MP Mod` button in `
 
 # Features:
 Steam Lobbies<br>
-Discord RPC<br>
 Real voice chat with in-game effects.<br/>
 Middle Mouse Button to point at a location.<br>
 Right click to interact and heal other players.<br> 
@@ -172,7 +171,7 @@ The Host must enter this console command:<br>
 
 Run script `scripts/prepare_workspace.py`
 
-It copies the game and installs BepInEx.
+It copies the game and installs bepinex.
 
 **Visual Studio 2022** is recommended.
 
@@ -200,18 +199,6 @@ Credits are listed in "About" menu inside the mod.<br>
 ### Supporters:
  
 ```Bleh :P, EthanTheProtogen, RoyMartini, Jazun, Alexx__, vega, Zmechol1337, plasterjello, Doctor Callico, vivikat, Ariyah, killthebudget, _stuck_, ShaoAZ, JameisonAus, Kidi, BluBerryToaster, Katomou, Nemean_Lion732, Locko2265, Trenchburner, TheBoathead, Diesel, Malbyte, KaliVasquez, Mitirich, Shiro, ChrisTheDragon```
-
-
-## All official links for this mod:
-[Casualties: Together Mod Discord](https://discord.gg/MxnmVtveZn)<br>
-[Buy me a Coffee](https://buymeacoffee.com/casualtiestogether)<br>
-[Steam Guide](https://steamcommunity.com/sharedfiles/filedetails/?id=3836775797)<br>
-[NexusMods](https://www.nexusmods.com/scavprototype/mods/67)<br>
-[Github](https://github.com/creaturefeaturelarry/casualties-together)<br>
-[Casualties: Unknown Discord Mod Discussion Thread](https://discord.com/channels/955738554129063947/1569353311231156304/1569353322366902354)<br>
-[Casualties: Unknown Discord Mod Post](https://discord.com/channels/955738554129063947/1569444384825544866)<br>
-
-
 
 
 

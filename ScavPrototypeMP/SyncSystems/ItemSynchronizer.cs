@@ -2003,22 +2003,45 @@ internal class ItemSync : CasualtiesTogetherSingleton {
 
         }
     }
-    public static void BetterUseItem( Body body, Item item) {
+    // blobflesh stays in hand at 0. stock useAction never checks condition, so spam-clicks Eat again.
+    internal static bool TooSpentToUse(Item item) {
+        if (item == null) {
+            return true;
+        }
+        if (Net.IsRunning && TryGetSyncInfo(item, out SyncInfo si) && si != null && si.IsDestroyed) {
+            return true;
+        }
+        if (item.Stats != null && item.Stats.wearable && !item.Stats.usable) {
+            return false;
+        }
+        return item.condition <= 0.0001f;
+    }
+
+    public static void BetterUseItem(Body body, Item item) {
         ItemSync.SetBodyOverride(item, body);
         if (item.Stats.wearable) {
             ItemSync.Body_ForceWearWearable(body, item);
             if (item.transform.parent != null) {
-                if (body.IsBodyLocal())
+                if (body.IsBodyLocal()) {
                     PlayerCamera.main.UpdateWearables();
+                }
                 return;
             }
             item.transform.position = body.transform.position;
         }
         if (item.Stats.usable) {
+            if (TooSpentToUse(item)) {
+                return;
+            }
             item.Stats.useAction(body, item);
-            if (item != null && item.condition < 0f)
+            if (item != null && item.condition < 0f) {
                 item.condition = 0f;
+            }
             SpentDestroy(item);
+            // neuralbooster and other body uses. publish spent condition before the next slow bag write.
+            if (Net.IsServer && item != null && TryGetSyncInfo(item, out SyncInfo spent) && spent != null && !spent.IsDestroyed) {
+                spent.WriteObjectIntoPacket();
+            }
         }
     }
     public static void SetBodyOverride(Item item, Body body) {

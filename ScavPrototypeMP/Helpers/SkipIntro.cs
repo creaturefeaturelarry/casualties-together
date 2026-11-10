@@ -7,21 +7,18 @@ using System.Threading.Tasks;
 
 // turns out this is obsolete when i jsut hide the lore dump ui element
 
-namespace Together
-{
+namespace Together {
     // skip intro lore dump
     [HarmonyPatch(typeof(PreRunScript), nameof(PreRunScript.TryLore))]
-    public static class SkipIntroLoreDumpPatch
-    {
-        static void Prefix()
-        {
+    public static class SkipIntroLoreDumpPatch {
+        static void Prefix() {
 #if !DEBUG
             if (!(Plugin.AnyCmdArgsPassed)) { 
                 return;
             }
 #endif
 
-            PreRunScript.didIntro = true; 
+            PreRunScript.didIntro = true;
 
         }
     }

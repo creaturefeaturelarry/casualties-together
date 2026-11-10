@@ -15,7 +15,7 @@ namespace Multiupdater
         public static readonly string TempDirectory = String.Join(Path.DirectorySeparatorChar.ToString(), Path.GetTempPath(), "CTAutoUpdater");
         public const string StageDirectoryName = "MULTIPLAYER_STAGED";
         public const string MultiReleaseURL = @"https://api.github.com/repos/creaturefeaturelarry/casualties-together/releases/latest";
-        public const string MultiArchiveNameContract = "CasualtiesTogether";
+        public const string MultiArchiveNameContract = "MPMod_";
         //public static readonly HashSet<string> VersionBlacklist = new HashSet<string>
         //{
         //    "v5.4.1.9",

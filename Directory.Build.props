@@ -3,7 +3,7 @@
   
 	<PropertyGroup>
 
-		<ModVersion>5.2.1</ModVersion>
+		<ModVersion>5.4.1</ModVersion>
 		<FullModVersion>$(ModVersion)</FullModVersion>
 
 		<SlnRoot>$(SolutionDir)</SlnRoot>
@@ -40,7 +40,7 @@
 	<PropertyGroup Condition="'$(Configuration)'=='DebugFullgame'">
 		<BuildType>Debug</BuildType>
 		<GameType>Fullgame</GameType>
-		<DefineConstants>$(DefineConstants);FULLGAME;TESTING</DefineConstants>
+		<DefineConstants>$(DefineConstants);FULLGAME;TESTING;DEBUG</DefineConstants>
 	</PropertyGroup>
 	<PropertyGroup Condition="'$(Configuration)'=='PlaytestFullgame'">
 		<BuildType>Playtest</BuildType>
@@ -49,7 +49,7 @@
 	</PropertyGroup>
 	<PropertyGroup Condition="'$(Configuration)'=='ReleaseFullgame'">
 		<GameType>Fullgame</GameType>
-		<DefineConstants>$(DefineConstants);FULLGAME</DefineConstants>
+		<DefineConstants>$(DefineConstants);FULLGAME;RELEASE</DefineConstants>
 	</PropertyGroup>
 
 

@@ -1,13 +1,14 @@
-﻿using System;
+﻿using BepInEx.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
-using Newtonsoft.Json;
 using System.Threading.Tasks;
-using Newtonsoft.Json.Linq;
-using BepInEx.Logging;
+using static Mono.Security.X509.X520;
 
 namespace Multiupdater
 {
@@ -38,8 +39,14 @@ namespace Multiupdater
                 var assets = json["assets"] as JArray;
                 foreach (var value in assets)
                 {
-                    if(value["name"].ToString().Contains(Constants.MultiArchiveNameContract))
-                    {
+                    var name = value["name"].ToString();
+                    if (name.StartsWith(Constants.MultiArchiveNameContract) &&
+#if FULLGAME
+                        name.Contains("_fullgame")
+#else
+                        name.Contains("_demo")
+#endif
+                        ) {
                         return (version, value["browser_download_url"].ToString());
                     }
                 }

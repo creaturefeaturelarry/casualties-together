@@ -2415,6 +2415,15 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
         }
     }
 
+    // push host health with confirm so owners keep trader bites / host-applied damage.
+    public static void ForceHealth(NetBody nb) {
+        if (nb == null || nb.body == null || !Net.IsServer) {
+            return;
+        }
+        nb.healthConfirm = true;
+        Server_SendCharacterHealth(nb, true);
+    }
+
 
 
     public static bool CanSyncHealth() {

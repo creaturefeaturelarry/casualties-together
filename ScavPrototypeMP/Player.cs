@@ -1267,7 +1267,9 @@ public class ScavPlayer : MonoBehaviour {
                 }
 
 
-                Server_DropAllInventory();
+                // Server_DropAllInventory();
+                // leave gear stays parked under SAVESTATE_ (or dies with the body).
+                // ground-dropping on disconnect never worked.
 
                 ScavPlayer.BodyToPlayerDict.Remove(body);
 
@@ -1280,7 +1282,9 @@ public class ScavPlayer : MonoBehaviour {
     public void OnDestroy() {
 
         try {
-            if (Util.IsInWorld() && body != null && Multiplayer.rules.DisconnectShouldSaveAnything) {
+            // host only. clients that also built PlayerSavedState parked gear under a local
+            // SAVESTATE_ without DetachSyncKeepMesh, then path5 fought a loose trashbag ghost.
+            if (Net.IsServer && Util.IsInWorld() && body != null && Multiplayer.rules.DisconnectShouldSaveAnything) {
 #if TESTING
                 log.l($"Saved player state of {this}");
 #endif

@@ -320,14 +320,56 @@ static class TraderScript_OnUse_MultiplayerPatch {
 
 [HarmonyPatch(typeof(TraderScript), "OnWillRenderObject")]
 static class TraderScript_OnWillRender_PinLog {
+    static readonly Dictionary<int, int> HostilityStage = new();
+
+    static int StageOf(float hostility, float reputation) {
+        if (hostility >= 100f) {
+            return 3;
+        }
+        if (hostility > 55f) {
+            return 2;
+        }
+        if (hostility > 30f) {
+            return 1;
+        }
+        if (reputation < 30f) {
+            return 0;
+        }
+        return -1;
+    }
+
     private static void Prefix(TraderScript __instance, out (float rep, float host) __state) {
         __state = (__instance == null) ? default : (__instance.reputation, __instance.hostility);
+        // host combat must track whoever is actually close, not the first body that stuck.
+        if (Net.IsRunning && Net.IsServer && (__instance != null) && (TraderCommit.Actor == null)) {
+            TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
+            tt.bgo.SetNearestBody();
+        }
     }
     private static void Postfix(TraderScript __instance, (float rep, float host) __state) {
         // stock ramps hostility on every machine. the host snapshot is the copy that counts.
         if (Net.IsRunning && Net.IsClient && (__instance != null)) {
             __instance.reputation = __state.rep;
             __instance.hostility = __state.host;
+        }
+        if (Net.IsRunning && Net.IsServer && (__instance != null)) {
+            // nearest-body retarget can point currentTrader at a remote. keep the host menu on the local body only.
+            if ((PlayerCamera.main != null) && (PlayerCamera.main.currentTrader == __instance) && !Util.IsInTradingMenu()) {
+                Body local = Util.GetLocalBody();
+                if ((local == null) || (Vector2.Distance(__instance.transform.position, local.transform.position) >= 6f)) {
+                    PlayerCamera.main.currentTrader = null;
+                }
+            }
+            // push anger steps so clients see the stand-up / warnings before the first swing lands.
+            int key = __instance.GetInstanceID();
+            int stage = StageOf(__instance.hostility, __instance.reputation);
+            bool had = HostilityStage.TryGetValue(key, out int prev);
+            if (!had || (prev != stage)) {
+                HostilityStage[key] = stage;
+                if ((stage >= 0) && (!had || (stage > prev))) {
+                    TraderCommit.Publish(__instance);
+                }
+            }
         }
         TraderPinLog.AfterWillRender(__instance);
         TraderPinLog.Hold(PlayerCamera.main);
@@ -469,28 +511,39 @@ static class TraderPinLog {
 
 [HarmonyPatch(typeof(TraderScript), nameof(TraderScript.Swing))]
 static class TraderScript_Swing_MultiplayerPatch {
-    private static bool Prefix(TraderScript __instance) {
+    // only the host applies Swing limb damage. clients get slash fx via CLIENT_TraderSwing.
+    private static bool Prefix(TraderScript __instance, out bool __state) {
+        __state = false;
         FindTheBugInator.TraderSwing(__instance);
-        // a client swing only hits the local body. real damage is the host event.
-        if (Net.IsRunning && Net.IsClient) {
+        if (!Net.IsRunning) {
+            __state = true;
+            return true;
+        }
+        // client get_body always pins the local body, so stock Swing would self-hit then get rolled back.
+        if (Net.IsClient) {
             return false;
         }
         TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
-
         tt.bgo.SetNearestBody();
+        // host damages the host copy of whoever is nearest, then ForceHealth.
+        __state = true;
         return true;
     }
-    static void Postfix(TraderScript __instance) { // send an update packet cuz in swing it moves  desiredPos  which is quite important in combat
-        if (!Net.IsRunning) return;
-        if (Net.IsServer) {
-            //if (NetObjectRegistry.TryGetSyncInfo(__instance, out var si)) NetObjectRegistry.Server_QueueSync(si);
-
-            var tt = __instance.GetOrAddComponent<TrackerTrader>();
-            if (tt.focused_body != null && tt.focused_body.TryGetNetBody(out var body)) {
-                body.OnDamageEvent(new BodyDamageEvent(__instance.build, body, 10));
-            }
-            TraderCommit.Publish(__instance);
+    static void Postfix(TraderScript __instance, bool __state) {
+        if (!Net.IsRunning || !Net.IsServer || !__state) {
+            return;
         }
+        TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
+        Body target = tt.focused_body;
+        if ((target != null) && target.TryGetNetBody(out NetBody body)) {
+            body.OnDamageEvent(new BodyDamageEvent(__instance.build, body, 10));
+            // confirm so a later client health upload can't undo the host limb write.
+            MedicalSync.ForceHealth(body);
+        }
+        Vector2 aim = (target != null) ? (Vector2)target.transform.position : (Vector2)__instance.transform.position;
+        // include the victim. they skipped stock Swing, so this is their slash/sound too.
+        TraderCommit.RelaySwing(__instance, aim);
+        TraderCommit.Publish(__instance);
     }
 
     public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator, MethodBase __originalMethod) {
@@ -816,19 +869,29 @@ static class TraderScript_get_body_MultiplayerPatch {
 #endif 
 
     static void Postfix(TraderScript __instance, ref Body __result) {
-        if (!Net.IsRunning) return;
+        if (!Net.IsRunning) {
+            return;
+        }
         Body actor = TraderCommit.Actor;
         if (actor != null) {
             __result = actor;
             return;
         }
-        var tt = __instance.GetOrAddComponent<TrackerTrader>();
-        var bgo = tt.bgo;
-        if (bgo.body == null) {
-            bgo.SetNearestBody();
-            if (bgo.body == null) {
-                bgo.body = PlayerCamera.main.body;
+        TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
+        BodyGetterOverrider bgo = tt.bgo;
+        // clients keep local body for menu / face / warning lines. host always retargets so
+        // hostility ramp and swings follow any nearby player, not the first body that stuck.
+        if (Net.IsClient) {
+            Body local = Util.GetLocalBody();
+            if (local != null) {
+                bgo.body = local;
+                __result = local;
+                return;
             }
+        }
+        bgo.SetNearestBody();
+        if ((bgo.body == null) && (PlayerCamera.main != null)) {
+            bgo.body = PlayerCamera.main.body;
         }
         __result = bgo.body;
     }
@@ -962,6 +1025,8 @@ public static class TraderScript_MeetPlayer_MultiplayerPatch {
 
         reputation = UnityEngine.Random.Range(75f, 135f);
         reputation += body.skills.INTFrom10 * 4f;
+        if (WorldGeneration.world != null)
+            reputation += WorldGeneration.GetRunSettingFloat("traderrepoffset");
         if (body.talker.impairedSpeech) {
             reputation -= 20f;
         }
@@ -989,56 +1054,79 @@ public static class TraderScript_MeetPlayer_MultiplayerPatch {
         return (reputation, hostility, freeDressing);
     }
 
-
-    public static bool Prefix(TraderScript __instance, ref TraderStatePacket __state) {
-        if (Net.IsRunning) {
-            var tt = __instance.GetOrAddComponent<TrackerTrader>();
-
-            __state = new TraderStatePacket(tt);
-
+    // host Start leaves startedConvo false with placeholder rep=100. the real first impression
+    // must run once for everyone. not again when the host later walks up and wipes client trades.
+    internal static bool EnsureFirstMeet(TraderScript trader, Body prefer = null) {
+        if ((trader == null) || !Net.IsServer || trader.startedConvo)
+            return false;
+        TrackerTrader tt = trader.GetOrAddComponent<TrackerTrader>();
+        float reputation = 0f;
+        float hostility = 0f;
+        bool freeDressing = false;
+        bool any = false;
+        var plrs = ScavPlayer.GetPlayerBodiesInRadius(trader.transform.position, 16f);
+        foreach (var pb in plrs) {
+            if (pb?.body == null) continue;
+            any = true;
+            var res = MeetPlayer_CalculateFirstImpression(pb.body);
+            reputation = Mathf.Max(res.Item1, reputation);
+            hostility = Mathf.Max(res.Item2, hostility);
+            if (res.Item3) freeDressing = true;
         }
+        if (!any && prefer != null) {
+            var res = MeetPlayer_CalculateFirstImpression(prefer);
+            reputation = res.Item1;
+            hostility = res.Item2;
+            freeDressing = res.Item3;
+            any = true;
+        }
+        if (!any) {
+            // nobody in range yet. keep Start's 100 until a real body shows up
+            return false;
+        }
+        trader.reputation = reputation;
+        trader.hostility = hostility;
+        tt.og.freeDressing = freeDressing;
+        if (freeDressing && trader.items != null && !trader.items.Exists(x => x != null && x.id == "bandage")) {
+            trader.items.Add(new TraderItem {
+                id = "bandage",
+                preference = TraderItemPreference.Indifferent,
+                value = Item.GetItem("bandage").value
+            });
+            trader.items = trader.items.OrderBy(x => (int)x.preference).ToList();
+        }
+        trader.eyes.sprite = trader.eyeSprites[1];
+        Traverse.Create(trader).Field("sitTime").SetValue(Time.time);
+        trader.startedConvo = true;
+        trader.standTarget = UnityEngine.Random.Range(0.9f, 1f);
+        FindTheBugInator.Trader("first-meet", FindTheBugInator.TraderState(trader));
         return true;
     }
-    public static void Postfix(TraderScript __instance, ref TraderStatePacket __state) {
-        if (Net.IsRunning) {
-            var tt = __instance.GetOrAddComponent<TrackerTrader>();
 
+    public static bool Prefix(TraderScript __instance) {
+        if (!Net.IsRunning)
+            return true;
+        // clients never roll first impression. ask the host; provisional convo stops OnWillRender spam.
+        if (Net.IsClient) {
+            __instance.startedConvo = true;
             __instance.eyes.sprite = __instance.eyeSprites[1];
             Traverse.Create(__instance).Field("sitTime").SetValue(Time.time);
-            __instance.startedConvo = true;
-
-            if (Net.IsServer) {
-
-                var plrs = ScavPlayer.GetPlayerBodiesInRadius(__instance.transform.position, 16f);
-
-                float reputation = 0f;
-                float hostility = 0f;
-                bool freeDressing = false;
-
-                foreach (var pb in plrs) {
-
-                    var res = MeetPlayer_CalculateFirstImpression(pb.body);
-
-                    reputation = Mathf.Max(res.Item1, reputation);
-                    hostility = Mathf.Min(res.Item2, hostility);
-                    if (!freeDressing) {
-                        freeDressing = res.Item3;
-                    }
-
-                }
-
-                __instance.reputation = reputation;
-                __instance.hostility = hostility;
-                tt.og.freeDressing = freeDressing;
-            
-                tt.Server_AnnounceTraderReputationState();
-            } else {
-                __state.Apply(tt);// dont change it on client, wait for release
-            }
-            FindTheBugInator.Trader("meet", "savedRep=" + __state.reputation.ToString("0.#") + " savedHostl=" + __state.hostility.ToString("0.#") + " " + FindTheBugInator.TraderState(__instance));
-
+            TraderCommit.Ask(__instance.GetOrAddComponent<TrackerTrader>());
+            FindTheBugInator.Trader("meet-client-ask", FindTheBugInator.TraderState(__instance));
+            return false;
         }
+        // host: one first meet for the room. later approaches must not re-roll over live rep.
+        if (__instance.startedConvo)
+            return false;
+        EnsureFirstMeet(__instance, Util.GetLocalBodyNullable());
+        if (__instance.startedConvo) {
+            __instance.GetOrAddComponent<TrackerTrader>().Server_AnnounceTraderReputationState();
+            return false;
+        }
+        // no body in range yet. let stock no-op path alone; next render retries
+        return false;
     }
+
     public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator, MethodBase __originalMethod) {
         return BodyGetterOverrider.TranspileAll(instructions, generator, __originalMethod.DeclaringType);
     }
