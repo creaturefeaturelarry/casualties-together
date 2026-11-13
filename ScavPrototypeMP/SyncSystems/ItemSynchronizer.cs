@@ -2014,7 +2014,8 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         if (item.Stats != null && item.Stats.wearable && !item.Stats.usable) {
             return false;
         }
-        return item.condition <= 0.0001f;
+        // Reusable items may have a valid action at zero condition.
+        return item.condition <= 0.0001f && (item.Stats == null || item.Stats.destroyAtZeroCondition);
     }
 
     public static void BetterUseItem(Body body, Item item) {
