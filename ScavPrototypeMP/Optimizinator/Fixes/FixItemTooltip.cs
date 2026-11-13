@@ -87,6 +87,7 @@ internal static class FixItemTooltip
 			hash = hash * 31 + Mathf.RoundToInt(item.totalWeight * 100f);
 			if (item.Stats != null && item.Stats.fullName != null)
 				hash = hash * 31 + item.Stats.fullName.GetHashCode();
+			hash = hash * 31 + (item.label == null ? 0 : item.label.GetHashCode());
 			bool expand = PlayerCamera.alwaysExpandDescriptions || Input.GetKey(KeyBinds.GetBind("expanddesc"));
 			hash = hash * 31 + (expand ? 1 : 0);
 			if (item.Stats != null && item.Stats.rec.recognizable == false)
