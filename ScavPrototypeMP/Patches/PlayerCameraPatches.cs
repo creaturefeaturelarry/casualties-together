@@ -159,6 +159,77 @@ internal static class GlobalDark_Awake_MultiplayerPatch {
     }
 }
 
+//nukes check in tooltip disabler for condition whether the Player is alive or not.
+//full game release checks for 3 things: participating in a minigame, being in a cutscene and being alive. and today we are skipping through the last one
+//A piece from Old Moodles Reused yay
+[HarmonyPatch(typeof(GlobalDark), "forceDisable", MethodType.Getter)]
+static class GlobalDarkDeceasedTooltipPatch {
+
+	static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator) 
+	{
+        log.l("[TRANSPILER] Starting GlobalDark::forceDisable alive check remover");
+		var codes = new List<CodeInstruction>(instructions);
+		int beforeAliveCheckBRFalseIdx = 0;
+		int brfalseWorldGenCheck = 0;
+		int endOfAliveCheckIdx = 0;
+		int returnTrueIdx = 0;
+
+		Label returnTrueLabel = generator.DefineLabel();
+
+		for(int i = 1; i < codes.Count; i++) 
+		{
+			if (codes[i].opcode == OpCodes.Ldsfld && codes[i].operand.ToString() == "WorldGeneration world") 
+			{
+				if (codes[i - 1].opcode == OpCodes.Brfalse) 
+				{
+					brfalseWorldGenCheck = i - 1; //we found the spot in cutscene check that would move us to the alive check
+                    log.l("[TRANSPILER] Found cutscene check exit");
+				}
+			}
+
+            else if (codes[i].opcode == OpCodes.Ldsfld && codes[i].operand.ToString() == "PlayerCamera main")
+			{
+				if (codes[i - 1].opcode == OpCodes.Brtrue)
+				{
+					beforeAliveCheckBRFalseIdx = i - 1; //we found where code for alive chek itself begins
+                    log.l("[TRANSPILER] Found the start of the evil part");
+				}
+			}
+
+			else if (codes[i].opcode == OpCodes.Ret && codes[i - 1].opcode == OpCodes.Ceq) 
+			{
+				endOfAliveCheckIdx = i; //we found where code for alive check ends
+                    log.l("[TRANSPILER] Found the end of the evil part");
+			}
+			else if (codes[i].opcode == OpCodes.Ret && codes[i - 1].opcode == OpCodes.Ldc_I4_0) 
+			{
+				returnTrueIdx = i-1; //we found a shortcut to which the failed cutscene check would now lead us to
+                    log.l("[TRANSPILER] Found the shortcut to return false");
+			}
+
+		}
+
+        if (brfalseWorldGenCheck == 0 || beforeAliveCheckBRFalseIdx == 0 || endOfAliveCheckIdx == 0 || returnTrueIdx == 0) 
+        {
+            log.error("[TRANSPILER] GlobalDark patch failed. Cant find at least 1 of the required spots");
+            return codes;
+        }
+
+		codes[returnTrueIdx].labels.Add(returnTrueLabel); //a lable to a shortcut
+        
+        //despite alive check supposedly being dead code now, the pacth refused to work for me without nuking the alive check instructions entirely
+		for(int i = beforeAliveCheckBRFalseIdx + 1; i <= endOfAliveCheckIdx; i++) 
+		{
+			codes[i] = new CodeInstruction(OpCodes.Nop);
+		}
+
+		codes[brfalseWorldGenCheck].operand = returnTrueLabel; //now we reroute the failed cutscene check to point to our shortcut
+                    log.l("[TRANSPILER] Alive check should be gone by now");
+
+		return codes;
+	}
+}
+
 #endregion // TOOLTIP_OVERRIDES
 
 
