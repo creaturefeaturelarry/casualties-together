@@ -209,6 +209,12 @@ static class GlobalDarkDeceasedTooltipPatch {
 
 		}
 
+        if (brfalseWorldGenCheck == 0 || beforeAliveCheckBRFalseIdx == 0 || endOfAliveCheckIdx == 0 || returnTrueIdx == 0) 
+        {
+            log.error("[TRANSPILER] GlobalDark patch failed. Cant find at least 1 of the required spots");
+            return codes;
+        }
+
 		codes[returnTrueIdx].labels.Add(returnTrueLabel); //a lable to a shortcut
         
         //despite alive check supposedly being dead code now, the pacth refused to work for me without nuking the alive check instructions entirely
