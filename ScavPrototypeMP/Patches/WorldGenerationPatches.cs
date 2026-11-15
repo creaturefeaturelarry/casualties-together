@@ -28,6 +28,11 @@ public static class PreRunScript_StartRun_MultiplayerPatch {
             //    return false;
             //} 
 
+#if FULLGAME
+            // run-select: Start stays Start until host clicks it -> char-select Ready up
+            CharacterSelectWait.OnStartOrLoadClicked(loadSave: false);
+            return false;
+#else
             if (Net.IsClient) {
                 Multiplayer.DoMultiplayerStatusMessageLog("You can't start the game, server can.");
                 return false;
@@ -35,10 +40,9 @@ public static class PreRunScript_StartRun_MultiplayerPatch {
             SaveSystem.loadedRun = false;
             SavesystemPatch.DeleteMPSave();
             WorldGeneration.runSettings = __instance.runSettings;
-
             WorldMP.LoadVanillaGeneratedWorld(false);
-
             return false;
+#endif
         } else {
             Multiplayer.DoMultiplayerStatusMessageLog(Multiplayer.CANT_PLAY_SP_MSG);
             return false;
@@ -51,6 +55,11 @@ public static class PreRunScript_StartRun_MultiplayerPatch {
 public static class PreRunScript_LoadRun_MultiplayerPatch {
     static bool Prefix(PreRunScript __instance) {
         if (Net.IsRunning) {
+#if FULLGAME
+            // continue: skip char select, load saved run immediately
+            CharacterSelectWait.OnStartOrLoadClicked(loadSave: true);
+            return false;
+#else
             if (Net.IsClient) {
                 Multiplayer.DoMultiplayerStatusMessageLog("You can't start the game, server can.");
                 return false;
@@ -58,8 +67,8 @@ public static class PreRunScript_LoadRun_MultiplayerPatch {
 
             SaveSystem.loadedRun = true;
             WorldMP.LoadVanillaGeneratedWorld(true);
-
             return false;
+#endif
         } else {
             Multiplayer.DoMultiplayerStatusMessageLog(Multiplayer.CANT_PLAY_SP_MSG);
             return false;
@@ -78,11 +87,15 @@ public static class PreRunScript_StartTutorial_MultiplayerPatch {
                 return false;
             }
 
+#if FULLGAME
+            // host picks a species, then Start loads the tutorial.
+            CharacterSelectWait.HostBeginTutorialPick();
+#else
             WorldMP.LoadVanillaTutorialWorld();
-
+#endif
             return false;
         } else {
-            //Multiplayer.DoMultiplayerStatusMessageLog(Multiplayer.CANT_PLAY_SP_MSG);
+            //multiplayer.DoMultiplayerStatusMessageLog(Multiplayer.CANT_PLAY_SP_MSG);
             //return false;
         }
         return true;
@@ -150,10 +163,10 @@ public static class WorldGeneration_DistributeMiniBarrels_WorldgenPatch {
 
 [HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.GenerateOres))]
 static class WorldGeneration_GenerateOres_MultiplayerPatch {
-    static bool Prefix(WorldGeneration __instance) {
-        if (Multiplayer.IsNetworkActiveAndIsClient()) { // leave it up to server to generate this
-            return false;
-        }
+    static bool Prefix() {
+        // paints ore into worldBlocks and consumes Random. WorldGenerateStructures
+        // (the cargo room included) runs immediately after. skipping it on clients
+        // left their cargo in a different place than the host.
         return true;
     }
 }
@@ -171,6 +184,15 @@ static class WorldGeneration_Start_MultiplayerPatch {
                     log.error(e);
                 }
             }
+        }
+        // continue/LoadRun: apply mp_save biome before vanilla biomeDepth=debugStartDepth + TryLoadGame.
+        // without this, MP TryLoadGame clears loadedRun and the first gen is always gravel layer 0.
+        if (Net.IsRunning && Net.IsServer && !SavesystemPatch.PreserveSave
+            && (SaveSystem.loadedRun || SavesystemPatch.PendingLoadMpSave)
+            && SavesystemPatch.TryPeekMpWorldState(out var peek)) {
+            SavesystemPatch.ApplyPeekedWorldState(__instance, peek);
+            SaveSystem.loadedRun = true;
+            Together.log.l($"Continue/load Start: debugStartDepth={peek.biomeDepth} midlevel={peek.midlevel} traveled={peek.totalTraveled}");
         }
         return true;
     }
@@ -199,7 +221,7 @@ static class WorldGenerationSetBlockNoUpdatePatch {
 [HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.SetBlock), new[] { typeof(Vector2Int), typeof(ushort) })]
 public static class WorldGeneration_SetBlock_MultiplayerPatch {
     public struct ChangedBlockInfo : INetSerializeByMemcpy {
-        public Vector2Int16 pos; 
+        public Vector2Int16 pos;
         public ushort block;
         public ChangedBlockInfo(in Vector2Int16 p, in ushort b) {
             pos = p;
@@ -215,33 +237,50 @@ public static class WorldGeneration_SetBlock_MultiplayerPatch {
 
     static readonly int MaxChangedBlocksQueue = 96;
     public static readonly List<ChangedBlockInfo> changedBlocks = new(MaxChangedBlocksQueue);
+    public static readonly List<ChangedBlockInfo> reliableChangedBlocks = new(64);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void QueueBlockChange(in WorldGeneration __instance, in Vector2Int pos, in ushort block, in bool IsNoUpdate) {
         if (!Multiplayer.IsNetworkActiveAndIsServer() || !SharedMain.LocalWorldIsGenerated) return;
         if (WorldGenerationGenerateBlockCirclePatch.doing_autoUpdateChunk) return;
 
-        //if (changed_blocks.Count < 5 || (WorldGeneration.world.earthquakeIntensity > 0f && changed_blocks.Count < MaxChangedBlocksQueue)) {
-        if (changedBlocks.Count < MaxChangedBlocksQueue) {
-            var b = new ChangedBlockInfo((Vector2Int16)pos, block);
+        var b = new ChangedBlockInfo((Vector2Int16)pos, block);
+        // cooled lava has to arrive. the unreliable queue drops it once it fills.
+        if (block == 37) {
+            if (reliableChangedBlocks.Count < 256)
+                reliableChangedBlocks.Add(b);
+        } else if (changedBlocks.Count < MaxChangedBlocksQueue) {
+            //if (changed_blocks.Count < 5 || (WorldGeneration.world.earthquakeIntensity > 0f && changed_blocks.Count < MaxChangedBlocksQueue)) {
             changedBlocks.Add(b);
         }
     }
 
     static NetDataWriter writer = Net.CreateWriter(NetmsgId.SetBlock);
+    static NetDataWriter reliableWriter = Net.CreateWriter(NetmsgId.SetBlock);
     public static void FlushChangedBlocks() {
-        if (changedBlocks.Count == 0) return;
         if (!Multiplayer.IsNetworkActiveAndIsServer() || !SharedMain.LocalWorldIsGenerated || !WorldChunkSync._TILE_SYNC_ENABLED) {
             changedBlocks.Clear();
+            reliableChangedBlocks.Clear();
             return;
         }
-        int n = changedBlocks.Count;
-        for (int i = 0; i < n; i++) {
-            writer.Put(changedBlocks[i]);
+        if (changedBlocks.Count > 0) {
+            int n = changedBlocks.Count;
+            for (int i = 0; i < n; i++) {
+                writer.Put(changedBlocks[i]);
+            }
+            Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
+            writer.ResetKeepMsgId();
+            changedBlocks.Clear();
         }
-        Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
-        writer.ResetKeepMsgId();
-        changedBlocks.Clear();
+        if (reliableChangedBlocks.Count > 0) {
+            int n = reliableChangedBlocks.Count;
+            for (int i = 0; i < n; i++) {
+                reliableWriter.Put(reliableChangedBlocks[i]);
+            }
+            Net.Server_SendToClients(DeliveryMethod.ReliableUnordered, reliableWriter, clientIds: ServerMain.AllClientIdsExceptHost);
+            reliableWriter.ResetKeepMsgId();
+            reliableChangedBlocks.Clear();
+        }
     }
 
     static bool Prefix(WorldGeneration __instance, Vector2Int pos, ushort block) {
@@ -295,7 +334,7 @@ public static class WorldGeneration_CreateExplosion_MultiplayerPatch {
         last_explosion_params = param;
 
         if (!Net.IsRunning) return true;
-        if (_forcerun_tempbool)  return true;
+        if (_forcerun_tempbool) return true;
         if (Net.IsClient) return false;
 
         // world damage stays here. player damage is a claim, so remote bodies step out of the overlap.
@@ -332,51 +371,50 @@ public static class RegenerateWorldPatch {
     public static void Prefix(WorldGeneration __instance) {
 
         try {
-			
+
             Con.UnNoclip();
 
-			if (Net.IsRunning) {
-				if (Net.IsServer) {
+            if (Net.IsRunning) {
+                if (Net.IsServer) {
 
                     var writer = Net.CreateWriter(NetmsgId.CLIENT_Announce_RegenerateWorld);
                     writer.Put((ushort)(__instance.doPod ? 1 : 0));
                     Net.Server_SendToClientsVeryReliable(writer, ServerMain.AllClientIdsExceptHost);
                     // WRITER END;
-                    
+
                     Multiplayer.DoMultiplayerStatusMessageLog("Announced RegenerateWorld.");
 
-					if (!Multiplayer.rules.RespawnKeepInventory) {
-						// drop inventory of dead players for the items to get deleted 
-						foreach (var gggg in ScavPlayer.BodyToPlayerDict) {
-							if ( !gggg.Key.alive) {
+                    if (!Multiplayer.rules.RespawnKeepInventory) {
+                        // drop inventory of dead players for the items to get deleted 
+                        foreach (var gggg in ScavPlayer.BodyToPlayerDict) {
+                            if (!gggg.Key.alive) {
                                 gggg.Value.Server_DropAllInventory();
-							}
-						}
-					}
+                            }
+                        }
+                    }
 
-				} else {
-					ClientMain.ServerIsGeneratingWorld = true;
+                } else {
+                    ClientMain.ServerIsGeneratingWorld = true;
 
-				}
-			}
+                }
+            }
             NetObjectRegistry.UnregisterAllObjectsButKeepInventory();
 
 
-			SharedMain.LastWorldgenFinishTime = Time.realtimeSinceStartupAsDouble;
+            SharedMain.LastWorldgenFinishTime = Time.realtimeSinceStartupAsDouble;
 
-			foreach (var item in ScavPlayer.ClientIdToPlayerDict.Values) {
-				if (item.ServerPlayerState != null) {
-					item.ServerPlayerState.did_give_spawn_location = false;
-					item.ServerPlayerState.is_loaded_in = false;
-				}
+            foreach (var item in ScavPlayer.AllPlayers) {
+                if (item.ServerPlayerState != null) {
+                    item.ServerPlayerState.did_give_spawn_location = false;
+                    item.ServerPlayerState.is_loaded_in = false;
+                }
 
-				item.ResetEntropy();
-				item.levelPlayTime = 0;
-			}
+                item.ResetEntropy();
+                item.levelPlayTime = 0;
+            }
 
 
-		}
-		catch (Exception e) {
+        } catch (Exception e) {
             log.error(e);
         }
 
@@ -433,7 +471,7 @@ public static class WorldGeneration_ApplyLayerModifiers_MultiplayerPatch {
         //if (WorldgenMP.current_instruction != null && WorldgenMP.current_instruction.apply_modifiers == false) {   return false;  }
 
         if (Net.IsRunning) {
-            if (Net.IsClient 
+            if (Net.IsClient
                 || WorldMP.aaaaaaaaaaaaaaaaaaaaaaaaaaa != null // but also saveload does it on its own
             ) {
                 return false; // its controlled by server
@@ -451,7 +489,14 @@ public static class WorldGeneration_ApplyLayerModifiers_MultiplayerPatch {
                     if (layerModifier.active) {
                         log.l($"SERVER: Sending layer modifier: {nameof(layerModifier)}  index: {layerModifier.modifierIndex}");
 
+#if FULLGAME
+                        NetDataWriter writer = Net.CreateWriter(NetmsgId.CLIENT_Announce_LayerModifier);
+                        writer.Put((ushort)layerModifier.modifierIndex);
+                        writer.Put(Physics2D.gravity.y);
+                        Net.Server_SendToClientsVeryReliable(writer, ServerMain.AllClientIdsExceptHost);
+#else
                         Multiplayer.Server_SendRelayMessageToClients((byte)NetmsgId.CLIENT_Announce_LayerModifier, (knetid)layerModifier.modifierIndex, true, false);
+#endif
                     }
                 }
             }
@@ -509,6 +554,133 @@ static class WorldGeneration_Update_EarthquakeBlocksPatch {
                 return true;
         }
         return false;
+    }
+}
+
+// geothermal (depth 8): the top chunk is the drop-in. hot rock tiles, lava, and geysers there spawnkill.
+[HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.UpdateWorld))]
+static class WorldGeneration_UpdateWorld_GeothermalSpawnRow_MultiplayerPatch {
+    static void Prefix(WorldGeneration __instance) {
+        if (__instance == null || __instance.biomeDepth != 8 || !__instance.generatingWorld) {
+            return;
+        }
+        ScrubHotRock(__instance);
+    }
+
+    internal static bool InSpawnBand(Vector2 worldPos) {
+        WorldGeneration world = WorldGeneration.world;
+        if (world == null || world.biomeDepth != 8) {
+            return false;
+        }
+        int chunk = WorldGeneration.CHUNKSIZE;
+        if (chunk < 8) {
+            chunk = 32;
+        }
+        return worldPos.y > (float)world.halfHeight - chunk;
+    }
+
+    static void ScrubHotRock(WorldGeneration world) {
+        ushort[,] blocks = world.worldBlocks;
+        if (blocks == null) {
+            return;
+        }
+        int chunk = WorldGeneration.CHUNKSIZE;
+        if (chunk < 8) {
+            chunk = 32;
+        }
+        int w = blocks.GetLength(0);
+        int h = blocks.GetLength(1);
+        int y0 = h - chunk;
+        if (y0 < 0) {
+            y0 = 0;
+        }
+        for (int x = 0; x < w; x++) {
+            for (int y = y0; y < h; y++) {
+                if (blocks[x, y] == 36) {
+                    blocks[x, y] = 37;
+                }
+            }
+        }
+    }
+}
+
+[HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.PlaceLiquids))]
+static class WorldGeneration_PlaceLiquids_GeothermalSpawnRow_MultiplayerPatch {
+    static bool Prefix(WorldGeneration __instance, float perChunk, byte type, int maxFill) {
+        if (__instance == null || __instance.biomeDepth != 8 || type != 6 || FluidManager.main == null) {
+            return true;
+        }
+        int chunk = WorldGeneration.CHUNKSIZE;
+        if (chunk < 8) {
+            chunk = 32;
+        }
+        float num = (float)(__instance.chunkWidth * __instance.chunkHeight) * perChunk;
+        float ceiling = (float)__instance.halfHeight - chunk;
+        for (int i = 0; (float)i < num; i++) {
+            Vector2 pos = new Vector2(
+                UnityEngine.Random.Range(0L - (long)__instance.halfWidth, __instance.halfWidth),
+                UnityEngine.Random.Range(0L - (long)__instance.halfHeight, ceiling));
+            FluidManager.main.StartFill(__instance.WorldToBlockPos(pos), type, maxFill);
+        }
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(GeyserScript), "Start")]
+static class GeyserScript_Start_GeothermalSpawnRow_MultiplayerPatch {
+    static void Postfix(GeyserScript __instance) {
+        if (__instance == null) {
+            return;
+        }
+        if (!WorldGeneration_UpdateWorld_GeothermalSpawnRow_MultiplayerPatch.InSpawnBand(__instance.transform.position)) {
+            return;
+        }
+        UnityEngine.Object.Destroy(__instance.gameObject);
+    }
+}
+
+[HarmonyPatch(typeof(WorldGeneration), "GeothermalLavaCool")]
+static class WorldGeneration_GeothermalLavaCool_AllPlayers_MultiplayerPatch {
+    // stock cools lava around the camera body only. host rolls that cool around a random living player.
+    static bool Prefix(WorldGeneration __instance, ref IEnumerator __result) {
+        if (!Net.IsRunning || !Net.IsServer)
+            return true;
+        __result = CoolLavaNearAllPlayers(__instance);
+        return false;
+    }
+
+    static IEnumerator CoolLavaNearAllPlayers(WorldGeneration world) {
+        while (world != null && !world.generatingWorld) {
+            int passes = world.forceRain ? 5 : 1;
+            for (int i = 0; i < passes; i++) {
+                Body body = PickCoolBody();
+                if (body == null)
+                    continue;
+                Vector2 pos = (Vector2)body.transform.position + UnityEngine.Random.insideUnitCircle * 16f;
+                if (FluidManager.main != null && FluidManager.main.GetLiquid(pos) == 6) {
+                    world.SetBlock(pos, 37);
+                    FluidManager.main.SetLiquid(pos, 0);
+                    if (WorldChunkSync.singleton != null)
+                        WorldChunkSync.singleton.timer_TilemapFluidSync = 10f;
+                }
+            }
+            yield return new WaitForSeconds(0.066f);
+        }
+    }
+
+    static Body PickCoolBody() {
+        List<ScavPlayer> living = ScavPlayer.AllLivingPlayers;
+        if (living != null && living.Count > 0) {
+            int start = UnityEngine.Random.Range(0, living.Count);
+            for (int i = 0; i < living.Count; i++) {
+                ScavPlayer plr = living[(start + i) % living.Count];
+                if (plr?.body != null)
+                    return plr.body;
+            }
+        }
+        if (PlayerCamera.main == null)
+            return null;
+        return PlayerCamera.main.body;
     }
 }
 
@@ -647,7 +819,7 @@ static class WorldGeneration_IncreaseDepthByLayer_MultiplayerPatch {
         foreach (var body in ScavPlayer.BodyToPlayerDict.Keys) {
             if (body == null || body.skills == null)
                 continue;
-            if (!body.IsBodyLocal()) // It was already given to local player
+            if (!body.IsBodyLocal()) // it was already given to local player
                 body.skills.AddExp(2, 80f);
             if (body.TryGetNetBody(out NetBody nb))
                 MedicalSync.Server_QueueSendCharacterHealth(nb, true);
@@ -669,7 +841,7 @@ public static class WorldGeneration_GenerateWorld_MultiplayerPatch {
 
     public static LastBeforeGenerationState firstworldgenparams;
     public static bool client_firstworldgenparams_are_used = true;
-    
+
     public static void InitializeSpecialResourcePrefabs() {
         {
             var ticks = (GameObject)Resources.Load("CaveTicks");
@@ -679,7 +851,7 @@ public static class WorldGeneration_GenerateWorld_MultiplayerPatch {
             var sandvine = (GameObject)Resources.Load("Special/sandvinerope");
             var c = sandvine.GetOrAddComponent<TrackerClimbableEntity>();
             var b = sandvine.GetComponent<BuildingEntity>();
-            if (String.IsNullOrEmpty(c.og_id)) 
+            if (String.IsNullOrEmpty(c.og_id))
                 c.og_id = b.id;
             b.id = TrackerClimbableEntity.sandvine_new_id; // cuz originally its "sandvine" which is not a valid resource
 
@@ -690,7 +862,42 @@ public static class WorldGeneration_GenerateWorld_MultiplayerPatch {
                 c.og_id = b.id;
             b.id = TrackerClimbableEntity.mushroomrope_new_id; // cuz originally its just "mushroomrope" but its in the special folder so i need to specify that
 
-            var climbingropeextended = (GameObject)Resources.Load("climbingropeextended"); 
+#if FULLGAME
+            var veinloop = (GameObject)Resources.Load("Special/veinloop");
+            if (veinloop != null) {
+                c = veinloop.GetOrAddComponent<TrackerClimbableEntity>();
+                b = veinloop.GetComponent<BuildingEntity>();
+                if (b != null) {
+                    if (String.IsNullOrEmpty(c.og_id))
+                        c.og_id = b.id;
+                    b.id = TrackerClimbableEntity.veinloop_new_id;
+                }
+            }
+
+            var spicevine = (GameObject)Resources.Load(TrackerClimbableEntity.spicevine_id);
+            if (spicevine != null) {
+                c = spicevine.GetOrAddComponent<TrackerClimbableEntity>();
+                b = spicevine.GetComponent<BuildingEntity>();
+                if (b != null && String.IsNullOrEmpty(c.og_id)) {
+                    c.og_id = b.id;
+                }
+            }
+
+            var spicevineceiling = (GameObject)Resources.Load(TrackerClimbableEntity.spicevineceiling_id);
+            if (spicevineceiling != null) {
+                c = spicevineceiling.GetOrAddComponent<TrackerClimbableEntity>();
+                b = spicevineceiling.GetComponent<BuildingEntity>();
+                if (b != null) {
+                    if (String.IsNullOrEmpty(c.og_id)) {
+                        c.og_id = b.id;
+                    }
+                    // stock id is also "spicevine" - clients need the ceiling resource path
+                    b.id = TrackerClimbableEntity.spicevineceiling_id;
+                }
+            }
+#endif
+
+            var climbingropeextended = (GameObject)Resources.Load("climbingropeextended");
             c = climbingropeextended.GetOrAddComponent<TrackerClimbableEntity>(); // for some reason it doesnt get put on ? (OR NAH, ITS PROLLY CUZ ITS FROM BUILTINGS)
 
             var ladder = (GameObject)Resources.Load("ladder");
@@ -703,9 +910,7 @@ public static class WorldGeneration_GenerateWorld_MultiplayerPatch {
         {
 
             /*
-    KMPSR_Lifepod -> Lifepod
-    KMPSR_BioContainer -> BioContainer
-    KMPSR_SteelBridge -> SteelBridge
+    KMPSR_* ids for GenerateEntityAtPos structure floors (demo "background" / fullgame empty id)
              */
 
 #if TESTING
@@ -714,11 +919,25 @@ public static class WorldGeneration_GenerateWorld_MultiplayerPatch {
             foreach (var item in new string[] {
                 "Lifepod",
                 "BioContainer",
-                "structures/SteelBridge"
+                "Structures/SteelBridge",
+                "Structures/CratePod",
+                "Structures/MiniPod",
+                "Structures/MedicalBuilding",
+                "Structures/BrickLoot",
+                "Structures/LongCorridor",
+                "Structures/RestSpot",
+                "Structures/BlueHeartCont",
+                "Structures/CrystalSpawnPlatform",
+                "Special/TutorialStructure",
+                "Special/EndLab",
             }) {
                 GameObject basObj = null;
                 try {
                     basObj = Resources.Load<GameObject>(item);
+                    if (basObj == null) {
+                        log.warn($"Force-register backgrounds: missing prefab {item}");
+                        continue;
+                    }
                     foreach (Transform ch in basObj.transform) {
                         ScavMPBuildingSynchronizer.RegisterNonUniqueIdBg(ch, false);
                     }
@@ -796,7 +1015,13 @@ public static class WorldGeneration_ContinueRun_MultiplayerPatch {
 
         if (Net.IsRunning) {
             PlayerCamera.main.body.forceWalk = false;
-
+#if FULLGAME
+            // ascent advances only after every living player finishes the scroller
+            if (FullgameWorldCompat.IsAscentLayer()) {
+                __instance.savePanel.SetActive(false);
+                return false;
+            }
+#endif
             if (Net.IsClient) {
                 PlayerCamera.main.DoAlert(Lang.Get("wait_for_host"));
                 return false;
@@ -896,14 +1121,3 @@ public static class WorldGeneration_UpdateAmbientLight_MultiplayerPatch {
         __instance.ambientLight.intensity = intensity;
     }
 }
-
-
-
-
-
-
-
-
-
-
-

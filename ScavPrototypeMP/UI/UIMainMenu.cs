@@ -1,5 +1,7 @@
-using HarmonyLib;
+using BepInEx;
 using CasualtiesTogetherUtils;
+using HarmonyLib;
+using KrokV5Optimization;
 using Steamworks;
 using System;
 using System.Collections.Generic;
@@ -9,8 +11,6 @@ using TMPro;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.UI;
-using BepInEx;
-using KrokV5Optimization;
 
 namespace Together;
 
@@ -26,11 +26,11 @@ public abstract class SettingDeclarerThingyBaseAttribute : Attribute {
     public object default_value;
 
     public bool allow_saving = true;
-    
+
     public string GetPrefKey(FieldInfo f) {
         return "KrokoshaMultiplayer_Setting_" + f.DeclaringType + "_" + f.Name;
     }
-    public virtual void Save(FieldInfo f, object v) { 
+    public virtual void Save(FieldInfo f, object v) {
         throw new NotImplementedException("SettingDeclarerThingyBaseAttribute.Save: Bro... thats not intended to be used! override ts!");
     }
     public virtual void Get(FieldInfo f) {
@@ -44,7 +44,7 @@ public class SettingDeclarerThingyFloatAttribute : SettingDeclarerThingyBaseAttr
     public float ma;
     public string postfix = "";
 
-    public SettingDeclarerThingyFloatAttribute(float min, float max, string name ) {
+    public SettingDeclarerThingyFloatAttribute(float min, float max, string name) {
         mi = min;
         ma = max;
         n = name;
@@ -72,17 +72,17 @@ public class SettingDeclarerThingyFloatAttribute : SettingDeclarerThingyBaseAttr
 }
 [AttributeUsage(AttributeTargets.Field)]
 public class SettingDeclarerThingyBoolAttribute : SettingDeclarerThingyBaseAttribute {
-    
-    public SettingDeclarerThingyBoolAttribute( string name) {
+
+    public SettingDeclarerThingyBoolAttribute(string name) {
         n = name;
     }
     public override void Save(FieldInfo f, object v) {
-        
+
         var newval = (bool)v;
 
         if (allow_saving)
             SettingsJsonThing.json.SetBool(this.GetPrefKey(f), newval);
-        
+
         f.SetValue(null, newval);
     }
 
@@ -102,18 +102,18 @@ public class SettingDeclarerThingyChoiceAttribute : SettingDeclarerThingyBaseAtt
 
     }
     public override void Save(FieldInfo f, object v) {
-       
+
         var newval = Convert.ToInt32(v);
 
         if (allow_saving)
             SettingsJsonThing.json.SetInt(this.GetPrefKey(f), newval);
-        
-        f.SetValue(null, Convert.ChangeType(newval,f.FieldType));
+
+        f.SetValue(null, Convert.ChangeType(newval, f.FieldType));
     }
 
     public override void Get(FieldInfo f) {
         if (!allow_saving) return;
-        f.SetValue(null, 
+        f.SetValue(null,
             Convert.ChangeType(
                 SettingsJsonThing.json.GetInt(this.GetPrefKey(f), Convert.ToInt32(this.default_value))
                 , f.FieldType
@@ -125,7 +125,7 @@ public class SettingDeclarerThingyChoiceAttribute : SettingDeclarerThingyBaseAtt
 
 
 public static class Amogus {
-    //What is this
+    //what is this
 }
 
 
@@ -142,7 +142,7 @@ public static class UIMainMenu {
         public Action<Rect> gui_func;
         public Action on_open;
 
-        public object data1; 
+        public object data1;
         public object data2;
         public object data3;
         public object data4;
@@ -150,7 +150,7 @@ public static class UIMainMenu {
     }
     public class SettingsTab : MenuTab {
         internal static List<SettingsTab> tabs = new List<SettingsTab>();
-        
+
         public Type settings_origin;
         public Action on_reset;
 
@@ -170,7 +170,7 @@ public static class UIMainMenu {
         //if (UIBullshit.main.TryGetComponent(out UIMainMenu mm)) {
         //    return mm.mainmenu_open;
         //}
-        
+
         return mainmenu_open;
     }
     public static bool IsInSettings() {
@@ -178,10 +178,56 @@ public static class UIMainMenu {
     }
 
 
+    internal const string CoreLibPluginGuid = "net.cucorelib";
+    internal const string CoreLibMissingLabel = "CUCoreLib not found";
+
+    internal static bool CoreLibLoaded {
+        get {
+            try {
+                return BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(CoreLibPluginGuid);
+            } catch {
+                return false;
+            }
+        }
+    }
+
+    internal static void ApplyMpMenuButton(bool open) {
+        if (UIManager.MP_MENU_BUTTON == null) {
+            return;
+        }
+
+        TextMeshProUGUI label = UIManager.MP_MENU_BUTTON.GetComponentInChildren<TextMeshProUGUI>();
+        Button button = UIManager.MP_MENU_BUTTON.GetComponent<Button>();
+        if (!CoreLibLoaded) {
+            if (label != null) {
+                label.text = CoreLibMissingLabel;
+            }
+            if (button != null) {
+                // disabledColor on the cloned Cancel button can be fully clear, which hides the label
+                ColorBlock colors = button.colors;
+                colors.disabledColor = colors.normalColor;
+                button.colors = colors;
+                button.interactable = false;
+            }
+            return;
+        }
+
+        if (button != null) {
+            button.interactable = true;
+        }
+        if (label != null) {
+            label.text = Lang.Get(open ? "mainmenu_mainbutton_close" : "mainmenu_mainbutton");
+        }
+    }
+
     public static bool mainmenu_open { get; private set; }
     public static void SetOpen(bool open_or_nah) {
+        if (open_or_nah && !CoreLibLoaded) {
+            ApplyMpMenuButton(false);
+            return;
+        }
         if (open_or_nah != mainmenu_open) {
-            if (open_or_nah ) {
+            if (open_or_nah) {
                 Application.runInBackground = true;
                 RestoreLastRulePreset();
                 if (UIManager.runSettingsMenu != null) {
@@ -193,16 +239,7 @@ public static class UIMainMenu {
             } else {
                 Util.PlayUISound(PlayerCamera.UISoundType.Close);
             }
-            if (UIManager.MP_MENU_BUTTON != null) {
-                var ttttt = UIManager.MP_MENU_BUTTON.GetComponentInChildren<TextMeshProUGUI>();
-                if (ttttt != null) {
-                    if (open_or_nah) {
-                        ttttt.text = Lang.Get("mainmenu_mainbutton_close");
-                    } else {
-                        ttttt.text = Lang.Get("mainmenu_mainbutton");
-                    }
-                }
-            }
+            ApplyMpMenuButton(open_or_nah);
             OnMenuTabChange();
         }
         if (open_or_nah) {
@@ -262,12 +299,12 @@ public static class UIMainMenu {
                     GUI.DrawTexture(rect, CoopModAssets.cross.texture, ScaleMode.StretchToFill, true, 1, Color.red, 0, 0);
                 }
             } else {
-                
+
             }
             if (Voicechat.VCRULE_enabled && plr.vc_output != null && CoopModAssets.voicechaticon != null) {
                 var voicechat_transp_color = plr.vc_output.CalculateVoiceChatIconColor(out var realcurvcvol);
                 if (realcurvcvol > 0 || (plr.IsLocal && Voicechat.IS_RECORDING)) {
-                    
+
                     GUI.color = voicechat_transp_color;
 
                     GUILayout.Label(CoopModAssets.voicechaticon.texture, GUILayout.Width(textsize.y), GUILayout.Height(textsize.y));
@@ -278,7 +315,7 @@ public static class UIMainMenu {
                 }
                 curXOffset += textsize.y;
             } else {
-                //GUILayout.Space(textsize.y);
+                //gUILayout.Space(textsize.y);
             }
 
             GUI.skin.label.normal.textColor = plr.playerColor;
@@ -327,8 +364,8 @@ public static class UIMainMenu {
 
         GUI.skin.label.margin = new RectOffset(0, 0, 0, 0);
         GUI.skin.label.fontSize = (int)(ogfontsize * 1.3f);
-       
-        GUILayout.Label($"{Lang.Get("netpanel_title")} v{Plugin.FULL_MOD_VERSION}", GUILayout.Height(GUI.skin.label.fontSize*1.75f));
+
+        GUILayout.Label($"{Lang.Get("netpanel_title")} v{Plugin.FULL_MOD_VERSION}", GUILayout.Height(GUI.skin.label.fontSize * 1.75f));
 
         GUI.skin.label.fontSize = ogfontsize;
         GUI.skin.label.alignment = ogalign;
@@ -352,11 +389,11 @@ public static class UIMainMenu {
         } else {
             GUILayout.Label(" ");
         }
-            
 
-        
 
-        if (Net.IsConnected ) { // draw player list
+
+
+        if (Net.IsConnected) { // draw player list
 
             GUILayout.BeginVertical();
 
@@ -382,7 +419,7 @@ public static class UIMainMenu {
 
                 scrollbullshit = GUILayout.BeginScrollView(scrollbullshit, GUILayout.ExpandHeight(true));
                 {
-                    foreach (var plr in ScavPlayer.ClientIdToPlayerDict.Values) {
+                    foreach (var plr in ScavPlayer.AllPlayers) {
                         _GUI__PlrListDrawPlr(plr);
                     }
                 }
@@ -404,11 +441,11 @@ public static class UIMainMenu {
         GUILayout.FlexibleSpace();
 
 
-        if ( (Time.realtimeSinceStartupAsDouble - Multiplayer.lastMultiplayerStatusMessageChangeTime < 10.0 )) {
+        if ((Time.realtimeSinceStartupAsDouble - Multiplayer.lastMultiplayerStatusMessageChangeTime < 10.0)) {
 
             GUI.skin.label.wordWrap = true;
             GUI.skin.label.stretchHeight = true;
-            GUI.skin.label.fontSize = (int)(ogfontsize*0.75f);
+            GUI.skin.label.fontSize = (int)(ogfontsize * 0.75f);
 
             var txt = Lang.Get("netpanel_laststatus") + "\n" + Multiplayer.multiplayerStatusMessage;
 
@@ -459,7 +496,7 @@ public static class UIMainMenu {
 
             }
         } catch (Exception e) {
-            log.error($"_GUI_DrawSideMenuWithPlayerList FOOTER: ({Event.current.ToString()})\n{e.ToString()}" );
+            log.error($"_GUI_DrawSideMenuWithPlayerList FOOTER: ({Event.current.ToString()})\n{e.ToString()}");
         }
 
 
@@ -507,7 +544,7 @@ public static class UIMainMenu {
             if (scaled.x > Screen.width) {
                 scaled = scaled * (Screen.width / scaled.x);
             }
-            mainpanelrect = new Rect(0,0, scaled.x, scaled.y);
+            mainpanelrect = new Rect(0, 0, scaled.x, scaled.y);
             mainpanelrect.center = UIBullshit.GetHalfScreenSize();
 
             UIBullshit._GUI_9SlicePanel(mainpanelrect, 1, 0.6980392f, true, UIBullshit.unscaled_uiBlockNano);
@@ -713,11 +750,11 @@ public static class UIMainMenu {
                 current_tab.gui_func(mainpanelcontentrect);
             } catch (Exception ex) {
                 log.error($"MENU TAB RENDER ERROR: {current_tab.name}\n{ex.ToString()}");
-            } 
+            }
         } else {
             var ogfontsize = GUI.skin.label.fontSize;
             GUI.skin.label.fontSize = ogfontsize + ogfontsize;
-            GUILayout.Label("No tab selected.", GUILayout.ExpandHeight(true),GUILayout.ExpandWidth(true));
+            GUILayout.Label("No tab selected.", GUILayout.ExpandHeight(true), GUILayout.ExpandWidth(true));
             GUI.skin.label.fontSize = ogfontsize;
         }
 
@@ -738,8 +775,8 @@ public static class UIMainMenu {
 
     public static MenuTab menutab_directconnect = new MenuTab {
         name = "mmtb_directconnect",
-        on_open = () => { 
-            _COLOR_EDITING = null; 
+        on_open = () => {
+            _COLOR_EDITING = null;
             ____GUI___ConnectionSecondPanel_ContentRender_RenderDetailedPlayerList_ban_kick_safety = false;
             RestoreLastRulePreset();
         },
@@ -773,7 +810,7 @@ public static class UIMainMenu {
         if (
             INPUT_COLORHEX.Length > 1
         ) {
-            
+
             if (
                 Color24.TryParseHex(INPUT_COLORHEX, out var c)
                 && ScavPlayer.CheckIfPlrColorIsValid(c)
@@ -798,7 +835,7 @@ public static class UIMainMenu {
     static void _GUI___DirectConnect_DoSteamInfoo(Rect r2, float fieldheight, float fieldnameswidth, float fieldswidth) {
         fieldnameswidth *= 1.1f;
 
-        //GUILayout.Space(20 * GetMenuUIScale());
+        //gUILayout.Space(20 * GetMenuUIScale());
 
         GUI.skin.label.alignment = TextAnchor.UpperLeft;
         GUILayout.BeginHorizontal(GUILayout.Height(fieldheight));
@@ -853,7 +890,7 @@ public static class UIMainMenu {
         GUILayout.EndHorizontal();
     }
 
-    
+
 
     static void _GUI___DirectConnect_DoSteamConnectButtons(Rect r2, float fieldheight, float fieldnameswidth, float fieldswidth, float bigheight) {
 
@@ -901,7 +938,7 @@ public static class UIMainMenu {
             } else {
                 if (can_edit) {
                     Multiplayer.INPUT_PASSWORD = GUILayout.PasswordField(Multiplayer.INPUT_PASSWORD, '*', GUILayout.Width(fieldswidth));
-                    //Multiplayer.INPUT_PASSWORD = Multiplayer.SanitizeTextInput(Multiplayer.INPUT_PASSWORD);
+                    //multiplayer.INPUT_PASSWORD = Multiplayer.SanitizeTextInput(Multiplayer.INPUT_PASSWORD);
                 } else {
                     GUILayout.Label(new string('*', Multiplayer.INPUT_PASSWORD.Length), GUILayout.Width(fieldswidth));
                 }
@@ -926,7 +963,7 @@ public static class UIMainMenu {
         }
         GUILayout.EndHorizontal();
     }
-    
+
     static void _GUI___DirectConnect_DoColorPickerThingy(bool textfields_are_readonly) {
         var siiiiiiiiiiiiz2 = GUI.skin.label.CalcSize(FixGuiContent.Content("#FFFFFF", 13));
         var siiiiiiiiiiiiz3 = GUI.skin.label.CalcSize(FixGuiContent.Content(INPUT_COLORHEX, 14));
@@ -967,7 +1004,7 @@ public static class UIMainMenu {
             }
 
             INPUT_COLORHEX = GUILayout.TextField(INPUT_COLORHEX, 7, GUILayout.Width(siiiiiiiiiiiiz2.x));
-            if (INPUT_COLORHEX.Length > 6 && !INPUT_COLORHEX.StartsWith('#') ) {
+            if (INPUT_COLORHEX.Length > 6 && !INPUT_COLORHEX.StartsWith('#')) {
                 INPUT_COLORHEX = INPUT_COLORHEX.Substring(0, 6);
             }
 
@@ -1018,7 +1055,7 @@ public static class UIMainMenu {
         }
         Multiplayer.SERVER_TOGGLE_SHOULD_HOST_DEDICATED = GUILayout.Toggle(Multiplayer.SERVER_TOGGLE_SHOULD_HOST_DEDICATED, Lang.Get("mmct_sconfig_dedicated"));
         DoTooltipOnLastGUIRect(GUI.enabled ? "mmct_sconfig_dedicated_tooltip" : "mmct_sconfig_dedicated_disabled");
-        
+
         GUI.enabled = ogeneabled;
 
 
@@ -1077,7 +1114,7 @@ public static class UIMainMenu {
             GUILayout.FlexibleSpace();
         }
         GUILayout.EndHorizontal();
-        
+
         GUILayout.FlexibleSpace();
 
     }
@@ -1098,7 +1135,7 @@ public static class UIMainMenu {
 
                     return;
                 }
-            } 
+            }
 
 
             var fieldnameswidth = r2.width * 0.27f;
@@ -1142,7 +1179,7 @@ public static class UIMainMenu {
 
                 GUI.skin.label.alignment = TextAnchor.UpperLeft;
                 if ((!Net.IsRunning || Net.IsServer)) { // is readonly
-                    var newname = GUILayout.TextField(Net.MyServerInfo.name );
+                    var newname = GUILayout.TextField(Net.MyServerInfo.name);
 
                     if (Net.MyServerInfo.name != newname) {
                         Multiplayer.SetServerName(newname);
@@ -1176,13 +1213,13 @@ public static class UIMainMenu {
                         if (_HIDE_IPPORT) {
                             USERINPUT_IPPORT = GUILayout.PasswordField(USERINPUT_IPPORT, '*', GUILayout.Width(ipportfieldwidth));
                         } else {
-                            USERINPUT_IPPORT = GUILayout.TextField(USERINPUT_IPPORT , GUILayout.Width(ipportfieldwidth));
+                            USERINPUT_IPPORT = GUILayout.TextField(USERINPUT_IPPORT, GUILayout.Width(ipportfieldwidth));
                         }
                     }
                     GUI.skin.label.alignment = TextAnchor.UpperLeft;
 
                     _HIDE_IPPORT = GUILayout.Toggle(_HIDE_IPPORT, Lang.Get("mmct_hideip"));
-                    
+
                     GUILayout.FlexibleSpace();
                 }
                 GUILayout.EndHorizontal();
@@ -1233,8 +1270,8 @@ public static class UIMainMenu {
 
                 GUILayout.Space(15 * GetMenuUIScale());
             }
-            
-            
+
+
 
             GUILayout.BeginHorizontal(GUILayout.Height(bigheight));
             {
@@ -1365,7 +1402,9 @@ public static class UIMainMenu {
             }
 
             var nwww = GUILayout.TextField(text, Multiplayer.MAX_NAME_LENGTH, GUILayout.Width(fieldswidth));
-
+            if (nwww != USERINPUT_NAME) {
+                Multiplayer.ExplicitSessionName = true;
+            }
             USERINPUT_NAME = nwww;
         }
         _GUI___DirectConnect_DoColorPickerThingy(textfields_are_readonly);
@@ -1393,7 +1432,7 @@ public static class UIMainMenu {
             GUI.skin.label.fontSize = (int)(ogfontsize * 1.4f);
             GUI.skin.label.alignment = TextAnchor.UpperCenter;
 
-            _CONNECTIONSECONDPANEL_TOOLBAR_STRS[0] = Lang.Get("mmct_plrs" );
+            _CONNECTIONSECONDPANEL_TOOLBAR_STRS[0] = Lang.Get("mmct_plrs");
             _CONNECTIONSECONDPANEL_TOOLBAR_STRS[1] = Lang.Get("mmct_rules");
 
             _CONNECTIONSECONDPANEL_TOOLBAR = GUILayout.Toolbar(_CONNECTIONSECONDPANEL_TOOLBAR, _CONNECTIONSECONDPANEL_TOOLBAR_STRS);
@@ -1442,7 +1481,7 @@ public static class UIMainMenu {
     public static bool ____GUI___ConnectionSecondPanel_ContentRender_RenderDetailedPlayerList_ban_kick_safety = false; // ban/kick safety
     public static bool ____GUI___ConnectionSecondPanel_ContentRender_RenderDetailedPlayerList_showLitenetLibBanButton = false;
     public static bool ____GUI___ConnectionSecondPanel_ContentRender_RenderDetailedPlayerList_gaben = false;
-    
+
     static void _GUI___ConnectionSecondPanel_ContentRender_RenderDetailedPlayerList(Rect r) {
         if (!Net.IsRunning) {
             GUI.skin.label.alignment = TextAnchor.MiddleCenter;
@@ -1450,7 +1489,7 @@ public static class UIMainMenu {
         } else if (ScavPlayer.ClientIdToPlayerDict.Count > 0) {
 
             var og_enabled = GUI.enabled;
-            foreach (var plr in new List<ScavPlayer>(ScavPlayer.ClientIdToPlayerDict.Values)) {
+            foreach (var plr in new List<ScavPlayer>(ScavPlayer.AllPlayers)) {
 
                 GUI.skin.label.alignment = TextAnchor.UpperLeft;
                 GUILayout.BeginVertical(GUI.skin.box);
@@ -1480,7 +1519,7 @@ public static class UIMainMenu {
 
             GUILayout.BeginHorizontal();
             {
-                
+
                 GUILayout.Label(Lang.Get("mmct_presetname"));
                 _GUI____RenderRuleField_PresetName = GUILayout.TextField(_GUI____RenderRuleField_PresetName, GUILayout.ExpandWidth(false), GUILayout.Width(r2.width * 0.23f));
 
@@ -1508,7 +1547,7 @@ public static class UIMainMenu {
                         var selectedPreset = Multiplayer.RulesSaver.GetPresets().ElementAtOrDefault(_GUI____RenderRuleField_PresetChosen - 1);
                         Multiplayer.RulesSaver.DeleteKey(_GUI____RenderRuleField_PresetName);
                         Multiplayer.RulesSaver.Save();
-                        // Resolve by name so deleting an earlier entry cannot select a different preset.
+                        // resolve by name so deleting an earlier entry cannot select a different preset.
                         _GUI____RenderRuleField_PresetChosen = Multiplayer.RulesSaver.GetPresets().ToList().IndexOf(selectedPreset) + 1;
                         if (_GUI____RenderRuleField_PresetChosen == 0) {
                             _GUI____RenderRuleField_PresetName = "";
@@ -1585,9 +1624,9 @@ public static class UIMainMenu {
             foreach (var fld in rule_fields) {
                 GUILayout.BeginHorizontal();
                 try {
-                    _GUI____RenderRuleField(fld, can_edit , r2);
+                    _GUI____RenderRuleField(fld, can_edit, r2);
                 } catch (Exception e) {
-                    log.error($"_GUI___ConnectionSecondPanel_ContentRender_RenderRulesList: \nFLD: {fld} \n{e.ToString()}" );
+                    log.error($"_GUI___ConnectionSecondPanel_ContentRender_RenderRulesList: \nFLD: {fld} \n{e.ToString()}");
                 }
                 GUILayout.EndHorizontal();
             }
@@ -1608,7 +1647,7 @@ public static class UIMainMenu {
     }
 
     internal static void RestoreLastRulePreset() {
-        // Client/server rules belong to the active lobby, not the local hosting preference.
+        // client/server rules belong to the active lobby, not the local hosting preference.
         if (Net.IsRunning) return;
 
         var presetName = SettingsJsonThing.json.GetString(LastRulePresetKey);
@@ -1619,7 +1658,7 @@ public static class UIMainMenu {
             Multiplayer.rules = Multiplayer.RulesSaver.GetData(presetName);
             Multiplayer.ApplyGameRules();
         } else if (!String.IsNullOrEmpty(presetName)) {
-            // A preset removed outside the menu must not leave a stale selection behind.
+            // a preset removed outside the menu must not leave a stale selection behind.
             RememberRulePreset("");
         }
     }
@@ -1673,7 +1712,7 @@ public static class UIMainMenu {
                 fld.SetValueDirect(rulesref, newvalue);
 
                 did_change = newvalue != (bool)ogvalue;
-                
+
             } else if (fld.HasAttribute(typeof(MultiplayerRuleByteAttribute))) {
                 var attr = fld.GetAttribute<MultiplayerRuleByteAttribute>();
                 byte p = (byte)ogvalue;
@@ -1688,7 +1727,7 @@ public static class UIMainMenu {
                 GUILayout.Label(rulevaluestring, GUILayout.ExpandWidth(false), GUILayout.Width(r2.width * 0.1f));
 
                 did_change = newvalue != floatified;
-                
+
             } else if (fld.FieldType == typeof(float)) {
 
                 var min = 0f;
@@ -1707,7 +1746,7 @@ public static class UIMainMenu {
                 ), 1);
 
                 do_tooltip = do_tooltip || UIBullshit.CheckCursorOverlap(GUIUtility.GUIToScreenRect(GUILayoutUtility.GetLastRect()));
-                
+
 
                 fld.SetValueDirect(rulesref, newvalue);
                 if (attr != null) {
@@ -1718,9 +1757,9 @@ public static class UIMainMenu {
                 GUILayout.Label(rulevaluestring, GUILayout.ExpandWidth(false), GUILayout.Width(r2.width * 0.1f));
 
                 did_change = newvalue != (float)ogvalue;
-               
+
             } else if (fld.FieldType == typeof(int) || fld.FieldType == typeof(byte) || fld.FieldType == typeof(ushort)) {
-                var actually_parsed = int.TryParse(GUILayout.TextField( (ogvalue).ToString()), out var newvalue);
+                var actually_parsed = int.TryParse(GUILayout.TextField((ogvalue).ToString()), out var newvalue);
                 if (actually_parsed) {
                     fld.SetValueDirect(rulesref, newvalue);
                     did_change = newvalue.ToString() != ogvalue.ToString();
@@ -1793,7 +1832,7 @@ public static class UIMainMenu {
 
         } else if (_CONNECTIONSECONDPANEL_TOOLBAR == 1) {
             //GUI.skin.label.alignment = TextAnchor.UpperRight;
-            //GUILayout.Box();
+            //gUILayout.Box();
 
 
             _GUI___ConnectionSecondPanel_ContentRender_RenderRulesList(r2);
@@ -1833,7 +1872,7 @@ public static class UIMainMenu {
             }
 
             GUI.color = plr.playerColor;
-            GUILayout.Label( plr.playerName , GUILayout.Width(Mathf.Min(textsize.x, r.width*0.5f)));
+            GUILayout.Label(plr.playerName, GUILayout.Width(Mathf.Min(textsize.x, r.width * 0.5f)));
             GUI.color = Color.white;
 
             GUILayout.FlexibleSpace();
@@ -1878,12 +1917,12 @@ public static class UIMainMenu {
         GUILayout.BeginHorizontal();
         {
             if (____GUI___ConnectionSecondPanel_ContentRender_RenderDetailedPlayerList_gaben) {
-                if (GUILayout.Button(Lang.Get("mmct_plr_steamprofile")) ) {
+                if (GUILayout.Button(Lang.Get("mmct_plr_steamprofile"))) {
                     SteamFriends.ActivateGameOverlayToUser("steamid", (CSteamID)plr.SteamId);
                 }
             }
 
-            GUILayout.Space( 5 * GetMenuUIScale() );
+            GUILayout.Space(5 * GetMenuUIScale());
 
 
             if (Con.CanExecuteAdminCommands()) {
@@ -1897,7 +1936,7 @@ public static class UIMainMenu {
                     }
                     GUI.color = c;
 
-                    _COLOR_EDITING_STR = GUILayout.TextField( _COLOR_EDITING_STR, 7, GUILayout.Width(siiiiiiiiiiiiz2.x));
+                    _COLOR_EDITING_STR = GUILayout.TextField(_COLOR_EDITING_STR, 7, GUILayout.Width(siiiiiiiiiiiiz2.x));
 
 
                     if (_COLOR_EDITING_STR.Length > 6 && !_COLOR_EDITING_STR.StartsWith('#')) {
@@ -1905,7 +1944,7 @@ public static class UIMainMenu {
                     }
                     GUI.color = Color.white;
 
-                    if (GUILayout.Button( Lang.Get("mm_apply"))) {
+                    if (GUILayout.Button(Lang.Get("mm_apply"))) {
                         if (plr.playerColor != c) {
                             var com = $"setplrcolor id:{plr.playerId} {c.ToHex(true)}";
 #if !RELEASE
@@ -1920,7 +1959,7 @@ public static class UIMainMenu {
                     GUI.color = plr.playerColor;
 
                     //GUI.color = plr.plrcolor;
-                    if (GUILayout.Button( Lang.Get("mmct_plr_setcolor"))) {
+                    if (GUILayout.Button(Lang.Get("mmct_plr_setcolor"))) {
                         _COLOR_EDITING_STR = plr.playerColor.ToHex(false);
                         _COLOR_EDITING = plr;
                     }
@@ -1935,7 +1974,7 @@ public static class UIMainMenu {
 
             if (!plr.IsLocal && Con.CanExecuteAdminCommands()) {
                 //if (GUI.enabled)  GUI.enabled = ____GUI___ConnectionSecondPanel_ContentRender_RenderDetailedPlayerList_ban_kick_safety;
-                
+
 
                 // mute buttons
                 {
@@ -1947,7 +1986,7 @@ public static class UIMainMenu {
                     }
                     if (plr.server_mute_vc) {
                         var rect = (GUILayoutUtility.GetLastRect());
-                        GUI.DrawTexture(rect, CoopModAssets.cross.texture, ScaleMode.ScaleToFit, true, 1, Color.red, 0,0);
+                        GUI.DrawTexture(rect, CoopModAssets.cross.texture, ScaleMode.ScaleToFit, true, 1, Color.red, 0, 0);
                     }
                     if (GUILayout.Button(CoopModAssets.LoadSprite($"speechbubble3.png").texture, GUILayout.Width(mutelabelsize.y), GUILayout.Height(mutelabelsize.y))) {
                         Util.DelayCallLambda(0.001f, () => {
@@ -2004,9 +2043,9 @@ public static class UIMainMenu {
             GUI.skin.label.alignment = TextAnchor.UpperLeft;
             GUILayout.Label("ID:" + " " + plr.playerId);
             GUILayout.Space(2 * GetMenuUIScale());
-            GUILayout.Label( Lang.Get("mmct_plr_ping") + " " + plr.ping_as_ms.ToString());
+            GUILayout.Label(Lang.Get("mmct_plr_ping") + " " + plr.ping_as_ms.ToString());
 
-            if ( plr.ServerPlayerState != null) {
+            if (plr.ServerPlayerState != null) {
                 GUILayout.Label($" TPS:{plr.ServerPlayerState.tps,3} FPS:{plr.ServerPlayerState.fps,3}");
             }
         }
@@ -2077,14 +2116,14 @@ public static class UIMainMenu {
 
 
     }
-    
+
     #region ALL_SETTINGS
-    
+
     static void _GUI_RenderSettingsMenu(Rect r) {
-        
+
         var choicerect = new Rect(r);
         {
-            choicerect.xMax = Mathf.LerpUnclamped(choicerect.xMax, choicerect.xMin,0.7f) - 50f * GetMenuUIScale();
+            choicerect.xMax = Mathf.LerpUnclamped(choicerect.xMax, choicerect.xMin, 0.7f) - 50f * GetMenuUIScale();
 
             choicerect.x = 0;
             choicerect.y = 0;
@@ -2094,7 +2133,7 @@ public static class UIMainMenu {
 
         GUILayout.BeginHorizontal();
         {
-            //GUILayout.Space(170f * GetMenuUIScale());
+            //gUILayout.Space(170f * GetMenuUIScale());
 
             var setting_submenu_buttons_rects = choicerect.width - UIBullshit.uiBlockNanoBorderSize * 2;
             GUILayout.BeginVertical(GUILayout.Width(choicerect.width));
@@ -2141,7 +2180,7 @@ public static class UIMainMenu {
             r2.width = r.width - choicerect.width - UIBullshit.uiBlockSmallBorderSize * 4.05f;
 
             _SETTINGSMENUSCROLL = GUILayout.BeginScrollView(_SETTINGSMENUSCROLL);
-            GUILayout.BeginVertical(GUILayout.MaxWidth(r2.width),GUILayout.ExpandWidth(false), GUILayout.Width(r2.width ));
+            GUILayout.BeginVertical(GUILayout.MaxWidth(r2.width), GUILayout.ExpandWidth(false), GUILayout.Width(r2.width));
             {
                 var ogfontsize = GUI.skin.label.fontSize;
                 var ogalign = GUI.skin.label.alignment;
@@ -2179,11 +2218,11 @@ public static class UIMainMenu {
             GUILayout.EndVertical();
             GUILayout.EndScrollView();
 
-            //GUILayout.Space(170f * GetMenuUIScale());
+            //gUILayout.Space(170f * GetMenuUIScale());
         }
         GUILayout.EndHorizontal();
 
-        //GUILayout.EndArea();
+        //gUILayout.EndArea();
 
         GUILayout.Space(10 * GetMenuUIScale());
 
@@ -2230,8 +2269,8 @@ public static class UIMainMenu {
     internal static SettingsTab _general_setting_tab = new SettingsTab {
         name = "mmst_general",
         gui_func = _GUI___SettingsGeneral,
-        on_open = () => {  },
-        on_reset = () => {  },
+        on_open = () => { },
+        on_reset = () => { },
         settings_origin = typeof(Amogus)
     };
     internal static SettingsTab _gui_setting_tab = new SettingsTab {
@@ -2256,6 +2295,14 @@ public static class UIMainMenu {
         gui_func = _GUI___SettingsDebug,
         settings_origin = typeof(DebugMenuSettings)
     };
+    internal static SettingsTab _skins_setting_tab = new SettingsTab {
+        name = "mmst_skins",
+        settings_origin = typeof(SkinSettings),
+        on_reset = () => {
+            SettingsJsonThing.json.Save();
+            SpriteReplacerPlugin.SyncSpeciesCache();
+        },
+    };
     internal static SettingsTab _bugreport_setting_tab = null;
     public static SettingsTab cur_settings_tab = _general_setting_tab;
     public static List<SettingsTab> ALL_SETTINGS = new List<SettingsTab> {
@@ -2263,6 +2310,7 @@ public static class UIMainMenu {
         _chat_setting_tab,
         _voip_setting_tab,
         _gui_setting_tab,
+        _skins_setting_tab,
     };
 
     static float MicVolumePreviewPixHeight = 20f;
@@ -2273,7 +2321,7 @@ public static class UIMainMenu {
     static bool _VOIP_SETTINGS_DROPDOWNTEST = false;
     static void _GUI___SettingsVOIP(Rect r) {
         GUI.skin.label.alignment = TextAnchor.UpperLeft;
-        
+
 
         {
             var halfwidth = r.width * ASJOUFMIGHDSYDSGFMKFSDKYGJUFSYGJFSDGKVYJSFDKJGYFSDGKVJHBFJKVFDJVMBYFJDYG;
@@ -2300,7 +2348,7 @@ public static class UIMainMenu {
 
 
             try {
-                
+
 
                 if (_VOIP_SETTINGS_DROPDOWNTEST) {
                     for (int i = 0; i < Microphone.devices.Length; i++) {
@@ -2325,7 +2373,7 @@ public static class UIMainMenu {
             }
 
             if (Voicechat.VoiceChatIsEnabledLocallyOnly()) {
-                
+
                 UIBullshit._GUI_SetButtonSkinTexture(GUI.skin.button, true);
 
                 GUILayout.BeginHorizontal();
@@ -2350,7 +2398,7 @@ public static class UIMainMenu {
 
                                 if (UIBullshit.main.egg == null || UIBullshit.main.egg.textureSize != scaledrectsize) {
                                     ResetSettingsVOIPVisualiser();
-                                    
+
                                     var go = new GameObject("hello vro");
                                     go.AddComponent<RawImage>().enabled = false;
                                     UIBullshit.main.egg = go.AddComponent<ECGVisualizer>();
@@ -2373,7 +2421,7 @@ public static class UIMainMenu {
                     } catch (Exception e) {
                         log.error("_VOIP_SETTINGS_LOOPBACKRENDER\n" + e.ToString());
                     }
-                    //GUILayout.FlexibleSpace();
+                    //gUILayout.FlexibleSpace();
                 }
                 GUILayout.EndHorizontal();
             } else {
@@ -2398,10 +2446,10 @@ public static class UIMainMenu {
         }
         if (!Multiplayer.rules.VoicechatEnabled) {
             GUILayout.Label(Lang.Get("mmst_voip_rule_disabled") + "    ");
-        } 
+        }
 
     }
-   
+
     static void _GUI___SettingsGUI(Rect r) {
 
         UIBullshit._GUI_SetButtonSkinTexture(GUI.skin.button, true);
@@ -2421,7 +2469,7 @@ public static class UIMainMenu {
 
     }
 
-    
+
 
     static void _GUI___SettingsDebug(Rect r) {
         foreach (var item in NetObjectRegistry.NetIdToSyncInfoDict) {
@@ -2467,7 +2515,7 @@ public static class UIMainMenu {
     public static Action BuildUpdateButton = () => { };
 
 
-    static void _GUI___SettingsGeneral(Rect r ) {
+    static void _GUI___SettingsGeneral(Rect r) {
         var ogeneabled = GUI.enabled;
 
         UIBullshit._GUI_SetButtonSkinTexture(GUI.skin.button, true);
@@ -2476,14 +2524,14 @@ public static class UIMainMenu {
         if (DrawUpdateButton != null) {
             try {
                 DrawUpdateButton();
-            } catch(Exception e) {
-                
+            } catch (Exception e) {
+
             }
         }
 
         GUILayout.Space(20 * GetMenuUIScale());
 
-        GUILayout.BeginHorizontal(); 
+        GUILayout.BeginHorizontal();
         {
             var activatethisbutton = !Net.IsRunning && !Util.IsInWorld();
 
@@ -2496,7 +2544,7 @@ public static class UIMainMenu {
             }
             GUI.enabled = ogeneabled;
             DoTooltipOnLastGUIRect(activatethisbutton ? "mmst_button_deactivate_mp_desc" : "mmst_button_deactivate_mp_desc_disabled");
-               
+
             GUILayout.FlexibleSpace();
         }
         GUILayout.EndHorizontal();
@@ -2551,6 +2599,12 @@ public static class UIMainMenu {
 
                         if (val != newval) {
                             b_attr.Save(f, newval);
+                            CommitSkinSetting(f);
+#if FULLGAME
+                            if (f.Name == nameof(UIBullshit.USE_DEFAULT_TALKER_FONT)) {
+                                TalkerSpeciesFont.RefreshAll();
+                            }
+#endif
                         }
 
                     } else if (attr is SettingDeclarerThingyChoiceAttribute c_attr) {
@@ -2563,6 +2617,7 @@ public static class UIMainMenu {
 
                         if (val != newval) {
                             c_attr.Save(f, newval);
+                            CommitSkinSetting(f);
                         }
 
                     } else {
@@ -2576,6 +2631,13 @@ public static class UIMainMenu {
         }
     }
 
+
+    // save here. the apply button is too late for the next game.
+    internal static void CommitSkinSetting(FieldInfo f) {
+        if (f == null || f.DeclaringType != typeof(SkinSettings)) return;
+        SettingsJsonThing.json.Save();
+        SpriteReplacerPlugin.SyncSpeciesCache();
+    }
 
     internal static Dictionary<Type, List<FieldInfo>> _known_settings = new();
     public static List<FieldInfo> GetSettingsFromStaticClass(Type type) {
@@ -2594,10 +2656,10 @@ public static class UIMainMenu {
                 _known_settings[type] = fields;
         }
 
-        return fields; 
+        return fields;
     }
 
-#endregion
+    #endregion
 
     #region ABOUT_MENU_BULLSHIT
 
@@ -2607,7 +2669,7 @@ public static class UIMainMenu {
         //r = new Rect(r);
         //r.width = Mathf.Min(r.width, GetMenuUIScale() * 600);
 
-        //GUILayout.BeginArea(r);
+        //gUILayout.BeginArea(r);
         _ABOUTMENUSCROLL = GUILayout.BeginScrollView(_ABOUTMENUSCROLL);
 
         var ogfontsize = GUI.skin.label.fontSize;
@@ -2626,16 +2688,15 @@ public static class UIMainMenu {
         GUI.skin.label.alignment = TextAnchor.UpperCenter;
         GUILayout.Label("");
         UIBullshit._GUI_BiggerLabel(Lang.Get("mmta_credits"), 1.2f);
-        
+
         try {
             _GUI__ABOUTMENU_FULL_CREDITS(r);
 
             //TODO mention previous failed mp mod creators? (Dathusss, Pookie? i forgor)
             //GUI.skin.label.alignment = TextAnchor.UpperCenter;
-            //GUILayout.Label("Honorable mentions:" + );
+            //gUILayout.Label("Honorable mentions:" + );
 
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error($"RENDER: \n{e.ToString()}");
         }
 
@@ -2654,7 +2715,7 @@ public static class UIMainMenu {
 
         GUILayout.Label("");
         GUILayout.EndScrollView();
-        //GUILayout.EndArea();
+        //gUILayout.EndArea();
 
     }
 
@@ -2797,9 +2858,6 @@ public static class GUILayout_DropdownMenu {
         activeID = -1;
     }
 
-    /// <summary>
-    /// Call this anywhere in OnGUI
-    /// </summary>
     public static int Dropdown(int selectedIndex, string[] options, params GUILayoutOption[] uILayoutOptions) {
         id_counter++;
         if (selectedIndex > 0 && selectedIndex >= options.Length) {
@@ -2822,7 +2880,7 @@ public static class GUILayout_DropdownMenu {
             maxwidth = Mathf.Max(maxwidth, gggg.x);
         }
         if (uILayoutOptions.Length == 0) {
-            uILayoutOptions = uILayoutOptions.AddToArray( GUILayout.MinWidth(maxwidth));
+            uILayoutOptions = uILayoutOptions.AddToArray(GUILayout.MinWidth(maxwidth));
         }
 
         var buttonrect = GUILayoutUtility.GetRect(content, GUI.skin.button, uILayoutOptions);
@@ -2849,7 +2907,7 @@ public static class GUILayout_DropdownMenu {
         ) {
             clickedID = -1;
 
-            if ( activeID == id_counter) {
+            if (activeID == id_counter) {
                 activeID = -1;
             } else {
                 activeID = id_counter;
@@ -2862,13 +2920,10 @@ public static class GUILayout_DropdownMenu {
     }
 
     static float dropdownitemheight = 35;
-    /// <summary>
-    /// MUST be called at the END of OnGUI
-    /// </summary>
     public static void Draw() {
         id_counter = 0;
         if (!isOpen || activeOptions == null || activeOptions.Count() == 0) return;
-        
+
         try {
             UIBullshit._GUI_SetButtonSkinTexture(GUI.skin.button, false);
 
@@ -2898,7 +2953,7 @@ public static class GUILayout_DropdownMenu {
                 }
             }
 
-            // Close when clicking outside
+            // close when clicking outside
             if (Event.current.type == EventType.MouseDown) {
                 if (
                     !dropdownRect.Contains(Event.current.mousePosition)
@@ -2907,16 +2962,9 @@ public static class GUILayout_DropdownMenu {
                     activeID = -1;
                 }
             }
-        }
-        catch (Exception e) {
-            log.error(e);   
+        } catch (Exception e) {
+            log.error(e);
         }
         UIBullshit._GUI_SetButtonSkinTexture(GUI.skin.button, true);
     }
 }
-
-
-
-
-
-

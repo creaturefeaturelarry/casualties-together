@@ -4,6 +4,7 @@ using LiteNetLib;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -25,27 +26,39 @@ namespace Together;
 static class RadioactiveObject_Update_MultiplayerPatch {
 
     static bool Prefix(RadioactiveObject __instance) {
-        if (Net.IsRunning) {
+        if (!Net.IsRunning) {
+            return true;
+        }
 
-            // the entire function is remade for multiplayer heree !
+        // radiationSickness is medical / host-authoritative.
+        // irradiateIntensity is local camera vignette - must run on the client that owns the camera.
+        if (Net.IsServer) {
             foreach (var bodynpc in NetBody.all_instances) {
                 var body = bodynpc.body;
-                
+                if (body == null) {
+                    continue;
+                }
 
-                //OG: RadioactiveObject.Update V5t4 
-
+                //OG: RadioactiveObject.Update V5t4
                 float num = Vector2.Distance(__instance.transform.position, body.transform.position) * 0.3f;
                 float num2 = __instance.radAtZero * (1f / Mathf.Max(num * num, 1f));
                 if (num2 > 0.1f) {
                     body.radiationSickness += num2 * Time.deltaTime;
                     PlayerCamera_SetIrradiateIntensity_MultiplayerPatch.RealSetIrradiateIntensity(bodynpc, num2 * 0.5f);
                 }
-
             }
-
             return false;
         }
-        return true;
+
+        // client: vignette only for local body (sickness arrives via medical sync)
+        if (ScavPlayer.TryGetLocalNetBody(out var localNb) && localNb.body != null) {
+            float num = Vector2.Distance(__instance.transform.position, localNb.body.transform.position) * 0.3f;
+            float num2 = __instance.radAtZero * (1f / Mathf.Max(num * num, 1f));
+            if (num2 > 0.1f) {
+                PlayerCamera_SetIrradiateIntensity_MultiplayerPatch.RealSetIrradiateIntensity(localNb, num2 * 0.5f);
+            }
+        }
+        return false;
     }
 
 
@@ -94,7 +107,7 @@ static class SpikeStabberScript_Stab_MultiplayerPatch {
         if (Net.IsRunning) {
             if (NetObjectRegistry.TryGetSyncInfoOrRegister(__instance, out var si)) {
                 if (Net.IsServer) {
-                    
+
                 } else {
                     si.SetIgnoreTimeForRoundTrip();
                 }
@@ -128,7 +141,7 @@ internal static class JumpPadScript_OnCollisionEnter2D_MultiplayerPatch {
 
         try {
             if (__instance.disabled || !(__instance.cooldown <= 0f) || !collision.rigidbody || collision.rigidbody.isKinematic) {
-                
+
             } else {
                 if (Util.TryGetBodyFromObject(collision.gameObject, out var bodyObj) && bodyObj.TryGetNetBody(out var nb)) {
                     nb.OnDamageEvent(new BodyDamageEvent(__instance.GetComponent<BuildingEntity>(), nb, 1));
@@ -229,9 +242,9 @@ internal static class SpikeStabberScript_CheckStab_MultiplayerPatch {
             var array = System.Linq.Enumerable.ToHashSet(
                 // OG: SpikeStabberScript.CheckStab V7.0.1
                 Physics2D.RaycastAll(__instance.transform.position, __instance.transform.up, 6f)
-                
+
                 .Select(x => x.transform.GetComponent<Limb>()).Where(x => x != null).Select(x => x.GetNetBody()).Where(x => x != null));
-            
+
             foreach (var item in array) {
                 item.OnDamageEvent(new BodyDamageEvent(__instance.GetComponent<BuildingEntity>(), item, 1));
             }
@@ -268,7 +281,7 @@ static class MineScript_OnCollisionEnter2D_MultiplayerPatch {
                 TrapClaim.ArmMine(__instance, collision.collider);
             } else {
                 //OG: MineScript.OnCollisionEnter2D V5t5  only 4 lines  i need to properly check the distance here
-                if ((bool)collision.collider.attachedRigidbody && !collision.collider.attachedRigidbody.isKinematic && NetBody.GetNearestBody(__instance.transform.position, true, false).Item2 < 64f*64f) {
+                if ((bool)collision.collider.attachedRigidbody && !collision.collider.attachedRigidbody.isKinematic && NetBody.GetNearestBody(__instance.transform.position, true, false).Item2 < 64f * 64f) {
                     __instance.pressed = (true);
                     Sound.Play("mine", __instance.transform.position);
                     __instance.GetComponent<SpriteRenderer>().sprite = __instance.pressedSprite;
@@ -300,14 +313,23 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
     bool last_didShoot = false;
 
     public float timeSinceFired {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)] get { return og.timeSinceFired; }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)] set { og.timeSinceFired = value; } }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get { return og.timeSinceFired; }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set { og.timeSinceFired = value; }
+    }
     public float beepTime {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)] get { return og.beepTime; }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)] set { og.beepTime = (value); } }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get { return og.beepTime; }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set { og.beepTime = (value); }
+    }
     public bool didShoot {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)] get { return og.didShoot; }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)] set { og.didShoot = (value); } }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get { return og.didShoot; }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        set { og.didShoot = (value); }
+    }
 
 
 
@@ -356,7 +378,7 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
             //}
 
             NetObjectRegistry.SyncRegistry.TryGetValue(gameObject, out si);
-            
+
         } else {
 
             dist = NetBody.GetNearestBody(this.transform.position, true, false).Item2;
@@ -380,16 +402,16 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
                 writer.Put(og.spr.isVisible);
                 Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
                 // WRITER END;
-                
+
             } else {
                 NetObjectRegistry.SafeNewGO(gameObject);
 
-                if (si != null || NetObjectRegistry.TryGetSyncInfo(gameObject,out si)) {
+                if (si != null || NetObjectRegistry.TryGetSyncInfo(gameObject, out si)) {
 
                     var writer = Net.CreateWriter(NetmsgId.CLIENT_TurretDoBeep_Relay);
                     writer.Put(si.syncId);
                     writer.Put((bool)(beepTime >= 0));
-                    Net.Server_SendToClients( DeliveryMethod.ReliableUnordered , writer, ServerMain.AllClientIdsExceptHost);
+                    Net.Server_SendToClients(DeliveryMethod.ReliableUnordered, writer, ServerMain.AllClientIdsExceptHost);
                     // WRITER END;
 
                 }
@@ -407,7 +429,7 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
                     Multiplayer.Server_SendRelayMessageToClients((byte)NetmsgId.CLIENT_TurretDoShoot_Relay, si.syncId, true, false);
                 }
             } else {
-                if ( ScavPlayer.LocalPlayer.TryGetNetBody(out var nb)) {
+                if (ScavPlayer.LocalPlayer.TryGetNetBody(out var nb)) {
                     nb.SetNetHealthSyncIgnoreTime();
                 }
             }
@@ -428,7 +450,7 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
         reader.Get(out bool isVisible);
 
 
-        if (ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out var plr, out var body) && body.alive ) {
+        if (ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out var plr, out var body) && body.alive) {
 
             if (KM.DistanceCheck_PreSqr(turretpos, (Vector2)body.transform.position, 10000f)) {
 
@@ -438,7 +460,7 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
                 // plr up: -33
                 // so about 7 blocks
 
-                if (Math.Abs(turretpos.y - body.transform.position.y) > 8 ) { // if hes not on the same level as the turret, tell its sus
+                if (Math.Abs(turretpos.y - body.transform.position.y) > 8) { // if hes not on the same level as the turret, tell its sus
 
                     log.l($"TurretDoBeep  turret IS NOT ON THE SAME LEVEL AS THE PLR  BRAAHH !!! ");
                     return;
@@ -455,7 +477,7 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
 
                         if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(turretpos, $"S: TurretDoBeep {plr} ");
                         return;
-                    } 
+                    }
                 }
 
                 log.l($"TurretDoBeep  turret was not found !!!!!!!!!!!!!!!!!!!!!!!! ");
@@ -484,7 +506,7 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
     static void Client_TurretDoShoot_Relay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
         reader.Get(out knetid turretid);
 
-        if (NetObjectRegistry.TryGetSyncInfo(turretid, out var si) ) {
+        if (NetObjectRegistry.TryGetSyncInfo(turretid, out var si)) {
 
             var tst = si.go.GetOrAddComponent<TrackerTurret>();
 
@@ -500,7 +522,7 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
 
 
 
-    // i basically rewrote the entire sound cannon here
+// i basically rewrote the entire sound cannon here
 public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
 
     bool announced_charge = false;
@@ -552,7 +574,7 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
 
 
     protected override void TrackerAwake() {
-        
+
     }
 
 
@@ -585,14 +607,14 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
 
             var headpos = item.Value.netBody.GetHeadPos();
 
-            var dist = KM.DistanceSqr(me.position,headpos);
+            var dist = KM.DistanceSqr(me.position, headpos);
 
-            if (dist < closestdist ) {
+            if (dist < closestdist) {
                 closestdist = dist;
                 closestbody = item.Value.netBody;
             }
 
-            if (dist < closestvisibledist && CanSeePos(me,headpos)) {
+            if (dist < closestvisibledist && CanSeePos(me, headpos)) {
                 closestvisibledist = dist;
                 closestvisiblebody = item.Value.netBody;
             }
@@ -600,7 +622,7 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
 
         return closestvisiblebody ?? closestbody;
     }
-    
+
 
 
     // the original  Update() is disabled, because the entire funcion is inflexible
@@ -633,13 +655,13 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
                 return;
             }
 
-            if ( !charging && !spent) {
+            if (!charging && !spent) {
 
                 foreach (var item in ScavPlayer.BodyToPlayerDict) {
 
                     var headpos = item.Key.limbs[(int)Body.LimbNum.Head].transform.position;
 
-                    if (KM.DistanceCheck(transform.position, headpos, maxDistance) && CanSeePos(this.transform,headpos)) {
+                    if (KM.DistanceCheck(transform.position, headpos, maxDistance) && CanSeePos(this.transform, headpos)) {
                         charging = true;
                         break;
                     }
@@ -679,8 +701,8 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
 
         Vector2 nearestplrpos = closestbody.transform.position;
         Vector2 nearestheadpos = closestplayerbody.GetHeadPos();
-        
-        var goallookdir = -KM.NormalTo(nearestheadpos,base.transform.position, out var distance);
+
+        var goallookdir = -KM.NormalTo(nearestheadpos, base.transform.position, out var distance);
 
         if (hostLocked)
             PointBarrel(endAngle);
@@ -704,7 +726,7 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
                 endAngle = transform.GetChild(0).eulerAngles.z;
             PublishSpent();
         }
-        
+
 
         foreach (var plr in ScavPlayer.AllLivingPlayers) {
 
@@ -723,8 +745,8 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
             var insameenvironment = FluidManager.main.HasLiquid(WorldGeneration.world.WorldToBlockPos(base.transform.position)) == body.inWater;
 
 
-            if ( CanSeePos(this.transform, headpos) && dot > 0.55f && insameenvironment) {
-                
+            if (CanSeePos(this.transform, headpos) && dot > 0.55f && insameenvironment) {
+
                 //OG: SoundCannon.Update
 
                 if (body.bodyAffect.wasWater) {
@@ -736,7 +758,7 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
                     body.shock = 100f;
                     body.limbs[0].pain = 100f;
                     body.brainHealth -= 20f;
-                    if (plr.IsLocal) { 
+                    if (plr.IsLocal) {
                         PlayerCamera.main.shaker.Shake(3000f);
                         PlayerCamera.main.bonusAbber = -70f;
                         PlayerCamera.main.globalMuteTime += 120f;
@@ -808,9 +830,9 @@ public static class StalactiteDropper_Drop_MultiplayerPatch {
 
     static void Prefix(StalactiteDropper __instance) {
         if (Multiplayer.IsNetworkActiveAndIsClient()) {
-            if (NetObjectRegistry.TryGetSyncInfoOrRegister(__instance,out var si) ) {
-                si.SetIgnoreTimeForRoundTrip(1.0f + Vector2.Distance(__instance.transform.position,PlayerCamera.main.transform.position) * 0.3f ); // let it hit the local player , ima make the damage client authoritative 
-            
+            if (NetObjectRegistry.TryGetSyncInfoOrRegister(__instance, out var si)) {
+                si.SetIgnoreTimeForRoundTrip(1.0f + Vector2.Distance(__instance.transform.position, PlayerCamera.main.transform.position) * 0.3f); // let it hit the local player , ima make the damage client authoritative 
+
             }
         }
     }
@@ -821,13 +843,13 @@ public static class StalactiteDropper_Drop_MultiplayerPatch {
 public static class StalactiteDropper_OnWillRenderObject_MultiplayerPatch {
 
     static void Prefix(StalactiteDropper __instance) {
-        if (Multiplayer.IsNetworkActiveAndIsClient() && 
+        if (Multiplayer.IsNetworkActiveAndIsClient() &&
             __instance.GetComponent<Rigidbody2D>().bodyType != RigidbodyType2D.Dynamic // check if its still attached to the ceiling
         ) {
 
             //OG: StalactiteDropper.OnWillRenderObject V5t4 
             RaycastHit2D raycastHit2D = Physics2D.Raycast(__instance.transform.position, Vector2.down, 40f, LayerMask.GetMask("Body", "Limb"));
-            if ((bool)raycastHit2D ) {
+            if ((bool)raycastHit2D) {
 
                 if (NetObjectRegistry.TryGetSyncInfoOrRegister(__instance, out var si)) {
 
@@ -843,13 +865,13 @@ public static class StalactiteDropper_OnWillRenderObject_MultiplayerPatch {
                     if (!cd.stalagtite_dropped) {
                         cd.stalagtite_dropped = true;
 
-                        Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_ITriggeredStalactiteDropperDropCounter, si.syncId,false);
+                        Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_ITriggeredStalactiteDropperDropCounter, si.syncId, false);
                     }
 
 
                 }
             }
-            
+
         }
     }
 
@@ -864,7 +886,7 @@ public static class StalactiteDropper_OnWillRenderObject_MultiplayerPatch {
             NetObjectRegistry.TryGetSyncInfo(stalagtite_syncid, out var si) && si.go.TryGetComponent<StalactiteDropper>(out var stlgt)
         ) {
             if (pb.transform.position.y < stlgt.transform.position.y && pb.transform.position.y + 50 > stlgt.transform.position.y) {
-                if (Mathf.Abs(pb.transform.position.x - stlgt.transform.position.x) < 5 ) {
+                if (Mathf.Abs(pb.transform.position.x - stlgt.transform.position.x) < 5) {
 
 #if !RELEASE
                     log.l($"SERVER, ITriggeredStalactiteDropperDropCounter actually works lol {DebugHelp.GetPlayerFullDebugString(clientId)}  si:{si} ");
@@ -888,57 +910,105 @@ public static class DamagingCrate_OnCollisionEnter2D_MultiplayerPatch {
 
     static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator il) {
         var codes = new List<CodeInstruction>(instructions);
+        int i = 0;
+        int limbLocalIndex = 1;
 
-        int limb_check = -1;
-        for (int k = 2; k < codes.Count - 1 && limb_check < 0; k++) {
-            if ((codes[k].opcode == OpCodes.Call || codes[k].opcode == OpCodes.Callvirt) && codes[k].operand is MethodInfo mi &&
-                mi.Name == "op_Implicit" && mi.DeclaringType == typeof(UnityEngine.Object) && codes[k + 1].opcode == OpCodes.Brfalse) {
-                limb_check = k;
+        try {
+            // stock 1.0.1: LimbFromObject result is stloc.2 (was stloc.1). early type==-1/0 returns sit above it.
+            int limbStore = -1;
+            for (int c = 0; c < codes.Count; c++) {
+                if (codes[c].ToString().Contains("LimbFromObject")
+                    && c + 1 < codes.Count
+                    && (codes[c + 1].opcode == OpCodes.Stloc_0
+                        || codes[c + 1].opcode == OpCodes.Stloc_1
+                        || codes[c + 1].opcode == OpCodes.Stloc_2
+                        || codes[c + 1].opcode == OpCodes.Stloc_3
+                        || codes[c + 1].opcode == OpCodes.Stloc
+                        || codes[c + 1].opcode == OpCodes.Stloc_S)) {
+                    limbStore = c + 1;
+                    if (codes[limbStore].opcode == OpCodes.Stloc_0) {
+                        limbLocalIndex = 0;
+                    } else if (codes[limbStore].opcode == OpCodes.Stloc_1) {
+                        limbLocalIndex = 1;
+                    } else if (codes[limbStore].opcode == OpCodes.Stloc_2) {
+                        limbLocalIndex = 2;
+                    } else if (codes[limbStore].opcode == OpCodes.Stloc_3) {
+                        limbLocalIndex = 3;
+                    } else if (codes[limbStore].operand is LocalBuilder lb) {
+                        limbLocalIndex = lb.LocalIndex;
+                    } else if (codes[limbStore].operand is int idx) {
+                        limbLocalIndex = idx;
+                    } else if (codes[limbStore].operand is byte b) {
+                        limbLocalIndex = b;
+                    }
+                    break;
+                }
             }
-        }
-        if (limb_check < 0) {
-            return codes;
-        }
-
-        System.Reflection.FieldInfo prevFrameSpeed_field = null;
-        for (int k = limb_check; k < codes.Count && prevFrameSpeed_field == null; k++) {
-            if (codes[k].operand is System.Reflection.FieldInfo fi && fi.Name == "prevFrameSpeed" && fi.DeclaringType == typeof(DamagingCrate)) {
-                prevFrameSpeed_field = fi;
+            if (limbStore < 0) {
+                throw new Exception("LimbFromObject store not found");
             }
+
+            // insert just before the type==1 damage branch: ldarg.0 / ldfld type / ldc.i4.1
+            i = -1;
+            for (int c = limbStore + 1; c + 2 < codes.Count; c++) {
+                if (codes[c].opcode != OpCodes.Ldarg_0) {
+                    continue;
+                }
+                string fld = codes[c + 1].ToString();
+                if (!(fld.Contains("DamagingCrate") && fld.Contains("type"))) {
+                    continue;
+                }
+                if (codes[c + 2].opcode != OpCodes.Ldc_I4_1) {
+                    continue;
+                }
+                i = c - 1; // insert after previous insn, before ldarg.0
+                break;
+            }
+            if (i < 0) {
+                throw new Exception("type==1 damage branch not found after LimbFromObject");
+            }
+
+            FieldInfo prevFrameSpeed_field = null;
+            for (int c = 0; c < codes.Count; c++) {
+                if (codes[c].opcode == OpCodes.Ldfld || codes[c].opcode == OpCodes.Ldflda) {
+                    string s = codes[c].ToString();
+                    if (s.Contains("prevFrameSpeed") && codes[c].operand is FieldInfo fi) {
+                        prevFrameSpeed_field = fi;
+                        break;
+                    }
+                }
+            }
+            if (prevFrameSpeed_field == null) {
+                prevFrameSpeed_field = AccessTools.Field(typeof(DamagingCrate), "prevFrameSpeed");
+            }
+            if (prevFrameSpeed_field == null) {
+                throw new Exception("prevFrameSpeed field missing");
+            }
+
+            var newInstructions = new List<CodeInstruction>();
+            newInstructions.Add(new CodeInstruction(OpCodes.Ldarg_0));
+            newInstructions.Add(limbLocalIndex <= 3
+                ? new CodeInstruction(limbLocalIndex == 0 ? OpCodes.Ldloc_0
+                    : limbLocalIndex == 1 ? OpCodes.Ldloc_1
+                    : limbLocalIndex == 2 ? OpCodes.Ldloc_2
+                    : OpCodes.Ldloc_3)
+                : new CodeInstruction(OpCodes.Ldloc_S, limbLocalIndex));
+            newInstructions.Add(new CodeInstruction(OpCodes.Ldarg_0));
+            newInstructions.Add(new CodeInstruction(OpCodes.Ldfld, prevFrameSpeed_field));
+            newInstructions.Add(new CodeInstruction(OpCodes.Call,
+                AccessTools.Method(typeof(ScavTraps), nameof(ScavTraps.DamagingCrate_OnCollisionEnter2D_StolenWithFirstCheck))));
+
+            int insertAt = i + 1;
+            var endofpatch_label = il.DefineLabel();
+            codes[insertAt].labels.Add(endofpatch_label);
+            newInstructions.Add(new CodeInstruction(OpCodes.Brfalse_S, endofpatch_label));
+            newInstructions.Add(new CodeInstruction(OpCodes.Ret));
+            codes.InsertRange(insertAt, newInstructions);
+
+            log.l($"DamagingCrate OnCollisionEnter2D TRANSPILER SUCCESS limbLocal={limbLocalIndex} insertAt={insertAt}");
+        } catch (Exception ex) {
+            log.error($"TRANSPILER: DamagingCrate failed at '{i}'/'{codes.Count}' {ex}");
         }
-        if (prevFrameSpeed_field == null) {
-            return codes;
-        }
-
-        int limb_load = limb_check - 1;
-        if (limb_load < 0 || (codes[limb_load].opcode != OpCodes.Ldloc_2 && codes[limb_load].opcode != OpCodes.Ldloc_S)) {
-            log.warn("Gunsaw genetics or other multi-limb mods were enabled? Guh.");
-            return codes;
-        }
-
-        // BEFORE: ldloc limb ; call op_Implicit ; brfalse
-        // AFTER:  call StolenWithFirstCheck(crate, limb, prevFrameSpeed) ; brfalse <vanilla validity check> ; ret
-        //        ldloc limb ; call op_Implicit ; brfalse   
-
-        // I dunno about this though
-
-        var injected = new List<CodeInstruction> {
-            new CodeInstruction(OpCodes.Ldarg_0),
-            new CodeInstruction(codes[limb_load].opcode, codes[limb_load].operand),
-            new CodeInstruction(OpCodes.Ldarg_0),
-            new CodeInstruction(OpCodes.Ldfld, prevFrameSpeed_field),
-            new CodeInstruction(OpCodes.Call,
-                AccessTools.Method(typeof(ScavTraps), nameof(ScavTraps.DamagingCrate_OnCollisionEnter2D_StolenWithFirstCheck))),
-        };
-
-        var continue_vanilla_label = il.DefineLabel();
-        injected.Add(new CodeInstruction(OpCodes.Brfalse_S, continue_vanilla_label));
-        injected.Add(new CodeInstruction(OpCodes.Ret));
-
-        codes.InsertRange(limb_load, injected);
-        codes[limb_load + injected.Count].labels.Add(continue_vanilla_label);
-
-        if (log.verbose) log.l($"DamagingCrate OnCollisionEnter2D TRANSPILER SUCCESS :)  ");
         return codes;
     }
 
@@ -1009,13 +1079,13 @@ public class ScavTraps : CasualtiesTogetherSingleton {
 
         var prevspeed = prevFrameSpeed.magnitude;
 
-        DamagingCrate_OnCollisionEnter2D_TheDamagingPartStolen(dmgcrate,limb,prevspeed);
+        DamagingCrate_OnCollisionEnter2D_TheDamagingPartStolen(dmgcrate, limb, prevspeed);
         return true;
     }
 
     //OG: DamagingCrate.OnCollisionEnter2D V5t5 
     public static void DamagingCrate_OnCollisionEnter2D_TheDamagingPartStolen(DamagingCrate dmgcrate, Limb limb, float prevspeed) {
-        
+
         var islocal = Util.IsBodyLocal(limb.body);
 
         if (dmgcrate.type == 1) {
@@ -1041,7 +1111,7 @@ public class ScavTraps : CasualtiesTogetherSingleton {
             }
             limb.DamageWearables(0.25f);
         }
-        
+
         Sound.Play(dmgcrate.stalactiteHitSound, dmgcrate.transform.position, twoDimensional: islocal);
         if (Net.IsRunning) {
 
@@ -1056,7 +1126,7 @@ public class ScavTraps : CasualtiesTogetherSingleton {
 
             if (Net.IsClient) {
                 if (islocal) {
-                    if ( NetObjectRegistry.TryGetSyncInfoOrRegister(dmgcrate, out var si)) {
+                    if (NetObjectRegistry.TryGetSyncInfoOrRegister(dmgcrate, out var si)) {
                         if (limb.TryGetNetBody(out var locnb)) {
                             locnb.SetNetHealthSyncIgnoreTime(0.05f);
                         }
@@ -1075,7 +1145,7 @@ public class ScavTraps : CasualtiesTogetherSingleton {
                 }
             } else if (limb.TryGetNetBody(out var pb)) {
                 ServerMain.Server_AnnounceSound(dmgcrate.transform.position, dmgcrate.stalactiteHitSound, ServerMain.GetListOfClientIdsExceptThisAndHost(pb.netId));
-            
+
                 // force drop the stalagtite if it wasnt dropped yet
                 if (dmgcrate.TryGetComponent<StalactiteDropper>(out var stalagtite) && dmgcrate.GetComponent<Rigidbody2D>().bodyType != RigidbodyType2D.Dynamic) {
                     stalagtite.Drop();
@@ -1084,12 +1154,12 @@ public class ScavTraps : CasualtiesTogetherSingleton {
 
 
         }
-        
+
 
         limb.body.Ragdoll();
 
         //if (islocal) { // nah never delete it 
-        //    Object.Destroy(dmgcrate);
+        //    object.Destroy(dmgcrate);
         //}
 
     }
@@ -1151,7 +1221,7 @@ public class ScavTraps : CasualtiesTogetherSingleton {
         reader.Get(out Vector2 minepos);
 
 #if DEBUG
-            log.l($"DELETEME: received MineStepped {minepos} ");
+        log.l($"DELETEME: received MineStepped {minepos} ");
 #endif
 
         Collider2D[] array = Physics2D.OverlapCircleAll(minepos, 2.0f);

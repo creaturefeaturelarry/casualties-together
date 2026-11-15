@@ -173,9 +173,9 @@ public class WorldChunkSync : CasualtiesTogetherSingleton {
 
     public const int WORLDSIZE = 1024; // 16 * 64
 
-    // max id rn is 35,  so it fits within 63, which is 6 bits
+    // fullgame blocks go through 42 (obsidian/crimson/lava tiles); 6 bits still covers 0 - 63
     public const int TILEID_BITSIZE = 6;
-    // there are only 6 fluids. which fits in 7 which is 3 bits
+    // fluid ids 0 - 7 (7 = redsludge) fit in 3 bits
     public const int FLUIDID_BITSIZE = 3;
     // but like do i have to?
 
@@ -396,7 +396,7 @@ public class WorldChunkSync : CasualtiesTogetherSingleton {
             var plrblockpositions = new List<Vector2Int>();
 
 
-            foreach (var plr in ScavPlayer.ClientIdToPlayerDict.Values) {
+            foreach (var plr in ScavPlayer.AllPlayers) {
                 if (plr.IsLocal || !plr.body || !plr.body.alive) {
                     continue;
                 }

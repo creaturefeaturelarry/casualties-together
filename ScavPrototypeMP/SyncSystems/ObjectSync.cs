@@ -1,5 +1,6 @@
-using HarmonyLib;
 using CasualtiesTogetherUtils;
+using HarmonyLib;
+using KrokV5Optimization;
 using LiteNetLib;
 using LiteNetLib.Utils;
 using System;
@@ -8,10 +9,9 @@ using System.Diagnostics;
 using System.Linq;
 using Unity.VisualScripting;
 using UnityEngine;
-using KrokV5Optimization;
 
 
-namespace Together; 
+namespace Together;
 
 
 
@@ -28,7 +28,7 @@ public struct Bitset8 : INetSerializable {
 
 
 
-    public Bitset8(byte bayt) {  this.bayt = bayt;   }
+    public Bitset8(byte bayt) { this.bayt = bayt; }
 
     public Bitset8(params bool[] bits) {
         for (int i = 0; i < bits.Length; ++i) {
@@ -131,7 +131,7 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
     public bool isInSimulationRange = true; // is in 128 tile radius of any player  (but on client is only for local character)
     public bool isFar => !isInSimulationRange; // !isNearby && !isVisible && !isInSimulationRange;
 
-	public knetid syncId;
+    public knetid syncId;
     public SyncInfo syncInfo;
 
     public override string ToString() {
@@ -158,7 +158,7 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
             gameObject.name = syncInfo.ToString();
         }
     }
-    
+
     public void UpdateDistanceChecks() {
         distanceCheckTime = 0;
 
@@ -183,7 +183,7 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
         }
         isNearby = playerDistanceSqr < (12f * 12f);
         isVisible = playerDistanceSqr < (ItemSync.max_plr_view_distance_sqr);
-	}
+    }
 
     static int VisualUpdateSlowerWhenNotVisible = 15;
     int visualUpdateTimer = 0;
@@ -284,13 +284,13 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
         syncInfo.WriteObjectIntoPacket();
     }
 
-	void OnDestroy() {
+    void OnDestroy() {
 
         NetObjectRegistry.SyncRegistry.Remove(gameObject); // for sure 
 
         // null syncInfo means DestroyTrackedGameObject is already killing this go. don't free the id twice.
         if (syncInfo != null) {
-            if ( Net.IsServer ) {
+            if (Net.IsServer) {
                 // the go is going away but a bag id has to stay taken while any item still names it.
                 // parked SAVESTATE_ stays too, mesh and id.
                 if (NetObjectRegistry.KeepFarMesh(syncInfo, gameObject)) {
@@ -308,7 +308,7 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
 
     }
 
-    
+
     float distanceCheckTime = 0;
     void Update() {
         if (syncInfo == null) return;
@@ -324,8 +324,7 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
 #if DEBUG
         log.l($"i detected AnimalHit on the tracker. what now?");
 #endif
-        ///TODO just listen? for attack?
-        
+
         // i think this functino will get forgotten, ive made the attack system a bit differently 
 
     }
@@ -339,7 +338,7 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
 public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
     public static bool verbose => Multiplayer.verbose;
-    
+
     const float _FastSyncFrequency = 0.043f;
     const float _DefaultSyncFrequency = 0.211f;
     const float _RareSyncFrequency = 1.894512f;
@@ -614,24 +613,24 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 		}
 #endif
 
-		if (Net.IsServer) {
-			//SafeNewGO(obj); // its done by the system now
-			Server_EnsureItemIsNetworkRegistered(obj);
-		} else {
-			if (!NetObjectRegistry.SyncRegistry.TryGetValue(obj, out var isi)) {
-				SafeDestroyObject(obj);
-			}
-		}
-	}
-	public static void SafeNewGO(GameObject obj) {
-		if (!ObjectShouldNotBeSynced(obj)) {
+        if (Net.IsServer) {
+            //safeNewGO(obj); // its done by the system now
+            Server_EnsureItemIsNetworkRegistered(obj);
+        } else {
+            if (!NetObjectRegistry.SyncRegistry.TryGetValue(obj, out var isi)) {
+                SafeDestroyObject(obj);
+            }
+        }
+    }
+    public static void SafeNewGO(GameObject obj) {
+        if (!ObjectShouldNotBeSynced(obj)) {
             NewGO(obj);
-		}
-	}
+        }
+    }
 
 
 
-	public static HashSet<GameObject> GetIdentifiedBackgroundsInRadius(Vector2 pos, float radius) {
+    public static HashSet<GameObject> GetIdentifiedBackgroundsInRadius(Vector2 pos, float radius) {
         HashSet<GameObject> r = new();
 
         radius *= radius;
@@ -653,7 +652,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
             // get shit to sync that has a collider 
             var phys_in_radius = Physics2D.OverlapCircleAll(pos, radius);
             var only_items_and_buildings = phys_in_radius.Where(x => x.GetComponent<Item>() != null || x.GetComponent<BuildingEntity>() != null).Select(x => x.gameObject);
-            
+
             // also dump all the items of containers
             foreach (var item in only_items_and_buildings) {
                 if (item.TryGetComponent<Container>(out var ci)) {
@@ -703,12 +702,25 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
         touching.RemoveWhere(x => IsRegistered(x) || (Net.IsServer && !ShouldKeepRegistered(x)));
 
         int counter = 0;
+        int crystalCounter = 0;
         foreach (var thing in touching) {
+#if FULLGAME
+            bool crystal = CrystalAuthority.LooksLikeCrystal(thing);
+            if (crystal && crystalCounter >= CrystalAuthority.SyncBudget.HostRegisterPerStamp) {
+                continue;
+            }
+#endif
             NewGO(thing);
+#if FULLGAME
+            if (crystal) {
+                crystalCounter++;
+                counter++;
+            } else
+#endif
             if (!KM.DistanceCheck(thing.transform.position, pos, 10)) {
                 counter++;
             }
-            if (counter >= MAX_REGISTER_BATCH)  {
+            if (counter >= MAX_REGISTER_BATCH) {
                 break;
             }
         }
@@ -732,7 +744,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
             if (go.transform.parent != null) { // if its in a container, container will be synced eventually
                 return false;
             }
-        } 
+        }
         if (!go.TryGetComponent<Rigidbody2D>(out var rb) || rb.IsSleeping()) {
             return false;
         }
@@ -742,7 +754,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
     public static void AlertObjectNotRegistered(bool popup = false) {
         if (popup) {
-            PlayerCamera.main.DoAlert(Lang.Get("obj_not_net_registered")); 
+            PlayerCamera.main.DoAlert(Lang.Get("obj_not_net_registered"));
         }
         var msg = "Attempted to interact with unregistered object";
         if (log.verbose) {
@@ -763,9 +775,9 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
                     _ImmidiatelyRegisterCloseObjects(PlayerCamera.main.transform.position, locplr.body);
                 }
                 if (locplr.body.alive && do_slow_mode) { // and a lil bit down
-                    _ImmidiatelyRegisterCloseObjects((Vector2)PlayerCamera.main.transform.position - new Vector2(0,60), null);
+                    _ImmidiatelyRegisterCloseObjects((Vector2)PlayerCamera.main.transform.position - new Vector2(0, 60), null);
                 }
-            } 
+            }
         } else {
             // host near-stamp is SafetyNet: one quadrant of one living player per frame.
             // the rare pass still drops far trackers, then queues dead players or the
@@ -791,6 +803,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
                             // and the click never lands. they are few, so the id stays.
                             if (item.Key.TryGetComponent(out TraderScript _))
                                 continue;
+                            // crystals far-drop; clients refill from host via position cache on re-enter.
 #if !RELEASE
                             log.l($"AUTO UNREGISTERING: {item.Value}");
 #endif
@@ -818,12 +831,12 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
                     }
                 }
 
-                if (server_slowmode_type_counter == 0 ) {
+                if (server_slowmode_type_counter == 0) {
                     foreach (var plr in ScavPlayer.AllDeadPlayers) {
                         SlowStamp.Enqueue(plr.pos, plr.body);
                     }
                     server_slowmode_type_counter++;
-                } else if(server_slowmode_type_counter == 1) {
+                } else if (server_slowmode_type_counter == 1) {
                     foreach (var plr in ScavPlayer.AllLivingPlayers) {
                         SlowStamp.Enqueue(plr.pos - new Vector2(0, 80), plr.body);
                     }
@@ -864,7 +877,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
         return false;
     }
     public static bool TryGetSyncInfo(GameObject obj, out SyncInfo si) {
-        if (SyncRegistry.TryGetValue(obj, out  si)) { 
+        if (SyncRegistry.TryGetValue(obj, out si)) {
             return true;
         }
         si = null;
@@ -899,13 +912,6 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
             }
             NetIdToSyncInfoDict[syncid] = cur;
             si = cur;
-            string extra = "";
-            try {
-                if (cur.trader != null) {
-                    extra = " " + FindTheBugInator.TraderState(cur.trader);
-                }
-            } catch (Exception) { }
-            FindTheBugInator.Trader("heal", "id=" + syncid.id + extra);
             return true;
         }
         return false;
@@ -952,16 +958,25 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
         // these are the decorations of sandvines, remove em
         "sandvine",
+        // fullgame veinloop endcaps (climbable mid-section is Special/veinloop)
+        "veintop",
+        "veinbottom",
         // post V5t5 ropes are synced separately (actually i will instead check for climbable component
-        //Krokosha_BuildingEntity_Rope_TrackerComponent.sandvine_new_id,
-        //Krokosha_BuildingEntity_Rope_TrackerComponent.climbingropeextended_id,
-        //Krokosha_BuildingEntity_Rope_TrackerComponent.mushroomrope_new_id,
+        //krokosha_BuildingEntity_Rope_TrackerComponent.sandvine_new_id,
+        //krokosha_BuildingEntity_Rope_TrackerComponent.climbingropeextended_id,
+        //krokosha_BuildingEntity_Rope_TrackerComponent.mushroomrope_new_id,
 
         // no gameplay significance
         "marbleBackground",
 
         // idk what is this
         "mushroomdropperpayload",
+
+        // baked into the end lab prefab. there is no Resources entry, so a net spawn is null and the client clear deletes the real one.
+        "macrofleshrebuilder",
+
+        // each machine already built this from the world. a net copy is a second gun that does not share the first.
+        "ceilingturret",
     };
 
     public static bool ObjectShouldBeSynced(GameObject obj) => !ObjectShouldNotBeSynced(obj);
@@ -974,8 +989,26 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
                 if (obj.TryGetComponent<Climbable>(out var c)) {
                     if (!obj.TryGetComponent<TrackerClimbableEntity>(out var _)) {
                         var r = obj.AddComponent<TrackerClimbableEntity>();
-                        if (!r.is_ladder && log.verbose)
+                        // late-bind fullgame climbables if prefab init had not rewritten this instance yet
+                        if (b.id == "veinloop" || b.id == TrackerClimbableEntity.veinloop_new_id) {
+                            if (string.IsNullOrEmpty(r.og_id)) {
+                                r.og_id = "veinloop";
+                            }
+                            b.id = TrackerClimbableEntity.veinloop_new_id;
+                        } else if (b.id == TrackerClimbableEntity.spicevine_id
+                                   || b.id == TrackerClimbableEntity.spicevineceiling_id
+                                   || c.name.StartsWith("spicevineceiling")) {
+                            // ceiling prefab ships with BuildingEntity.id "spicevine" - rewrite so clients Load the right Resources path
+                            if (c.name.StartsWith("spicevineceiling") && b.id != TrackerClimbableEntity.spicevineceiling_id) {
+                                if (string.IsNullOrEmpty(r.og_id)) {
+                                    r.og_id = b.id;
+                                }
+                                b.id = TrackerClimbableEntity.spicevineceiling_id;
+                            }
+                        }
+                        if (!r.is_known_climbable) {
                             log.error($"Unknown Climbable: {c.name} -> id: {b.id}");
+                        }
                     }
                     return true;
                 }
@@ -985,6 +1018,14 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
         if (obj.TryGetComponent(out KrokoshaScavMultiGameObjectNetworkTracker_FORCEIGNORE ignorerrrrrrrrrrrrrrrrrrrrrrrrrrrrr)) {
             return true;
         }
+
+#if FULLGAME
+        // CS-style local-only crystal (no SyncInfo tracker): never treat as a Together-owned sync shell.
+        if (obj.TryGetComponent(out TogetherCrystalLocalMarker _)
+            && !obj.TryGetComponent(out SyncInfoGameObjectTracker _)) {
+            return true;
+        }
+#endif
 
         return false;
     }
@@ -1011,6 +1052,12 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
                 SyncRegistry[go] = existing.syncInfo;
                 if (existing.syncInfo.go == null)
                     existing.syncInfo.go = go;
+#if FULLGAME
+                // include inert crystal buildings (CB already destroyed) so FlagInert can wipe client FX.
+                if (go.TryGetComponent(out CrystalBehaviour _) || CrystalAuthority.LooksLikeCrystal(go)) {
+                    CrystalAuthority.HostOnCrystalRegistered(go, existing.syncInfo);
+                }
+#endif
                 return existing.syncInfo;
             }
 
@@ -1025,6 +1072,18 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
                 e.GetItemID();
             });
 
+#if FULLGAME
+            // crystals roll GenerationFinished before interest-range register - capture now that syncId exists
+            // also push inert for crystal-like buildings whose CB was destroyed on the host roll.
+            if (go != null && si != null
+                && (go.TryGetComponent(out CrystalBehaviour _) || CrystalAuthority.LooksLikeCrystal(go))) {
+                SyncRegistry[go] = si;
+                if (si.go == null) {
+                    si.go = go;
+                }
+                CrystalAuthority.HostOnCrystalRegistered(go, si);
+            }
+#endif
             return si;
         } catch (Exception e) {
             Plugin.Logger.LogError($"Server_EnsureItemIsNetworkRegistered Error: {go}\n{e.ToString()}\n{new StackTrace()}");
@@ -1053,7 +1112,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
 
 
-	public static void SafeDestroyObject(GameObject go) {
+    public static void SafeDestroyObject(GameObject go) {
 
         if (go.TryGetComponent(out Container container)) {
             container.UnloadAllItems();
@@ -1063,7 +1122,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
             NetObjectRegistry.SyncRegistry.Remove(si.go);
             si.go = null;
             si.Destroy();
-        } 
+        }
 
         Destroy(go.gameObject);
     }
@@ -1071,7 +1130,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
 
 
-    
+
 
     static float timer_fastsync = 0;
     static float timer_objsync = 0;
@@ -1084,7 +1143,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
         timer_objsync += ClientMain.AdaptiveSyncTimerDelta;
         timer_raresync += ClientMain.AdaptiveSyncTimerDelta;
         if (timer_fastsync > _FastSyncFrequency) {
-            //DoFastSyncUpdate();
+            //doFastSyncUpdate();
             timer_fastsync = 0;
         }
         if (timer_objsync > _DefaultSyncFrequency) {
@@ -1098,7 +1157,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
 
     }
-    
+
 
 
     public static bool _DEV_ENABLE_SYNCINFO_SNITCHING = false;
@@ -1107,7 +1166,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
         var ogfont = GUI.skin.label.fontSize;
 
-        if (Net.IsRunning && _DEV_ENABLE_SYNCINFO_SNITCHING ) {
+        if (Net.IsRunning && _DEV_ENABLE_SYNCINFO_SNITCHING) {
             foreach (var item in SyncRegistry) {
                 var go = item.Key;
                 var isi = item.Value;
@@ -1152,8 +1211,8 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
                             if (isi.IsTrader()) {
                                 var ttracker = go.GetComponent<TrackerTrader>();
 
-                                if (ttracker.focused_body != null) { 
-                                
+                                if (ttracker.focused_body != null) {
+
                                     GUI.Label(new Rect(pos.x, pos.y + y, 400, bsize), "trader_body: " + ttracker.focused_body.GetNetBody().plr);
                                     y += elsize;
                                 }
@@ -1171,11 +1230,10 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
                         GUI.Label(new Rect(pos.x, pos.y + y, 400, bsize), "see200: " + t.isInSimulationRange);
                         y += elsize;
 
-                        
+
 
                     }
-                }
-                catch { }
+                } catch { }
             }
 
         }

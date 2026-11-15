@@ -46,7 +46,7 @@ public class MultiplayerRuleChoiceAttribute : Attribute {
 public class MultiplayerRuleByteAttribute : Attribute {
     public byte min = 0;
     public byte limit;
-    public string postfix ;
+    public string postfix;
     public MultiplayerRuleByteAttribute(byte max = 100, string unit = "%") {
         limit = max;
         postfix = unit;
@@ -103,8 +103,8 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
 
 
     [MultiplayerRuleByte]
-    public byte ScatterMinGroupSize = 51;
-    [MultiplayerRuleFloat(0,1500, "M")]
+    public byte ScatterMinGroupSize = 0;
+    [MultiplayerRuleFloat(0, 1500, "M")]
     public float ScatterPunishDistance = 80; // in meters
     public bool PlayerScatterDisallowed => Multiplayer.rules.ScatterPunishDistance != 0 && Multiplayer.rules.ScatterPunishDistance < 449; // 1499 in tiles to meters
 
@@ -118,8 +118,8 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
     public bool RadlineExtraDamage = true;
 
     public bool NoInventoryLock = false;  // and steal stuff from other inventory even when theyre conscious
-    //public bool SharedTraderReputation = true;     // no 
-   
+                                          //public bool SharedTraderReputation = true;     // no 
+
     public bool EnableSleep = false; // DONE  
     public bool EnableTimeManipulation = false; // DONE // kinda broken, allows time manipulation (of course its synchronized but i find it too chaotic to let everyone spam fast forward)
 
@@ -145,11 +145,11 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
 
 
     public bool AllowSpectatorFreecam = true;
-    public bool AllowPush = true; 
+    public bool AllowPush = true;
 
     public bool AlwaysAllowCarry = false;
     public bool AllowPiggyback => PiggybackMaxStack > 0;
-    [MultiplayerRuleByte(254,"")]
+    [MultiplayerRuleByte(254, "")]
 #if RELEASE 
     public byte PiggybackMaxStack = 1;
 #else
@@ -158,7 +158,7 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
     [MultiplayerRuleFloat(0, 2, "")]
     public float PiggybackWeightMultiplier = 0.8f;// DONE 
 
-    [MultiplayerRuleByte(1,50, "")]
+    [MultiplayerRuleByte(1, 50, "")]
     public byte MinigameMaxPlayers = 50;
 
 
@@ -167,7 +167,7 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
 
 
     public bool EnableMP3Sync = true;
-    [MultiplayerRuleByte(4,"")]
+    [MultiplayerRuleByte(4, "")]
     public byte VoicechatQuality = 4;
     public bool VoicechatEnabled = true; // DONE
                                          //public bool VoicechatEffects = true;   // muffling, health related, shit like that  (and also hearingloss afects this)
@@ -197,6 +197,9 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
     public float AdditionalHealthDecay = 1f; // DONE      // extra bleed and brain damage while the red circle is up and no one is close enough to help
     public bool LastStandAllowed = true;
 
+    // teammate list greys out and stops tracking people past wound-view range
+    public bool TeammateListUsesRange = true;
+
 
 
     public float SelfharmWitnessMoodDebuff = 3f;
@@ -205,6 +208,8 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
     public bool SavePlayerState = true;
     public bool SavePlayerInventory = true;  // on disconnect, remember what the player had,  if false player will drop everything on disconnect (but health saved)
     public bool SavePlayerPosition = true;
+    // debug map normally skips mp_save; set true to read/write saves there like a normal run
+    public bool DebugWorldSaveSystem = false;
 
 
     // DEDICATED SERVER STUFF 
@@ -239,7 +244,7 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
     public bool DisableTimeManipulation => !EnableTimeManipulation;
 
 
-    public Dictionary<string,string> ConvertToSerializableDict() {
+    public Dictionary<string, string> ConvertToSerializableDict() {
         var v = new Dictionary<string, string>();
 
         var prev = CultureInfo.CurrentCulture;
@@ -257,7 +262,7 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
 
         return v;
     }
-    public static MultiplayerGameRules ConvertFromSerializableDict(Dictionary<string,string> r) {
+    public static MultiplayerGameRules ConvertFromSerializableDict(Dictionary<string, string> r) {
         var v = new MultiplayerGameRules();
 
         foreach (var item in r) {
@@ -270,7 +275,7 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
                 continue;
             }
             object obj4;
-            
+
             try {
                 if (field2.FieldType == typeof(bool)) {
                     obj4 = Con.ParseBool01(rule_value);
@@ -294,7 +299,7 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
         // do nothing
     }
 
-    public MultiplayerGameRules() { 
+    public MultiplayerGameRules() {
         // do nothing, set all the shit individually
     }
 }
@@ -311,8 +316,8 @@ public class TagPlayerInfo {
 
 [AttributeUsage(AttributeTargets.Method)]
 public abstract class NetworkMessageReceiverAttribute : Attribute {
-    
-    public enum ReceiverType : byte { 
+
+    public enum ReceiverType : byte {
         Client,
         Server
     }
@@ -368,6 +373,7 @@ abstract public class CasualtiesTogetherSingletonWorldOnly : MonoBehaviour { }
 public class Multiplayer : MonoBehaviour {
 
     public static ulong GAME_FILES_HASH = 0;
+    public static bool ExplicitSessionName;
 
 
 #if DEBUG
@@ -401,15 +407,15 @@ public class Multiplayer : MonoBehaviour {
                         Plugin.LoadErrorNotifier.errorstr = "Multiplayer Singleton got deleted???";
                     }
                 }
-                
+
                 Together.log.l("Multiplayer.OnDestroy()");
             } catch (System.Exception e) {
                 log.error("Multiplayer.OnDestroy: " + e.ToString());
             }
-        } catch (System.Exception _) {  }
+        } catch (System.Exception _) { }
 
         Application.runInBackground = Plugin.OG_RUNINGACKGROUND;
-        
+
     }
 
     private void OnApplicationQuit() {
@@ -430,7 +436,7 @@ public class Multiplayer : MonoBehaviour {
     public static double lastMultiplayerStatusMessageChangeTime = 0;
 
     public static bool showMultiplayerMenu = true;
-    
+
     public static string Server_GetJoinSecret() {
         if (SERVER_JOIN_SECRETS.Count > 0) {
             return SERVER_JOIN_SECRETS.Last();
@@ -504,12 +510,12 @@ public class Multiplayer : MonoBehaviour {
 
         if (!ScavPlayer.CheckIfPlrColorIsValid(UIMainMenu.LAST_VALID_INPUT_COLOR)) {
             log.l("Picked random color cuz its not picked.");
-            
+
             UIMainMenu.SetInputColor(ScavPlayer.NAMETAG_DEFAULT_COLORS_RANDOMIZED[new System.Random().Next(0, ScavPlayer.NAMETAG_DEFAULT_COLORS_RANDOMIZED.Length)]);
         }
     }
 
-    
+
 
 #if !RELEASE
     static NetBody selected_person_for_the_fucking_devautoaim_keybind_tging = null;
@@ -523,8 +529,8 @@ public class Multiplayer : MonoBehaviour {
         }
 
 
-#if !RELEASE 
-        
+#if !RELEASE
+
         if (Util.IsInWoundView()) {
 
             var limb = PlayerCamera.main.selectedLimb;
@@ -574,7 +580,7 @@ public class Multiplayer : MonoBehaviour {
                     PlayerCamera.main.woundView.GetComponent<WoundView>().UpdateView();
                 }
             }
-        } 
+        }
 
 #endif
 
@@ -586,7 +592,7 @@ public class Multiplayer : MonoBehaviour {
 
 
 
-    public static bool AdditionalApprovalCheck( ref NetDataReader reader, string plrname, ref string reject_reason) {
+    public static bool AdditionalApprovalCheck(ref NetDataReader reader, string plrname, ref string reject_reason) {
         if (reject_reason == null) {
             reject_reason = "Connection rejected";
         }
@@ -601,7 +607,7 @@ public class Multiplayer : MonoBehaviour {
 
 
     public static string FULL_VERSION_TAG { get; private set; }
-    
+
 
     public static void DoMultiplayerStatusMessageLog(string msg) {
         lastMultiplayerStatusMessageChangeTime = Time.realtimeSinceStartupAsDouble;
@@ -613,7 +619,7 @@ public class Multiplayer : MonoBehaviour {
         lastMultiplayerStatusMessageChangeTime = Time.realtimeSinceStartupAsDouble;
         multiplayerStatusMessage = msg;
         msg = "Status ERROR: " + msg;
-        log.error( msg);
+        log.error(msg);
     }
 
 
@@ -704,7 +710,7 @@ public class Multiplayer : MonoBehaviour {
 
             string tag = s.Substring(i + 1, end - i - 1).Trim();
 
-            // Simple tags
+            // simple tags
             if (tag is "b" or "/b" or "i" or "/i" or "s" or "/s") {
                 b.Append('<').Append(tag).Append('>');
             }
@@ -712,7 +718,7 @@ public class Multiplayer : MonoBehaviour {
             else if (tag.StartsWith("color=", StringComparison.OrdinalIgnoreCase)) {
                 string value = tag.Substring(6).Trim();
 
-                // Only allow simple color values, e.g. red, #FF0000, #FF0000FF
+                // only allow simple color values, e.g. red, #FF0000, #FF0000FF
                 if (Regex.IsMatch(value, @"^(?:[a-zA-Z]+|#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?)$")) {
                     b.Append("<color=").Append(value).Append('>');
                 }
@@ -758,19 +764,19 @@ C_LerpBufferTime: {_entityManager.LerpBufferTimeLength}
 Jitter: {_entityManager.NetworkJitter}
 PendingRemove: {_entityManager.PendingToRemoveEntites}";
             } else
-            if (Net.ServerEntityManager != null) {
-                var _entityManager = Net.ServerEntityManager;
-                t = $@"
+                if (Net.ServerEntityManager != null) {
+                    var _entityManager = Net.ServerEntityManager;
+                    t = $@"
 S_Tick: {_entityManager.Tick}
 S_Entities: {_entityManager.EntitiesCount}
 S_LerpFactor: {_entityManager.LerpFactor}";
-            }
+                }
 
             var content = KrokV5Optimization.FixGuiContent.Content(t, 35);
             var size = GUI.skin.label.CalcSize(content);
 
             GUI.Label(new Rect(Screen.width - 400, 20, size.x, size.y), t);
-            
+
         }
 #endif
 
@@ -790,7 +796,6 @@ S_LerpFactor: {_entityManager.LerpFactor}";
         float y = 20;
         const float elsize = 20f;
 
-        
 
 #if TESTING
         GUI.Label(new Rect(20, y, 1100, elsize), $"MULTIPLAYER CO-OP MOD v{Plugin.FULL_MOD_VERSION} FOR  CASUALTIES: UNKNOWN {Application.version} APPID: {KSteam.STEAM_APPID} \"TESTING BUILD\" \"TESTING BUILD\" 2" ); 
@@ -957,92 +962,92 @@ S_LerpFactor: {_entityManager.LerpFactor}";
                 }
 
                 if (Minigame.game?.currentMinigame != null) {
-                        if (Minigame.game.currentMinigame is DislocationMinigame dm) {
-                            GUI.Label(new Rect(20, y, 1000, elsize), $"DISLOCATION MINIGAME");
-                            y += elsize;
-                            GUI.Label(new Rect(20, y, 1000, elsize), $"BONE POS: {DislocationMinigame_CheckForHit_MultiplayerPatch.real_bonepos}");
-                            y += elsize;
-                            GUI.Label(new Rect(20, y, 1000, elsize), $"BONE VEL: {DislocationMinigame_CheckForHit_MultiplayerPatch.boneVelocity}");
-                            y += elsize;
-                        } else if (Minigame.game.currentMinigame is LockpingMinigame lm) {
-                            GUI.Label(new Rect(20, y, 500, elsize), $"LOCKPICKING MINIGAME");
-                            y += elsize;
+                    if (Minigame.game.currentMinigame is DislocationMinigame dm) {
+                        GUI.Label(new Rect(20, y, 1000, elsize), $"DISLOCATION MINIGAME");
+                        y += elsize;
+                        GUI.Label(new Rect(20, y, 1000, elsize), $"BONE POS: {DislocationMinigame_CheckForHit_MultiplayerPatch.real_bonepos}");
+                        y += elsize;
+                        GUI.Label(new Rect(20, y, 1000, elsize), $"BONE VEL: {DislocationMinigame_CheckForHit_MultiplayerPatch.boneVelocity}");
+                        y += elsize;
+                    } else if (Minigame.game.currentMinigame is LockpingMinigame lm) {
+                        GUI.Label(new Rect(20, y, 500, elsize), $"LOCKPICKING MINIGAME");
+                        y += elsize;
 #if !RELEASE
-                            GUI.Label(new Rect(20, y, 500, elsize), $"SWEETSPOT: {lm.correctAngle}");
-                            y += elsize;
-                            GUI.Label(new Rect(20, y, 500, elsize), $"MaxTurnProgress: {lm.MaxTurnProgress()}");
-                            y += elsize;
+                        GUI.Label(new Rect(20, y, 500, elsize), $"SWEETSPOT: {lm.correctAngle}");
+                        y += elsize;
+                        GUI.Label(new Rect(20, y, 500, elsize), $"MaxTurnProgress: {lm.MaxTurnProgress()}");
+                        y += elsize;
 #endif
-                            GUI.Label(new Rect(20, y, 500, elsize), $"HAND ANGLE: {lm.HandAngle}");
-                            y += elsize;
-                        }
-
-
-                        GUI.Label(new Rect(20, y, 400, elsize), "HAND VEL: " + MinigameBase.main.handVelocity.ToString());
-                        y += elsize;
-                        GUI.Label(new Rect(20, y, 400, elsize), "HAND VEL MAGN: " + ((int)MinigameBase.main.handVelocity.magnitude).ToString());
+                        GUI.Label(new Rect(20, y, 500, elsize), $"HAND ANGLE: {lm.HandAngle}");
                         y += elsize;
                     }
+
+
+                    GUI.Label(new Rect(20, y, 400, elsize), "HAND VEL: " + MinigameBase.main.handVelocity.ToString());
+                    y += elsize;
+                    GUI.Label(new Rect(20, y, 400, elsize), "HAND VEL MAGN: " + ((int)MinigameBase.main.handVelocity.magnitude).ToString());
+                    y += elsize;
                 }
-
-
-
             }
 
 
-            bool did_show_status_message = false;
 
-            if (Util.IsInPauseMenuOrMainMenu() || Net.IsDedicatedServer) {
-                var corrected_mouse_pos = new Vector2(UnityEngine.Input.mousePosition.x, Screen.height - UnityEngine.Input.mousePosition.y);
+        }
 
-                y += 10;
 
+        bool did_show_status_message = false;
+
+        if (Util.IsInPauseMenuOrMainMenu() || Net.IsDedicatedServer) {
+            var corrected_mouse_pos = new Vector2(UnityEngine.Input.mousePosition.x, Screen.height - UnityEngine.Input.mousePosition.y);
+
+            y += 10;
+
+        } else {
+            if (!Net.IsRunning) {
+                GUI.Label(new Rect(20, y, 1280, elsize * 2), Lang.Get("singleplayer_warn"));
+                y += elsize * 2;
             } else {
-                if (!Net.IsRunning) {
-                    GUI.Label(new Rect(20, y, 1280, elsize * 2), Lang.Get("singleplayer_warn"));
-                    y += elsize * 2;
-                } else {
-                    if (log.verbose) {
-                        var mode = Net.IsHost ? "Host" : Net.IsDedicatedServer ? "Server" : "Client";
-                        GUI.Label(new Rect(20, y, 200, elsize), "Mode: " + mode);
-                        y += elsize;
+                if (log.verbose) {
+                    var mode = Net.IsHost ? "Host" : Net.IsDedicatedServer ? "Server" : "Client";
+                    GUI.Label(new Rect(20, y, 200, elsize), "Mode: " + mode);
+                    y += elsize;
 
-                        if (!Net.IsConnecting && ScavPlayer.LocalPlayer != null && Net.IsClient) {
-                            GUI.Label(new Rect(20, y, 200, elsize), "Ping: " + (ClientMain.LOCAL_PING));
-                            y += elsize;
-                        }
+                    if (!Net.IsConnecting && ScavPlayer.LocalPlayer != null && Net.IsClient) {
+                        GUI.Label(new Rect(20, y, 200, elsize), "Ping: " + (ClientMain.LOCAL_PING));
+                        y += elsize;
                     }
                 }
             }
-            if ( !did_show_status_message && (
-                    Time.realtimeSinceStartupAsDouble - lastMultiplayerStatusMessageChangeTime < 10.0 // || !Util.IsInWorld()
-            ) ) {
-                var ogwordwrap = GUI.skin.label.wordWrap;
-                GUI.skin.label.wordWrap = true;
+        }
+        if (!did_show_status_message && (
+                Time.realtimeSinceStartupAsDouble - lastMultiplayerStatusMessageChangeTime < 10.0 // || !Util.IsInWorld()
+        )) {
+            var ogwordwrap = GUI.skin.label.wordWrap;
+            GUI.skin.label.wordWrap = true;
 
-                var txt = "Last Status Message:\n" + multiplayerStatusMessage;
+            var txt = "Last Status Message:\n" + multiplayerStatusMessage;
 
-                var texthiehgt = GUI.skin.label.CalcHeight(KrokV5Optimization.FixGuiContent.Content(txt, 36), 400);
+            var texthiehgt = GUI.skin.label.CalcHeight(KrokV5Optimization.FixGuiContent.Content(txt, 36), 400);
 
-                GUI.Label(new Rect(20, y, 400, texthiehgt), txt);
-                y += texthiehgt;
-                did_show_status_message = true;
+            GUI.Label(new Rect(20, y, 400, texthiehgt), txt);
+            y += texthiehgt;
+            did_show_status_message = true;
 
-                GUI.skin.label.wordWrap = ogwordwrap;
+            GUI.skin.label.wordWrap = ogwordwrap;
+        }
+
+
+
+
+        if (Voicechat.my_output_volume > 0) {
+            if (UIBullshit.IsAnyMenuOpen()) {
+                GUI.Label(new Rect(20, y, 300, elsize), "Voicechat current volume level: " + Voicechat.my_output_volume.ToString("F2"));
+                y += elsize;
+            } else {
+                GUI.Label(new Rect(20, y, 200, elsize), "Voicechat active.");
+                y += elsize;
             }
-
-
-
-
-            if (Voicechat.my_output_volume > 0) {
-                if (UIBullshit.IsAnyMenuOpen()) {
-                    GUI.Label(new Rect(20, y, 300, elsize), "Voicechat current volume level: " + Voicechat.my_output_volume.ToString("F2"));
-                    y += elsize;
-                } else {
-                    GUI.Label(new Rect(20, y, 200, elsize), "Voicechat active.");
-                    y += elsize;
-                }
-            }
+        }
 
 
 
@@ -1121,7 +1126,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
 
 #endif
-        
+
 
     }
 
@@ -1143,13 +1148,13 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
     }
 
-    internal static NetDataWriter GetClientConnectIntroductionPacket( NetDataWriter writer = null) {
+    internal static NetDataWriter GetClientConnectIntroductionPacket(NetDataWriter writer = null) {
 
         var credentials_buffer = writer ?? new NetDataWriter();
 
         credentials_buffer.Put(GAME_FILES_HASH);
         credentials_buffer.Put(FULL_VERSION_TAG, true);
-        credentials_buffer.Put(UIMainMenu.USERINPUT_NAME, true);
+        credentials_buffer.Put(KSteam.SessionName(), true);
 
         var l = credentials_buffer.Length;
 
@@ -1194,7 +1199,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
             if (!credentialsBuffer.EndOfData) { // 4.0.0
                 credentialsBuffer.Get(out userInfo.secret, true);
                 credentialsBuffer.TryGetStringArray(out userInfo.modlist);
-            } 
+            }
         } catch (Exception e) {
             aaaaaaaaaaa = false;
         }
@@ -1208,7 +1213,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
         try {
 
             if (!Multiplayer.ReadClientConnectIntroductionPacket(reader, ref userInfo)) {
-                deny_reason = ( $"Corrupt payload.");
+                deny_reason = ($"Corrupt payload.");
                 return false;
             }
 
@@ -1233,15 +1238,15 @@ S_LerpFactor: {_entityManager.LerpFactor}";
             }
             if (check_name) {
                 if (userInfo.userName.Length <= 2) {
-                    deny_reason = ( $"Name too short.");
+                    deny_reason = ($"Name too short.");
                     return false;
                 }
                 if (userInfo.userName != Multiplayer.SanitizeTextInput(userInfo.userName)) {
-                    deny_reason = ( $"Corrupt payload.");
+                    deny_reason = ($"Corrupt payload.");
                     return false;
                 }
             }
-            
+
             if (!userHasMasterKey) {
                 if (Multiplayer.SERVER_TOGGLE_ENFORCE_MODLIST && !userHasMasterKey) {
                     if (!(new HashSet<string>(GetModGUIDs()).SetEquals(userInfo.modlist))) {
@@ -1269,14 +1274,14 @@ S_LerpFactor: {_entityManager.LerpFactor}";
                     return false;
                 }
             }
-            
+
 
             deny_reason = "Success";
             userInfo.password = null;
             return true;
         } catch {
             deny_reason = $"Corrupt payload.";
-            return false ;
+            return false;
         }
     }
 
@@ -1454,17 +1459,19 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
 
     // i might be stupid or this is really how they want us to shutdown the network,  like wtf why not expose ShutdownInternal bro, unity devs are stupid af bro
-    public static void ShutdownNetwork()  {
+    public static void ShutdownNetwork() {
         UIInGame.StopSpectatorMode();
-        
+
         GoBackToMainMenuIfImClientAndInGame();
 
+        WorldMP.RunUnchippedLock.Clear();
         Net.ShutdownReset();
     }
 
     public static void _JustDisconnect() {
         UIInGame.StopSpectatorMode();
-        
+
+        WorldMP.RunUnchippedLock.Clear();
         Net.ShutdownReset();
     }
 
@@ -1499,7 +1506,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
                     fld.SetValueDirect(rulesref, p);
                 }
-            } 
+            }
         }
 
 
@@ -1516,7 +1523,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
                     txt.transform.parent.gameObject.SetActive(rules.EnableTimeManipulation);
                 }
 
-            }  catch (Exception e) {
+            } catch (Exception e) {
                 log.error("TimeManipulation UI switch ERROR: " + e.ToString());
             }
         }
@@ -1528,13 +1535,13 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
 
     }
-    
+
 
     public static bool IsNetworkActiveAndIsServer() {
-        return Net.IsRunning && Net.IsServer; //   NetworkManager.Singleton.IsHost || NetworkManager.Singleton.IsServer
+        return Net.IsRunning && Net.IsServer; //   networkManager.Singleton.IsHost || NetworkManager.Singleton.IsServer
     }
     public static bool IsNetworkActiveAndIsClient() {
-        return Net.IsRunning && Net.IsClient; //   NetworkManager.Singleton.IsClient
+        return Net.IsRunning && Net.IsClient; //   networkManager.Singleton.IsClient
     }
     public static bool IsNetworkActiveOrIsInGame() {
         return Net.IsRunning || Util.IsInWorld();
@@ -1550,7 +1557,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
     public static void GoBackToMainMenuIfImClientAndInGame() {
         if (Net.IsClient && Util.IsInWorld()) {
-            DoMultiplayerStatusMessageLog("Went back to main menu because disconnected."); 
+            DoMultiplayerStatusMessageLog("Went back to main menu because disconnected.");
             Multiplayer.showMultiplayerMenu = true;
             PlayerCamera.main.ToMainMenu();
         }
@@ -1639,7 +1646,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
     static internal List<Type> WorldSingletons = new();
 
     // CALLED ONLY FROM PLUGIN ENTRY POINT
-    internal static void _FIRST_INIT()  {
+    internal static void _FIRST_INIT() {
         FULL_VERSION_TAG = Application.version + "_MPv" + Plugin.MOD_VERSION;
 
 #if !RELEASE
@@ -1658,58 +1665,58 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
             var colors = new Color[]
             { // ai generated colors
-                // Oranges
-                new Color(1f, 0.5f, 0f),        // Orange
-                new Color(1f, 0.4f, 0f),        // Dark Orange
-                new Color(1f, 0.6f, 0.2f),      // Light Orange
+                // oranges
+                new Color(1f, 0.5f, 0f),        // orange
+                new Color(1f, 0.4f, 0f),        // dark Orange
+                new Color(1f, 0.6f, 0.2f),      // light Orange
 
-                // Purples
-                new Color(0.5f, 0f, 1f),        // Purple
-                new Color(0.6f, 0.2f, 0.8f),    // Soft Purple
-                new Color(0.4f, 0f, 0.6f),      // Dark Purple
+                // purples
+                new Color(0.5f, 0f, 1f),        // purple
+                new Color(0.6f, 0.2f, 0.8f),    // soft Purple
+                new Color(0.4f, 0f, 0.6f),      // dark Purple
 
-                // Pinks
-                new Color(1f, 0.4f, 0.7f),      // Hot Pink
-                new Color(1f, 0.6f, 0.8f),      // Light Pink
-                new Color(0.9f, 0.3f, 0.5f),    // Rose
+                // pinks
+                new Color(1f, 0.4f, 0.7f),      // hot Pink
+                new Color(1f, 0.6f, 0.8f),      // light Pink
+                new Color(0.9f, 0.3f, 0.5f),    // rose
 
-                // Greens
-                new Color(0.5f, 1f, 0.5f),      // Light Green
-                new Color(0.2f, 0.8f, 0.2f),    // Bright Green
-                new Color(0.1f, 0.5f, 0.1f),    // Dark Green
-                new Color(0.3f, 0.7f, 0.3f),    // Mint
+                // greens
+                new Color(0.5f, 1f, 0.5f),      // light Green
+                new Color(0.2f, 0.8f, 0.2f),    // bright Green
+                new Color(0.1f, 0.5f, 0.1f),    // dark Green
+                new Color(0.3f, 0.7f, 0.3f),    // mint
 
-                // Blues
-                new Color(0.4f, 0.7f, 1f),      // Sky Blue
-                new Color(0.2f, 0.4f, 0.8f),    // Deep Blue
-                new Color(0.5f, 0.8f, 1f),      // Light Sky
-                new Color(0.1f, 0.3f, 0.6f),    // Navy-ish
+                // blues
+                new Color(0.4f, 0.7f, 1f),      // sky Blue
+                new Color(0.2f, 0.4f, 0.8f),    // deep Blue
+                new Color(0.5f, 0.8f, 1f),      // light Sky
+                new Color(0.1f, 0.3f, 0.6f),    // navy-ish
 
-                // Teals
-                new Color(0f, 0.5f, 0.5f),      // Teal
-                new Color(0f, 0.7f, 0.7f),      // Bright Teal
+                // teals
+                new Color(0f, 0.5f, 0.5f),      // teal
+                new Color(0f, 0.7f, 0.7f),      // bright Teal
 
-                // Yellows
-                new Color(1f, 0.9f, 0.3f),      // Soft Yellow
-                new Color(1f, 0.8f, 0f),        // Golden
-                new Color(0.9f, 0.7f, 0.1f),    // Mustard
+                // yellows
+                new Color(1f, 0.9f, 0.3f),      // soft Yellow
+                new Color(1f, 0.8f, 0f),        // golden
+                new Color(0.9f, 0.7f, 0.1f),    // mustard
 
-                // Browns
-                new Color(0.6f, 0.3f, 0f),      // Brown
-                new Color(0.4f, 0.2f, 0.1f),    // Dark Brown
-                new Color(0.7f, 0.5f, 0.3f),    // Light Brown
+                // browns
+                new Color(0.6f, 0.3f, 0f),      // brown
+                new Color(0.4f, 0.2f, 0.1f),    // dark Brown
+                new Color(0.7f, 0.5f, 0.3f),    // light Brown
 
-                // Grays
+                // grays
                 //new Color(0.7f, 0.7f, 0.7f),    // Light Gray
                 //new Color(0.5f, 0.5f, 0.5f),    // Medium Gray
                 //new Color(0.3f, 0.3f, 0.3f),    // Dark Gray
 
-                // Extra vibrant gamer-style colors
-                new Color(0f, 1f, 0.6f),        // Neon Green
-                new Color(1f, 0f, 0.6f),        // Neon Pink
-                new Color(0.6f, 0f, 0f),        // Dark Red
-                new Color(0.8f, 0.2f, 0.2f),    // Soft Red
-                new Color(0.6f, 0.8f, 0.2f),    // Lime
+                // extra vibrant gamer-style colors
+                new Color(0f, 1f, 0.6f),        // neon Green
+                new Color(1f, 0f, 0.6f),        // neon Pink
+                new Color(0.6f, 0f, 0f),        // dark Red
+                new Color(0.8f, 0.2f, 0.2f),    // soft Red
+                new Color(0.6f, 0.8f, 0.2f),    // lime
             };
 
             ScavPlayer.NAMETAG_DEFAULT_COLORS = ScavPlayer.NAMETAG_DEFAULT_COLORS.AddRangeToArray(colors);
@@ -1751,14 +1758,14 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
 
 
-        Singletons.Add(Plugin.s.AddComponent<DebugHelp>() );
+        Singletons.Add(Plugin.s.AddComponent<DebugHelp>());
         Singletons.Add(Plugin.s.AddComponent<SharedMain>());
         Singletons.Add(Plugin.s.AddComponent<ClientMain>());
         Singletons.Add(Plugin.s.AddComponent<ServerMain>());
-		
 
-		// do reflection shi
-		var my_assembly = Assembly.GetAssembly(typeof(CasualtiesTogetherSingleton));
+
+        // do reflection shi
+        var my_assembly = Assembly.GetAssembly(typeof(CasualtiesTogetherSingleton));
         var my_types = my_assembly.GetTypesSafely();
 
         // create and initialize all sub systems components
@@ -1870,11 +1877,11 @@ S_LerpFactor: {_entityManager.LerpFactor}";
         GlobalDark_Awake_MultiplayerPatch.SetBetaBuildMPText();
     }
 
-    
+
 
 
     public static void OnSceneLoaded(Scene a, LoadSceneMode b) {
-        
+
 #if DEBUG
         Plugin.log.LogWarning("DEV: SCENE LOADED");
 #endif
@@ -1912,7 +1919,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
                 try { // make the multiplicator of player image
                     WorldGeneration.world.loadingObject.GetOrAddComponent<LoadingScreenSpecimenDuplicator>();
-                }   catch (Exception e) {
+                } catch (Exception e) {
                     log.error("LoadingScreenCreatureDuplicator -> \n" + e.ToString());
                 }
 
@@ -1920,7 +1927,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
             }
 
         }
-        if (is_world ) {
+        if (is_world) {
 
             if (!Net.IsRunningSteam) {
                 Plugin.log.LogInfo("Local player username: " + UIMainMenu.USERINPUT_NAME);
@@ -1935,7 +1942,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
             } else {
                 // and add the player body tracker to local body!
                 var pb = PlayerCamera.main.body.GetOrAddComponent<NetBody>();
-                
+
                 pb.BackupLocalPlayerInit();
 
                 UIMainMenu.SetOpen(false);
@@ -1960,7 +1967,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
         Plugin.log.LogWarning("DEV: SCENE UNLOADED");
 #endif
         NetObjectRegistry.UnregisterAllObjects();
-        
+
     }
 
 
@@ -2084,7 +2091,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
         }
         _ServerReceivers[id] = receiver;
     }
-    public static void InternalAddCustomClientReceiver(uint id, Action< NetDataReader> receiver) {
+    public static void InternalAddCustomClientReceiver(uint id, Action<NetDataReader> receiver) {
         if (_ClientReceivers.ContainsKey(id)) {
             throw new DuplicateNameException($"Receiver id collided! ({id.ToString()}) Change the id!");
         }
@@ -2099,7 +2106,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
             try {
                 func(reader);
             } catch (Exception e) {
-                var s = new StackTrace(e,0);
+                var s = new StackTrace(e, 0);
                 var messageStr = _ReceiversOriginalNames.GetValueSafe(hash) ?? hash.ToString();
                 log.error($"ClientCustomReceiver: \"{messageStr}\": {e.Message}\n{s}");
             }
@@ -2113,7 +2120,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
             try {
                 func(plr, reader);
             } catch (Exception e) {
-                var s = new StackTrace(e,0);
+                var s = new StackTrace(e, 0);
                 var messageStr = _ReceiversOriginalNames.GetValueSafe(hash) ?? hash.ToString();
                 log.error($"ServerCustomReceiver: \"{messageStr}\": {e.Message}\n{s}");
             }

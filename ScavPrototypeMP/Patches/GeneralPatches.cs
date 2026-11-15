@@ -248,7 +248,7 @@ internal static class RPCManager_Initialize_MultiplayerPatch {
             log.l($"DiscordRPC: OnJoinRequested called");
 #endif
 
-            if (Net.IsRunning && Net.IsServer) { // DiscordRPC cant check if the user is a friend 
+            if (Net.IsRunning && Net.IsServer) { // discordRPC cant check if the user is a friend 
                 var userTostring = args.User.ToString();
                 //if (!string.IsNullOrEmpty(DisplayName)) {
                 //    userTostring= DisplayName;
@@ -258,8 +258,8 @@ internal static class RPCManager_Initialize_MultiplayerPatch {
                 //}
                 //userTostring= Username;
 
-                var prompt = new UIChoicePrompt.Prompt {
-                    text = String.Format(Lang.Get("discord_joinrequesttext"), $"{userTostring}"), // Lang.Get("discord_joinrequest", $"{args.User} wants to join your game.")
+                UIChoicePrompt.Prompt prompt = new UIChoicePrompt.Prompt {
+                    text = String.Format(Lang.Get("discord_joinrequesttext"), $"{userTostring}"), // lang.Get("discord_joinrequest", $"{args.User} wants to join your game.")
                     name = Lang.Get("discord_joinrequest"),
                     size = new Vector2(0.4f, 0.18f),
                     choices = new UIChoicePrompt.Prompt.PromptChoice[] {
@@ -420,11 +420,47 @@ static class Sound_Play_MultiplayerPatch {
             return false;
         }
 
+        // vanilla animalhitsweet is 2D feedback for the hitter. Attack relay re-runs Body.Attack
+        // on every peer (thornbackyoung / other animals), so without this everyone hears it full-volume.
+        // attaching a prosthetic plays a 2D sting at the origin, so every peer who runs AttachProsthetic hears it at full volume
+        if (clip == "prostheticapply") {
+            Body attached = Limb_AchievementOwner_MultiplayerPatch.AttachingBody;
+            if (attached != null && !Util.IsBodyLocal(attached)) {
+                pos = attached.transform.position;
+                twoDimensional = false;
+            }
+        }
+
+        if (clip == "animalhitsweet") {
+            var attacker = Body_Attack_MultiplayerPatch.LastAttacker;
+            if (attacker == null || !Util.IsBodyLocal(attacker)) {
+                return false;
+            }
+        }
+
+        // crystal Touched/Hit feedback is vanilla-2D. Every peer in sim range runs the effect,
+        // so without this the host hears observerlaugh / heal / emp / etc. for remote triggers.
+        if (twoDimensional && CrystalLocalFx.IsTriggerFeedbackClip(clip)) {
+            if (CrystalLocalFx.SuppressNonLocalFeedback()) {
+                return false;
+            }
+            // local triggerer keeps the 2D sting; everyone else already returned.
+        }
+
         var og_twoDimensional = twoDimensional;
 
         if (clip.StartsWith("exert") || clip == "Saw") {
             // position is already provided
             twoDimensional = false;
+        } else if (clip == "mushroombounce") {
+            // bounceShroom limb path is vanilla-2D; in MP every peer simulates the trigger so it was global
+            twoDimensional = false;
+        } else if (clip == "crystalenemywindup" || clip == "crystalenemylodge" || clip == "crystalenemylaugh") {
+            // manifestation (crystalenemy) AI uses vanilla-2D stings; every peer in sim range runs Update/Lunge.
+            // keep 2D only for the local crystal-trigger feedback path (metamorphic etc.).
+            if (!CrystalLocalFx.IsLocalTrigger()) {
+                twoDimensional = false;
+            }
         } else if (WorldGeneration_CreateExplosion_MultiplayerPatch.is_inside_CreateExplosion && WorldGeneration_CreateExplosion_MultiplayerPatch.last_explosion_params != null && WorldGeneration_CreateExplosion_MultiplayerPatch.last_explosion_params.sound == clip) {
             pos = Vector2.LerpUnclamped(WorldGeneration_CreateExplosion_MultiplayerPatch.last_explosion_params.position, Camera.main.transform.position, 0.8f);
             twoDimensional = false;
@@ -537,5 +573,23 @@ static class Sound_Play2_MultiplayerPatch {
     }
 }
 
-
-
+// unity can run FixedUpdate before Start on freshly spawned bodies/limbs/items (common on join).
+// stock LiquidAffect then NREs on null rb / world / FluidManager - and acid path on null talker.
+[HarmonyPatch(typeof(LiquidAffect), "FixedUpdate")]
+static class LiquidAffect_FixedUpdate_NullGuard_MultiplayerPatch {
+    static bool Prefix(LiquidAffect __instance) {
+        Traverse tr = Traverse.Create(__instance);
+        if (tr.Field("rb").GetValue<Rigidbody2D>() == null) {
+            return false;
+        }
+        if (WorldGeneration.world == null || FluidManager.main == null) {
+            return false;
+        }
+        Limb limb = tr.Field("limb").GetValue<Limb>();
+        if (limb != null && (limb.body == null || limb.body.talker == null)) {
+            // acid branch calls talker.FinishedTalking(); skip until talker exists
+            return false;
+        }
+        return true;
+    }
+}

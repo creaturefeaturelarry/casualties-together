@@ -1,17 +1,17 @@
-using HarmonyLib;
 using CasualtiesTogetherUtils;
+using HarmonyLib;
+using LiteNetLib;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using System.Collections;
-using LiteNetLib;
-using System.Linq;
-using System.Collections.Generic;
-using Newtonsoft.Json;
-using System.Text;
-using Newtonsoft.Json.Linq;
-using System.Diagnostics;
 using UnityEngine.UI;
 
 namespace Together;
@@ -52,7 +52,7 @@ class TrackerWorld : CasualtiesTogetherSingletonWorldOnly {
     }
 
     internal void SaveLocationSnapshots() {
-        foreach (var plr in ScavPlayer.ClientIdToPlayerDict.Values) {
+        foreach (var plr in ScavPlayer.AllPlayers) {
             if (!plr.ServerPlayerState.is_loaded_in) {
                 continue;
             }
@@ -76,6 +76,46 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
     #endregion
 
+    // host snapshots chip mode when a run starts; lobby toggles after that are ignored.
+    public static class RunUnchippedLock {
+        public static bool Locked;
+        public static bool GlobalUnchipped;
+        internal static bool ApplyingSynced;
+
+        public static void LockForRun() {
+            if (!Net.IsRunning) {
+                return;
+            }
+            Locked = true;
+            GlobalUnchipped = WorldGeneration.world != null
+                ? WorldGeneration.unchipped
+                : (bool)runSettings.GetValueOrDefault("unchipped", false);
+            if (WorldGeneration.runSettings != null) {
+                WorldGeneration.runSettings["unchipped"] = GlobalUnchipped;
+            }
+            if (PreRunScript.instance != null && PreRunScript.instance.runSettings != null) {
+                PreRunScript.instance.runSettings["unchipped"] = GlobalUnchipped;
+            }
+        }
+
+        public static void Clear() {
+            Locked = false;
+        }
+
+        public static bool BlocksLocalChange(bool want) {
+            if (!Locked || !Net.IsRunning) {
+                return false;
+            }
+            if (ApplyingSynced || Net.IsServer) {
+                return false;
+            }
+            if (Multiplayer.rules.UnchippedIsIndividual) {
+                return Util.IsInWorld();
+            }
+            return want != GlobalUnchipped;
+        }
+    }
+
 
 
     public static Dictionary<string, object> GetNormalRunSettings() {
@@ -93,7 +133,8 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 prerunset = PreRunScript.instance.runSettings;
             }
             if (Util.IsInMainMenu()) {
-                return prerunset;
+                // never null - TeammateList/IsUnchipped call this before PreRun exists
+                return prerunset ?? GetNormalRunSettings();
             }
             return (WorldGeneration.runSettings ?? prerunset ?? GetNormalRunSettings());
         }
@@ -173,9 +214,9 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
     static bool mainmenu_is_screen_darkening = false;
 
-    internal static byte[] aaaaaaaaaaaaaaaaaaaaaaaaaaa = null; // SAVELOAD_worldtiles
-    internal static byte[] bbbbbbbbbbbbbbbbbbbbbbbbbbb = null; // SAVELOAD_worldobj
-    internal static byte[] ccccccccccccccccccccccccccc = null; // SAVELOAD_worldfluid
+    internal static byte[] aaaaaaaaaaaaaaaaaaaaaaaaaaa = null; // sAVELOAD_worldtiles
+    internal static byte[] bbbbbbbbbbbbbbbbbbbbbbbbbbb = null; // sAVELOAD_worldobj
+    internal static byte[] ccccccccccccccccccccccccccc = null; // sAVELOAD_worldfluid
 
     internal static Sprite whiteSquare = null;
 
@@ -192,7 +233,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
 
 
-        //var E5E5E5FF = new Color(0.898f, 0.898f, 0.898f);
+        //color E5E5E5FF = new Color(0.898f, 0.898f, 0.898f);
         var E5E5E5FF = Color.white;
 
         Texture2D texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
@@ -215,6 +256,31 @@ public class WorldMP : CasualtiesTogetherSingleton {
         aaaaaaaaaaaaaaaaaaaaaaaaaaa = null;
         bbbbbbbbbbbbbbbbbbbbbbbbbbb = null;
         ccccccccccccccccccccccccccc = null;
+        if (a.name == "PreGen") {
+            ReleaseTitleFade();
+        }
+    }
+
+    // tutorial exit Darken()s, then loads PreGen while the overlay is still black.
+    // globalDark survives the load, so the title stays dim and the image eats clicks.
+    internal static void ReleaseTitleFade() {
+        GlobalDark dark = GlobalDark.main;
+        if (dark == null) {
+            return;
+        }
+        try {
+            Traverse fields = Traverse.Create(dark);
+            fields.Field("darkening").SetValue(false);
+            fields.Field("stayDark").SetValue(false);
+            fields.Field("speedMult").SetValue(1f);
+        } catch {
+        }
+        dark.SetSpeedMultiplier(1f);
+        dark.SetStayDark(false);
+        dark.SetDarkAmount(0f);
+        if (dark.image != null) {
+            dark.image.raycastTarget = false;
+        }
     }
     void FixedUpdate() {
         if (Util.IsInWorld()) {
@@ -222,7 +288,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 mainmenu_is_screen_darkening = false;
             }
             if (
-                !earthquake_enabled && world.earthquakeTime <= 0 || 
+                !earthquake_enabled && world.earthquakeTime <= 0 ||
                 world.biomeOverride == WorldGeneration.OverrideSceneType.Debug// to fix client-side infinite earthquake for no reason
             ) {
                 world.earthquakeTime = 0;
@@ -294,7 +360,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
         ResetWorldParameters();
 
         //current_instruction = null;
-        SetRadlinePlayerPrefs(true); // After 7.0.1 it's always enabled, only the timer is edited in run settings 
+        SetRadlinePlayerPrefs(true); // after 7.0.1 it's always enabled, only the timer is edited in run settings 
 
         LoadWorldScene(loadsave);
     }
@@ -354,7 +420,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
             }
         }
     }
-    public static bool HasSkyBackground(out (Color,float) skyinfo) {
+    public static bool HasSkyBackground(out (Color, float) skyinfo) {
         if (SKY_BACKGROUND != null) {
             skyinfo = (
                 world.skyMaterial.GetColor("_TopColor"),
@@ -377,7 +443,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
         }
         mainmenu_is_screen_darkening = true;
         //if (current_instruction != null) {
-        //    SetTutorialPlayerPrefs(current_instruction.tutorial);
+        //    setTutorialPlayerPrefs(current_instruction.tutorial);
         //}
         SaveSystem.loadedRun = loadsave;
 
@@ -385,9 +451,14 @@ public class WorldMP : CasualtiesTogetherSingleton {
         if (fadeout) {
             var prs = PreRunScript.instance;
             if (prs) {
-                mainmenu_is_screen_darkening = true;
-                prs.StartCoroutine(prs.WaitLoad());
+                try {
+                    prs.StartCoroutine(prs.WaitLoad());
+                } catch {
+                    mainmenu_is_screen_darkening = false;
+                    throw;
+                }
             } else {
+                mainmenu_is_screen_darkening = false;
                 throw new Exception("PreRunScript DOES NOT EXIST ?! WHAT ?????");
             }
         } else {
@@ -434,7 +505,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
             if (Net.IsClient) {
                 ClientMain.ServerIsGeneratingWorld = true;
 
-                //Multiplayer.DoMultiplayerStatusMessageLog("GenerateWorld: Waiting for server to send the seed.");
+                //multiplayer.DoMultiplayerStatusMessageLog("GenerateWorld: Waiting for server to send the seed.");
                 world.loadingText.text = Lang.Get("worldgen_waitforserver_seed");
                 log.l("CLIENT: Waiting for worldgen params...");
 
@@ -452,7 +523,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 WorldGeneration_GenerateWorld_MultiplayerPatch.firstworldgenparams.Apply();
                 WorldGeneration_GenerateWorld_MultiplayerPatch.client_firstworldgenparams_are_used = true;
 
-                
+
 
 
             } else {
@@ -463,7 +534,15 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
 
 
-                if (Multiplayer.rules.LayerFinishKeepXOffset) { // move all players to center
+                // drill pod: clear offsets so PlaceBody / GiveSpawn put everyone in the pod.
+                // normal dig: keep relative X across the layer transition.
+                if (world.doPod) {
+                    foreach (var item in ScavPlayer.BodyToPlayerDict) {
+                        if (item.Value?.ServerPlayerState != null) {
+                            item.Value.ServerPlayerState.layer_transition_x_offset = 0;
+                        }
+                    }
+                } else if (Multiplayer.rules.LayerFinishKeepXOffset) { // move all players to center
                     var leftx = 0f;
                     var rightx = 0f;
                     bool firstfound = false;
@@ -472,7 +551,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
                         var plr = item.Value;
                         if (body != null && body.alive) {
                             var n = Mathf.Clamp(body.transform.position.x, -world.width * 0.49f, world.width * 0.49f);
-                            plr.ServerPlayerState.layer_transition_x_offset = n ;
+                            plr.ServerPlayerState.layer_transition_x_offset = n;
                             if (!firstfound) {
                                 firstfound = true;
                                 leftx = n;
@@ -493,7 +572,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
                         if (body != null && body.alive) {
                             plr.ServerPlayerState.layer_transition_x_offset = Mathf.Clamp(plr.ServerPlayerState.layer_transition_x_offset - centerx, -world.width * 0.49f, world.width * 0.49f);
                             body.transform.position = new Vector2(plr.ServerPlayerState.layer_transition_x_offset, body.transform.position.y);
-                        } 
+                        }
                     }
                 }
             }
@@ -515,7 +594,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
 
         //if (log.verbose)
-            log.l("WorldGeneration.GenerateWorld");
+        log.l("WorldGeneration.GenerateWorld");
         yield return WorldGeneration_GenerateWorld_MultiplayerPatch.GenerateWorld(world);
 
 
@@ -561,13 +640,13 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 if (ClientMain._last_reminderpack_while_generating_received) {
                     if (ScavPlayer.TryGetLocalNetBody(out var lpb)) {
                         lpb.OnReceiveSyncPacket(ClientMain._last_reminderpack_while_generating, true);
-                    } 
+                    }
                 }
                 log.l("CLIENT: Received location for WorldPlacePlayer.");
             }
         }
 
-        yield return WorldGeneration_WorldPlacePlayer_MultiplayerPatch.WorldPlacePlayer(world); 
+        yield return WorldGeneration_WorldPlacePlayer_MultiplayerPatch.WorldPlacePlayer(world);
         log.l("WorldGeneration.WorldPlacePlayer");
     }
 
@@ -578,14 +657,14 @@ public class WorldMP : CasualtiesTogetherSingleton {
         var builds = FindObjectsOfType<BuildingEntity>(true).Select(x => x.gameObject);
 
         var aa = items.Union(builds).ToList();
-        
+
         world.loadingText.text = Lang.Get("worldgen_waitforserver_delete");
         var time = Time.realtimeSinceStartupAsDouble;
         for (int i = 0; i < aa.Count; i++) {
             var x = aa[i];
             if (x == null || NetObjectRegistry.ObjectShouldNotBeSynced(x) || NetObjectRegistry.IsRegistered(x)) {
                 // dont destroy it
-            } else { 
+            } else {
                 GameObject.Destroy(x);
 
                 if (Time.realtimeSinceStartupAsDouble - time > WORLDCLEAR_MAX_HALT_TIME) {
@@ -634,6 +713,12 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
                 yield return FinishWorldGen_ClientClearWorldObjects();
 
+                // mid-gen UpdateWorld was skipped (FrameBuckets). worldBlocks are correct but
+                // chunk tilemaps are stale; TilemapSync won't repair when hashes already match
+                // (EndLab GenerateObjectAtPosFast floor -> client pit near scientist).
+                world.loadingText.text = Lang.Get("worldgen_waitforserver_delete");
+                yield return FrameBuckets.ClientFlushWorldTilemaps(world);
+
                 ClientMain.ServerIsGeneratingWorld = true;
 
                 // ask the host to teleport me to spawn point
@@ -655,12 +740,12 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 yield return new WaitForSecondsRealtime(1f);
 
 
-                if (ClientMain._last_reminderpack_while_generating_received)  {
+                if (ClientMain._last_reminderpack_while_generating_received) {
                     if (ScavPlayer.TryGetLocalNetBody(out var lpb)) {
                         lpb.OnReceiveSyncPacket(ClientMain._last_reminderpack_while_generating, true);
-                    } 
+                    }
                 }
-            } 
+            }
         }
 
 #if !RELEASE
@@ -686,20 +771,19 @@ public class WorldMP : CasualtiesTogetherSingleton {
                     using var reader = new BinaryReader(stream);
 
 
-                }
-                catch (Exception e) {
+                } catch (Exception e) {
                     log.error($"Failed to load objects: {e}");
                 }
             }
             yield return null;
         }
-        
+
 #endif
 
         if (Net.IsRunning) {
 
             if (Net.IsServer) {
-                foreach (var plr in ScavPlayer.ClientIdToPlayerDict.Values) {
+                foreach (var plr in ScavPlayer.AllPlayers) {
                     plr.ServerPlayerState.OnWorldGenerate();
                 }
                 WorldChunkSync.FluidTilemapSyncUpdate();
@@ -709,12 +793,18 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
         if (Util.TryGetLocalBody(out var LOCBODY) && !LOCBODY.alive) { UIInGame.StartSpectatorMode(); }
 
+#if FULLGAME
+        if (Net.IsRunning && Net.IsClient) {
+            yield return CrystalAuthority.ClientLoadingScreenStep(world);
+        }
+#endif
+
         yield return WorldGeneration_FinishWorldGeneration_MultiplayerPatch.FinishWorldGeneration(world);
-        
+
         log.l("WorldGeneration.FinishWorldGeneration");
 
 
-        if (Util.TryGetLocalBody(out LOCBODY) && !LOCBODY.alive) { UIInGame.StartSpectatorMode();  }
+        if (Util.TryGetLocalBody(out LOCBODY) && !LOCBODY.alive) { UIInGame.StartSpectatorMode(); }
 
         aaaaaaaaaaaaaaaaaaaaaaaaaaa = null;
         bbbbbbbbbbbbbbbbbbbbbbbbbbb = null;
@@ -731,7 +821,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 } else {
                     log.error($"CLIENT: Received starter char state packet, BUT I HAVE NO BODY !!!! POS: {ClientMain._last_reminderpack_while_generating.Position}");
                 }
-            } 
+            }
         }
 
         if (Net.IsRunning) {
@@ -742,6 +832,11 @@ public class WorldMP : CasualtiesTogetherSingleton {
             WorldGeneration_GenerateWorld_MultiplayerPatch.client_firstworldgenparams_are_used = true;
 
             DrillPod_Update_MultiplayerPatch.didTeleport = false;
+#if FULLGAME
+            BlueHeartMp.CargoUnlocked = false;
+            BlueHeartMp.ClientCutsceneFromHost = false;
+            BlueHeartMp.ResetCargoEnsureState();
+#endif
             if (PlayerCamera.main != null) {
                 PlayerCamera.main.bonusActionBarTime = 0f;
             }
@@ -791,6 +886,8 @@ public class WorldMP : CasualtiesTogetherSingleton {
             } else {
                 Con._DEV_CHATSPY = false;
             }
+            RunUnchippedLock.LockForRun();
+
             var locplrbody = ScavPlayer.LocalPlayer?.body;
             if (locplrbody != null) {
                 ScavPlayer.LocalPlayer.SetUnchipped(WorldGeneration.unchipped);
@@ -849,7 +946,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
         if (ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr)) {
             if (!plr.ServerPlayerState.did_give_spawn_location) {
-                log.devevent($"SERVER: Received WorldPlacePlayer from {plr}",plr.pos, Color.red, true);
+                log.devevent($"SERVER: Received WorldPlacePlayer from {plr}", plr.pos, Color.red, true);
 
                 plr.ResetEntropy();
 
@@ -867,6 +964,10 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 // rejoin asks again. the flag is already set, so the first handler would have dropped it.
                 log.l($"SERVER: spawn already handed out, reminding {plr.netBody} at {plr.netBody.transform.position}");
                 plr.netBody.Server_RemindPlayersCurrentState();
+            } else if (!ServerMain.SpawnPlacementBusy(clientId)) {
+                // the first coroutine can sit forever if the body or the spawn point wasn't ready, and the retry used to be ignored.
+                log.l($"SERVER: spawn flag set but {plr} still has no placement. trying again.");
+                plr.StartCoroutine(ServerMain.GiveSpawnLocationToPlayer(clientId));
             }
         }
     }
@@ -879,9 +980,9 @@ public class WorldMP : CasualtiesTogetherSingleton {
         try {
             if (!Util.IsInWorld()) return;
 
-    #if !RELEASE
+#if !RELEASE
             Plugin.log.LogWarning($"ServerReceiver_FinishedWorldgen for {DebugHelp.GetPlayerFullDebugString(clientId)} ");
-    #endif
+#endif
 
             reader.Get(out bool plr_is_unchipped);
 
@@ -893,7 +994,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
                 plr.unchipped = plr_is_unchipped;
                 if (plr.body != null) {
-                    plr.SetUnchipped(plr_is_unchipped) ;
+                    plr.SetUnchipped(plr_is_unchipped);
                 }
 
                 plr.ServerPlayerState.finished_worldgen = true;
@@ -908,13 +1009,24 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 if (plr.LateJoin) {
                     foreach (LayerModifier layerModifier in LayerModifier.availableModifiers) {
                         if (layerModifier.active) {
+#if FULLGAME
+                            LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.CLIENT_Announce_LayerModifier);
+                            writer.Put((ushort)layerModifier.modifierIndex);
+                            writer.Put(Physics2D.gravity.y);
+                            Net.Server_SendToClientsVeryReliable(writer, new System.Collections.Generic.List<knetid> { plr.playerId });
+#else
                             Multiplayer.Server_SendSimpleMessageToOneClient((byte)NetmsgId.CLIENT_Announce_LayerModifier, plr.playerId, (knetid)layerModifier.modifierIndex, true);
+#endif
                         }
                     }
                 }
+#if FULLGAME
+                // ascent load-in (late join or layer change): embed cargo if this body does not have it.
+                BlueHeartMp.Server_EnsureCargoOnAscentLoad(plr);
+#endif
 
                 // and sync nearest items right now
-                foreach (var item in NetObjectRegistry.GatherClosestObjectsToSync(plr.pos,plr.body,64)) {
+                foreach (var item in NetObjectRegistry.GatherClosestObjectsToSync(plr.pos, plr.body, 64)) {
                     NetObjectRegistry.SafeNewGO(item);
                 }
                 if (plr.body != null && plr.body.TryGetNetBody(out NetBody crafted))
@@ -947,30 +1059,3 @@ static class WorldGeneration_Clear_InactiveBuildings {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

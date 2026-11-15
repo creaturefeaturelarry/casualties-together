@@ -1,16 +1,16 @@
 
 
 
-using HarmonyLib;
 using CasualtiesTogetherUtils;
+using HarmonyLib;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using TMPro;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.UI;
-using System.Diagnostics;
 
 
 
@@ -105,7 +105,7 @@ public class UIManager : CasualtiesTogetherSingleton {
     public static GameObject modPauseTextObj;
     public static GameObject modCanvasObj;
     public static Canvas SeparateCanvas;
-    public static Vector2 ReferenceResolution = new Vector2(1920,1080);
+    public static Vector2 ReferenceResolution = new Vector2(1920, 1080);
 
     public static PreRunScript PreRunScript => PreRunScript.instance;
     public static Canvas GameCanvas;
@@ -162,7 +162,7 @@ public class UIManager : CasualtiesTogetherSingleton {
         return go;
     }
 
-    public static void CreateButton(in Component parent, in string label, in string tooltip, in string tooltip_desc, out GameObject button_go, out TextMeshProUGUI text, out RectTransform rt, out Button button) => CreateButton(parent, label, tooltip, tooltip_desc, out  button_go, out text, out rt, out button, out var _);
+    public static void CreateButton(in Component parent, in string label, in string tooltip, in string tooltip_desc, out GameObject button_go, out TextMeshProUGUI text, out RectTransform rt, out Button button) => CreateButton(parent, label, tooltip, tooltip_desc, out button_go, out text, out rt, out button, out var _);
     public static void CreateButton(in Component parent, in string label, in string tooltip, in string tooltip_desc, out GameObject button_go, out TextMeshProUGUI text, out RectTransform rt, out Button button, out Image image) {
         button_go = GameObject.Instantiate(template_button.gameObject, parent != null ? parent.transform : null, false);
         button_go.SetActive(true);
@@ -181,7 +181,7 @@ public class UIManager : CasualtiesTogetherSingleton {
         return button;
     }
 
-    public static void CreateLabelWithBackground(in Component parent, in string label, in string tooltip, in string tooltip_desc, out GameObject go, out TextMeshProUGUI text, out RectTransform rt) => CreateLabelWithBackground(parent, label, tooltip, tooltip_desc, out  go, out text, out rt, out var _);
+    public static void CreateLabelWithBackground(in Component parent, in string label, in string tooltip, in string tooltip_desc, out GameObject go, out TextMeshProUGUI text, out RectTransform rt) => CreateLabelWithBackground(parent, label, tooltip, tooltip_desc, out go, out text, out rt, out var _);
     public static void CreateLabelWithBackground(in Component parent, in string label, in string tooltip, in string tooltip_desc, out GameObject go, out TextMeshProUGUI text, out RectTransform rt, out Image image) {
         go = GameObject.Instantiate(template_button.gameObject, parent != null ? parent.transform : null, false);
         go.SetActive(true);
@@ -318,11 +318,11 @@ public class UIManager : CasualtiesTogetherSingleton {
                 }
             }
         }
-        
+
     }
 
     public static void GetPrerunScriptAndCanvas() {
-        if (PreRunScript != null) { // PrerunScript is on the main menu canvas
+        if (PreRunScript != null) { // prerunScript is on the main menu canvas
             GameCanvas = PreRunScript.GetComponent<Canvas>();
         }
     }
@@ -364,7 +364,7 @@ public class UIManager : CasualtiesTogetherSingleton {
                 SeparateCanvas.additionalShaderChannels = GameCanvas.additionalShaderChannels;
             }
 
-            modCanvasObj.transform.SetSiblingIndex(Mathf.Max(0, GameCanvas.transform.GetSiblingIndex()-2));
+            modCanvasObj.transform.SetSiblingIndex(Mathf.Max(0, GameCanvas.transform.GetSiblingIndex() - 2));
 
             GameObject.DontDestroyOnLoad(modCanvasObj);
         }
@@ -428,20 +428,20 @@ public class UIManager : CasualtiesTogetherSingleton {
                 }
             }
         }
-        
+
         if (MP_MENU_BUTTON == null) {
             try {
                 if (PreRunScript != null) {
                     var credits = PreRunScript.transform.Find("Credits");
 
                     var rt = PreRunScript.GetComponent<RectTransform>();
-                    
+
 
                     if (template_button != null) {
-                        
+
                         CreateButton(PreRunScript, "mainmenu_mainbutton", null, null, out MP_MENU_BUTTON, out var ttttt, out var rt2, out var button2, out var mpButtonBg);
-                        
-#if !RELEASE 
+
+#if !RELEASE
                         ttttt.fontMaterial = new Material(ttttt.fontMaterial);
                         ttttt.fontMaterial.name = "CHANGED TO FANCY MAT !!!";
                         ttttt.fontMaterial.shader = CoopModAssets.coolshader;
@@ -463,6 +463,10 @@ public class UIManager : CasualtiesTogetherSingleton {
                         rt2.offsetMax = Vector2.zero;
 
                         button2.onClick.AddListener(() => {
+                            if (!UIMainMenu.CoreLibLoaded) {
+                                UIMainMenu.ApplyMpMenuButton(false);
+                                return;
+                            }
 #if !RELEASE 
                             log.l("OPENING THE MENU");
 #endif 
@@ -471,20 +475,37 @@ public class UIManager : CasualtiesTogetherSingleton {
                                 runSettingsMenu.SetActive(false);
                             }
                         });
+                        if (!UIMainMenu.CoreLibLoaded) {
+                            UIMainMenu.ApplyMpMenuButton(false);
+                        }
+
+                        log.l("MP menu button created");
 
                         mpButtonBg.raycastPadding = Vector2.one * 4f;
                         mpButtonBg.sprite = uiBlockSmall;
-                        
+
+                        try {
+                            SkinMenuUI.AlignMenuButtonBesideMp();
+                        } catch (System.Exception alignEx) {
+                            log.error("Skin menu button align: " + alignEx);
+                        }
+
                     }
                 }
 
             } catch (System.Exception e) {
                 log.error("CREATING MENU BUTTONS " + e.ToString());
             }
+        } else {
+            try {
+                SkinMenuUI.AlignMenuButtonBesideMp();
+            } catch (System.Exception alignEx) {
+                log.error("Skin menu button align: " + alignEx);
+            }
         }
 
 
-        main.SendMessage("UIManager_OnMainMenuLoad",SendMessageOptions.DontRequireReceiver);
+        main.SendMessage("UIManager_OnMainMenuLoad", SendMessageOptions.DontRequireReceiver);
 
     }
 
@@ -492,6 +513,11 @@ public class UIManager : CasualtiesTogetherSingleton {
 
 
     public static bool IsServerGameplayPaused => (!Util.IsInPauseMenuOrMainMenu() && (Mathf.Abs(Time.timeScale) < 0.00501f));
+
+    // firstInit runs from the chainloader scene callback, before PreRunScript.Awake.
+    // sceneLoaded for that first scene has already been invoked, so a missed canvas never gets another try.
+    float _nextMenuButtonTry;
+
     void Update() {
 
         if (modPauseTextObj != null) {
@@ -499,14 +525,15 @@ public class UIManager : CasualtiesTogetherSingleton {
             modPauseTextObj.SetActive(shouldDoPause);
         }
 
+        if (MP_MENU_BUTTON == null && !Util.IsInWorld() && Time.unscaledTime >= _nextMenuButtonTry) {
+            _nextMenuButtonTry = Time.unscaledTime + 0.5f;
+            try {
+                OnMainMenuLoad();
+            } catch (Exception e) {
+                log.error("Menu button retry -> OnMainMenuLoad\n" + e);
+            }
+        }
+
     }
 
 }
-
-
-
-
-
-
-
-
