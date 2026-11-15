@@ -224,6 +224,15 @@ public static class Body_UseItem_MultiplayerPatch {
         reader.Get(out knetid item);
         reader.Get(out knetid target_person);
 
+        try {
+            Server_RequestUseItem_Handle(clientId, item, target_person);
+        } finally {
+            // accepted or denied, the sender can stop holding its predicted copy now.
+            UseAck.Send(clientId, item);
+        }
+    }
+
+    static void Server_RequestUseItem_Handle(knetid clientId, knetid item, knetid target_person) {
         if (
             ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out var giverPlr, out var giver) && giver.body.conscious
             && NetBody.TryGetNetBodyFromId(target_person, out var target_nb)

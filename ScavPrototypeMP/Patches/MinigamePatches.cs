@@ -2488,6 +2488,7 @@ namespace Together {
                 if (NetObjectRegistry.TryGetSyncInfo(Minigame.game.currentItem.gameObject, out SyncInfo si)) {
                     Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_BandageMinigame_DoBandageAction, si.syncId, pb.netId, Util.GetLimbIndex(l), true);
                     si.SetIgnoreTimeForRoundTrip();
+                    si.AwaitServerAck();
                 }
 
             }
@@ -2507,6 +2508,7 @@ namespace Together {
             reader.Get(out knetid bandageid);
             reader.Get(out knetid targetplr);
             reader.Get(out byte limbid);
+            using var _ack = UseAck.After(clientId, bandageid);
 
             if (MedicalSync.Server_CheckCanHealerUseItemForLimb(clientId, targetplr, limbid, bandageid, out ScavPlayer healerPlr, out NetBody targetnb, out SyncInfo item_si)) {
                 if (MinigameBase_StartMinigame_MultiplayerPatch.known_bandages_onuse_lambdas.TryGetValue(item_si.item.id, out OnBandageUse onuse_lambda)) {
