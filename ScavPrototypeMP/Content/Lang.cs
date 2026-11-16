@@ -1,4 +1,3 @@
-
 using CasualtiesTogetherUtils;
 using Newtonsoft.Json;
 using System;
@@ -38,10 +37,56 @@ public static class Lang {
     }
 
     internal const string LocalPrefixTag = "casualtiestogether_";
+
+    internal const string RussianLocaleKey = "RU";
+    static string _ruCachedLocale;
+    static bool _ruCachedResult;
+    static string _ruLoggedLocale;
+
+    internal static bool IsRussianLocale(string locale) {
+        if (String.IsNullOrEmpty(locale)) return false;
+        if (locale == _ruCachedLocale) return _ruCachedResult;
+
+        bool isRu = locale.StartsWith("ru", StringComparison.OrdinalIgnoreCase)
+                 || locale.IndexOf("russ", StringComparison.OrdinalIgnoreCase) >= 0;
+        if (!isRu) {
+            foreach (var c in locale) {
+                if (c >= '\u0400' && c <= '\u04FF') { isRu = true; break; }
+            }
+        }
+
+        if (!isRu) {
+            var pack = Locale.currentLang;
+            if (pack == null || pack.other == null) {
+                return false;
+            }
+            if (pack.other.TryGetValue("layer", out var sample) && !String.IsNullOrEmpty(sample)) {
+                foreach (var c in sample) {
+                    if (c >= '\u0400' && c <= '\u04FF') { isRu = true; break; }
+                }
+            }
+        }
+
+        _ruCachedLocale = locale;
+        _ruCachedResult = isRu;
+
+        if (isRu && _ruLoggedLocale != locale) {
+            _ruLoggedLocale = locale;
+            try { Plugin.log.LogInfo($"Lang: language '{locale}' is Russian, using embedded RU translation."); } catch { }
+        }
+        return isRu;
+    }
     public static string Get(in string key, in bool allow_null_result = false) {
 
         string result = null;
         var locale = Locale.currentLangName ?? "EN";
+
+        if (IsRussianLocale(locale)
+            && dict.TryGetValue(RussianLocaleKey, out var ruDict)
+            && ruDict.TryGetValue(key, out var ruText)
+            && !String.IsNullOrEmpty(ruText)) {
+            return ruText;
+        }
 
         if (dict.TryGetValue(locale, out var lang))
             if (lang.TryGetValue(key, out result) && String.IsNullOrEmpty(result))
@@ -283,23 +328,3 @@ public static class Lang {
     }
 #endif
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
