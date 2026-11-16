@@ -129,7 +129,7 @@ def main():
         
         game_preinstalled_bepinex_path_check = output_dir / "BepInEx"
         if game_preinstalled_bepinex_path_check.exists():
-            shutil.rmdir(str(game_preinstalled_bepinex_path_check))
+            shutil.rmtree(str(game_preinstalled_bepinex_path_check))
 
         print("Patching game...")
         remove_line_with_prefix(output_dir / "CasualtiesUnknown_Data" / "boot.config", "single-instance=")
