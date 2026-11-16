@@ -2,6 +2,7 @@ using CasualtiesTogetherUtils;
 using HarmonyLib;
 using LiteEntitySystem;
 using LiteNetLib;
+using LiteNetLib.Utils;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -21,15 +22,16 @@ namespace Together;
 
 public static class CoopKeybinds {
     const string prefix = "casualtiestogether_";
-    public const string pointfingerat = prefix + "pointfingerat"; // KeyCode.Mouse2
-    public const string chat = prefix + "chat"; // KeyCode.Slash 
-    public const string voicechat = prefix + "voicechat"; // KeyCode.V 
+    public const string pointfingerat = prefix + "pointfingerat"; // keyCode.Mouse2
+    public const string chat = prefix + "chat"; // keyCode.Slash 
+    public const string voicechat = prefix + "voicechat"; // keyCode.V 
     public const string woundview = prefix + "woundview"; //, KeyCode.R 
-    public const string push = prefix + "push"; // KeyCode.F 
-    public const string carry = prefix + "carry";  // KeyCode.O 
-    public const string inventory = prefix + "inventory"; // KeyCode.I 
-    public const string piggyback = prefix + "piggyback"; // KeyCode.P 
-    public const string showplrs = prefix + "showplrs"; // KeyCode.LeftShift 
+    public const string push = prefix + "push"; // keyCode.F
+    public const string hug = prefix + "hug"; // keyCode.H 
+    public const string carry = prefix + "carry";  // keyCode.O 
+    public const string inventory = prefix + "inventory"; // keyCode.I 
+    public const string piggyback = prefix + "piggyback"; // keyCode.P 
+    public const string showplrs = prefix + "showplrs"; // keyCode.LeftShift 
 
     public static Dictionary<string, KeyCode> as_dict = new Dictionary<string, KeyCode> {
         { CoopKeybinds.pointfingerat, KeyCode.Mouse2 },
@@ -37,6 +39,7 @@ public static class CoopKeybinds {
         { CoopKeybinds.voicechat, KeyCode.V },
         { CoopKeybinds.woundview , KeyCode.R },
         { CoopKeybinds.push, KeyCode.F },
+        { CoopKeybinds.hug, KeyCode.H },
         { CoopKeybinds.piggyback, KeyCode.P },
         { CoopKeybinds.carry, KeyCode.O },
         { CoopKeybinds.inventory, KeyCode.I },
@@ -98,7 +101,7 @@ public static class InvButton_get_body_MultiplayerPatch {
 public class ClientMain : MonoBehaviour {
 
     public static int LOCAL_PING = -1; // in ms 
-    public static float RTT_IN_SECONDS_with_margin => (float)LOCAL_PING * (0.00401f ); // 0.00202f
+    public static float RTT_IN_SECONDS_with_margin => (float)LOCAL_PING * (0.00401f); // 0.00202f
 
     public static float AdaptiveSyncTimerDelta = 0.03f;
     public static float ServerPerformanceScale = 1f;
@@ -109,7 +112,7 @@ public class ClientMain : MonoBehaviour {
 
     public static ServerWorldStateSingleton ServerWorldState => Net.EntityManager?.GetSingleton<ServerWorldStateSingleton>();
 
-    public static bool ServerIsGeneratingWorld { 
+    public static bool ServerIsGeneratingWorld {
         get {
             return ServerWorldState?.server_is_generating_world.Value ?? false;
         }
@@ -171,11 +174,35 @@ public class ClientMain : MonoBehaviour {
         }
     }
 
+    public static void WriteMyBindsState(NetDataWriter writer) {
+        writer.Put((ushort)KeyBinds.cachedBinds.Count);
+        foreach (var item in KeyBinds.cachedBinds) {
+            writer.Put(item.Key, true);
+            writer.Put(Input.GetKey(item.Value));
+        }
+    }
+    public static Dictionary<string, bool> ReadBinds(NetDataReader reader) {
+        var d = new Dictionary<string, bool>();
+        reader.Get(out ushort count);
+        for (int i = 0; i < count; i++) {
+            reader.Get(out string key, true);
+            reader.Get(out bool down);
+            d[key] = down;
+        }
+        return d;
+    }
+    public static Dictionary<string, bool> GetMyBindsState() {
+        var d = new Dictionary<string, bool>();
+        foreach (var item in KeyBinds.cachedBinds) {
+            d[item.Key] = Input.GetKey(item.Value);
+        }
+        return d;
+    }
     void Start() {
 
         Multiplayer.RegisterCustomClientReceiver("CustomCommand", RunCustomCommand);
 
-        Multiplayer.RegisterCustomClientReceiver("cleanworld", ( reader) => {
+        Multiplayer.RegisterCustomClientReceiver("cleanworld", (reader) => {
 #if DEBUG
             log.l("Client received cleanworld");
 #endif
@@ -189,7 +216,7 @@ public class ClientMain : MonoBehaviour {
 
         {
             if (Net.IsRunning && Net.IsClient) {
-                // For server to not get overwhelmed 
+                // for server to not get overwhelmed 
                 ServerPerformanceScale = Mathf.Clamp(Mathf.Lerp(ClientMain.SERVER_FPS, ClientMain.SERVER_TPS, 0.5f) * Time.fixedDeltaTime, 0.01f, 1f);
             } else {
                 ServerPerformanceScale = 1;
@@ -270,7 +297,8 @@ public class ClientMain : MonoBehaviour {
         }
 
         var mydata = new ClientToServer_NetBodySyncPacket(loc_nb);
-        
+        FindTheBugInator.NoteMove("send", loc_nb, mydata.pos, "tick=" + mydata.Tick + " stand=" + (mydata.standing ? 1 : 0) + " piggy=" + (mydata.is_piggyback ? 1 : 0) + " md=" + mydata.moveDir.x.ToString("0.00") + "," + mydata.moveDir.y.ToString("0.00") + " vel=" + ((Vector2)mydata.velocity).x.ToString("0.00") + "," + ((Vector2)mydata.velocity).y.ToString("0.00"));
+
         var writer = Net.CreateWriter(NetmsgId.SERVER_ClientCharacterSyncUpdate);
         writer.Put(mydata);
         if (mydata.IncludeRagData() && loc_nb.alive) {
@@ -281,11 +309,23 @@ public class ClientMain : MonoBehaviour {
         // WRITER END;
     }
 
+    public static void Client_SendCharacterSelected(int ch) {
+        Client_SendCharacterReady(true, ch);
+    }
+
+    public static void Client_SendCharacterReady(bool ready, int ch) {
+        LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.SERVER_SelectChar);
+        writer.Put(ready);
+        writer.Put(ch);
+        Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
+        // WRITER END;
+    }
+
     static float _RAGDOLL_DIST_MARGIN = 0.05f * 0.05f;
     static float _RAGDOLL_ANGVEL_QUANTIZE = 100;
     public static void WriteRagdollPacket(ref LiteNetLib.Utils.NetDataWriter writer, in Body body) {
         var start = writer.Length;
-        
+
         foreach (var limb in body.limbs) {
             writer.Put((Vector2)limb.rb.position);
             writer.Put((float)limb.rb.rotation);
@@ -325,7 +365,7 @@ public class ClientMain : MonoBehaviour {
                 limb.rb.angularVelocity = Util_MPExtensions.UnquantizeFloatFromShort(limb_rb_angularVelocity, _RAGDOLL_ANGVEL_QUANTIZE);
             }
         }
-        if (body.IsRagdolling() && body.TryGetNetBody(out var nb))  {
+        if (body.IsRagdolling() && body.TryGetNetBody(out var nb)) {
             nb.SetBodyPosition(center);
         }
     }
@@ -383,8 +423,8 @@ public class ClientMain : MonoBehaviour {
         }
         // no only local player may use it
         if (item.id == "mp3player") return false;
-        
-        
+
+
         // idk do i return false by default? cuz ppl can feed just random pills and drugs? 
         return true;
     }
@@ -400,31 +440,31 @@ public class ClientMain : MonoBehaviour {
 
             var me = ScavPlayer.GetLocalNetBodyNullable();
 
-            if (me != null ) {
+            if (me != null) {
                 target = target.GetPiggybackStackTop();
 
-                var my_up = me.CountPiggybackStackUp(); 
+                var my_up = me.CountPiggybackStackUp();
                 var down = target.CountPiggybackStackDown();
 
                 if (down + my_up + 1 > Multiplayer.rules.PiggybackMaxStack) {
                     return;
                 }
 
-                if ( me.StartPiggyback(target)) {
+                if (me.StartPiggyback(target)) {
                     Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_RequestPiggyback, target.netId, true);
-                } 
+                }
             }
         }
     }
     internal static void _PLRINT_Carry(NetBody target) {
 
         var me = ScavPlayer.GetLocalNetBodyNullable();
-        
+
         if (Net.IsServer || target.StartPiggyback(me, true)) {
             target.SetNetIgnoreTime();
             Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_RequestCarryPerson, target.netId, true);
         }
-        
+
     }
 
     internal static void _PLRINT_Inventory(NetBody target) {
@@ -436,7 +476,7 @@ public class ClientMain : MonoBehaviour {
     }
     internal static void _PLRINT_GiveItem(NetBody target, Item item) {
         if (item != null && item.TryGetSyncInfo(out var si)) {
-            Util.DoAlert(String.Format(Lang.Get("plrint_giveitem_offered"),target.bodyName, PlayerCamera.ItemHoverDescription(item).Item1));
+            Util.DoAlert(String.Format(Lang.Get("plrint_giveitem_offered"), target.bodyName, PlayerCamera.ItemHoverDescription(item).Item1));
 
             var writer = Net.CreateWriter(NetmsgId.SERVER_GiveItem);
             writer.Put(si.syncId);
@@ -446,7 +486,7 @@ public class ClientMain : MonoBehaviour {
 
         }
     }
-    
+
     #endregion
 
 
@@ -526,46 +566,41 @@ public class ClientMain : MonoBehaviour {
 
                 ServerMain.CHARACTER_PREFAB.SetActive(false);
             } else {
-                // Spawn the run body from a prefab instead of keeping Experiment in the scene. We want to use the actual character here
+                // fullgame may spawn Milky/Dune as the local body instead of leaving Experiment in the scene
                 Body fallback_body = PlayerCamera.main != null ? PlayerCamera.main.body : null;
-                var fallback_char = fallback_body != null ? fallback_body.gameObject : null;
+                GameObject fallback_char = fallback_body != null
+                    ? (fallback_body.transform.parent != null ? fallback_body.transform.parent.gameObject : fallback_body.gameObject)
+                    : null;
 
                 if (fallback_char == null) {
-                    foreach (var b in UnityEngine.Object.FindObjectsOfType<Body>()) {
+                    foreach (Body b in UnityEngine.Object.FindObjectsOfType<Body>()) {
                         if (b.GetComponent<NetBody>() == null && !b.CompareTag("Enemy") && b.transform.childCount > 0) {
-                            fallback_char = b.gameObject;
+                            fallback_char = b.transform.parent != null ? b.transform.parent.gameObject : b.gameObject;
                             break;
                         }
                     }
                 }
 
                 if (fallback_char != null) {
-                    {
-                        var a = fallback_char.GetComponentsInChildren<HingeJoint2D>();
-                        foreach (var hinge in a) {
-                            var ogggg = hinge.AddComponent<SavedHingeJointState>();
-                            ogggg.a = hinge.transform.localPosition;
-                            ogggg.b = hinge.transform.localRotation;
-                            ogggg.aa = hinge.connectedBody.transform.localPosition;
-                            ogggg.bb = hinge.connectedBody.transform.localRotation;
-                            ogggg.useLimits = hinge.useLimits;
-                            ogggg.limitsmax = hinge.limits.max;
-                            ogggg.limitsmin = hinge.limits.min;
-                            ogggg.referenceAngle = hinge.referenceAngle;
-
-                            ogggg.hinge = hinge;
-
-                            ogggg.connectedBody = hinge.connectedBody;
-                        }
+                    HingeJoint2D[] hinges = fallback_char.GetComponentsInChildren<HingeJoint2D>();
+                    foreach (HingeJoint2D hinge in hinges) {
+                        SavedHingeJointState ogggg = hinge.gameObject.AddComponent<SavedHingeJointState>();
+                        ogggg.a = hinge.transform.localPosition;
+                        ogggg.b = hinge.transform.localRotation;
+                        ogggg.aa = hinge.connectedBody.transform.localPosition;
+                        ogggg.bb = hinge.connectedBody.transform.localRotation;
+                        ogggg.useLimits = hinge.useLimits;
+                        ogggg.limitsmax = hinge.limits.max;
+                        ogggg.limitsmin = hinge.limits.min;
+                        ogggg.referenceAngle = hinge.referenceAngle;
+                        ogggg.hinge = hinge;
+                        ogggg.connectedBody = hinge.connectedBody;
                     }
 
                     ServerMain.CHARACTER_PREFAB = GameObject.Instantiate(fallback_char);
-
                     ServerMain.CHARACTER_PREFAB.SetActive(false);
-                } else {
-                    if (Net.IsRunning) {
-                        Multiplayer.DoMultiplayerStatusMessageError("PLAYER CHARACTER NOT FOUND!!!!!!!!!!!!!!!! RESTART THE GAME! RESTART !!!!!!!!!!!!!!!!!!!!");
-                    }
+                } else if (Net.IsRunning) {
+                    Multiplayer.DoMultiplayerStatusMessageError("PLAYER CHARACTER NOT FOUND!!!!!!!!!!!!!!!! RESTART THE GAME! RESTART !!!!!!!!!!!!!!!!!!!!");
                 }
             }
         }
@@ -623,72 +658,77 @@ public class ClientMain : MonoBehaviour {
 
 
 
-	[ClientReceiver((byte)NetmsgId.PlayerDamageBlockRelay)]
-	static void ClientReceiver__PlayerDamageBlockRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    [ClientReceiver((byte)NetmsgId.PlayerDamageBlockRelay)]
+    static void ClientReceiver__PlayerDamageBlockRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		reader.Get(out knetid who);
-		reader.Get(out Vector2Int pos);
-		reader.Get(out float dmg);
+        reader.Get(out knetid who);
+        reader.Get(out Vector2Int pos);
+        reader.Get(out float dmg);
 
-		if (NetBody.TryGetNetBodyFromId(who, out var nb)) {
-			if (!nb.IsBodyLocal()) {
-				var blockDamage = WorldGeneration.world.GetBlockDamage(pos);
+        if (NetBody.TryGetNetBodyFromId(who, out var nb)) {
+            if (!nb.IsBodyLocal()) {
+                BlockDamageAuthority.ApplyingRelayedDamage = true;
+                try {
+                    var blockDamage = WorldGeneration.world.GetBlockDamage(pos);
 
-				if (blockDamage == null) {
-					WorldGeneration.world.DamageBlock(pos, dmg, true, false);
-				} else {
-					var diff = dmg - blockDamage.damage;
+                    if (blockDamage == null) {
+                        WorldGeneration.world.DamageBlock(pos, dmg, true, false);
+                    } else {
+                        var diff = dmg - blockDamage.damage;
 
-					WorldGeneration.world.DamageBlock(pos, diff, !Mathf.Approximately(blockDamage.damage, dmg), false);
-				}
-			} else {
-				// this scope does get triggered, i think of it as confirmation, but ignored
-			}
-		}
-	}
+                        WorldGeneration.world.DamageBlock(pos, diff, !Mathf.Approximately(blockDamage.damage, dmg), false);
+                    }
+                } finally {
+                    BlockDamageAuthority.ApplyingRelayedDamage = false;
+                }
+            } else {
+                // this scope does get triggered, i think of it as confirmation, but ignored
+            }
+        }
+    }
 
 
 
 
 
-	[ClientReceiver((byte)NetmsgId.CurrentPingOfAllPlayers)]
-	static void ClientReceiver__CurrentPingOfAllPlayers(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    [ClientReceiver((byte)NetmsgId.CurrentPingOfAllPlayers)]
+    static void ClientReceiver__CurrentPingOfAllPlayers(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		for (; ; ) {
-			reader.Get(out bool next);
-			if (!next) {
-				break;
-			}
+        for (; ; ) {
+            reader.Get(out bool next);
+            if (!next) {
+                break;
+            }
 
-			reader.Get(out knetid plrid);
-			reader.Get(out float ping);
+            reader.Get(out knetid plrid);
+            reader.Get(out float ping);
 
-			if (ScavPlayer.TryGetPlayerFromClientId(plrid, out var plr)) {
-				plr.ping = ping;
+            if (ScavPlayer.TryGetPlayerFromClientId(plrid, out var plr)) {
+                plr.ping = ping;
                 if (plr.IsLocal) {
                     ClientMain.LOCAL_PING = (int)(ping * 1000f);
                 }
             }
-		}
-		
-	}
+        }
+
+    }
 
 
 
-	[ClientReceiver((byte)NetmsgId.CLIENT_AnnounceDoAlert,false)]
-	static void ClientReceiver__AnnounceDoAlert(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    [ClientReceiver((byte)NetmsgId.CLIENT_AnnounceDoAlert, false)]
+    static void ClientReceiver__AnnounceDoAlert(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		reader.Get(out string alert);
+        reader.Get(out string alert);
 
-		Lang.MsgTryParse(ref alert);
+        Lang.MsgTryParse(ref alert);
 
-		reader.Get(out bool important);
+        reader.Get(out bool important);
 
-		if (PlayerCamera.main) {
-			log.l($"Received DoAlert: {alert} ");
-			PlayerCamera.main.DoAlert(alert, important);
-		}
-	}
+        if (PlayerCamera.main) {
+            log.l($"Received DoAlert: {alert} ");
+            PlayerCamera.main.DoAlert(alert, important);
+        }
+    }
 
 
     [ClientReceiver((byte)NetmsgId.CustomLogMessage, false)]
@@ -709,8 +749,8 @@ public class ClientMain : MonoBehaviour {
 
     static HashSet<Vector2Int> SetBlockChunks = new();
     [ClientReceiver((byte)NetmsgId.SetBlock)]
-	static void ClientReceiver__SetBlock(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-		if (!SharedMain.LocalWorldIsGenerated) return;
+    static void ClientReceiver__SetBlock(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+        if (!SharedMain.LocalWorldIsGenerated) return;
 
         while (!reader.EndOfData) {
             reader.Get(out WorldGeneration_SetBlock_MultiplayerPatch.ChangedBlockInfo block);
@@ -745,28 +785,28 @@ public class ClientMain : MonoBehaviour {
 
 
 
-	[ClientReceiver((byte)NetmsgId.CreateExplosionEffect)]
-	static void ClientReceiver__CreateExplosionEffect(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    [ClientReceiver((byte)NetmsgId.CreateExplosionEffect)]
+    static void ClientReceiver__CreateExplosionEffect(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		if (!TrapClaim.ReadBoom(reader, out var boomId, out var boom))
-			return;
+        if (!TrapClaim.ReadBoom(reader, out var boomId, out var boom))
+            return;
 
-		WorldGeneration_CreateExplosion_MultiplayerPatch.ForceCreateExplosionEffect(boom);
-		TrapClaim.ClientSawBoom(boomId, boom);
-	}
-
-
+        WorldGeneration_CreateExplosion_MultiplayerPatch.ForceCreateExplosionEffect(boom);
+        TrapClaim.ClientSawBoom(boomId, boom);
+    }
 
 
 
-	[ClientReceiver((byte)NetmsgId.CLIENT_PlayerJumpRelay)]
-	static void ClientReceiver__PlayerJumpRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-		reader.Get(out knetid who);
 
-		if (NetBody.TryGetNetBodyFromId(who, out var nb) && Util.IsWorldGenerated()) {
-			nb.body.Jump();
-		}
-	}
+
+    [ClientReceiver((byte)NetmsgId.CLIENT_PlayerJumpRelay)]
+    static void ClientReceiver__PlayerJumpRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+        reader.Get(out knetid who);
+
+        if (NetBody.TryGetNetBodyFromId(who, out var nb) && Util.IsWorldGenerated()) {
+            nb.body.Jump();
+        }
+    }
 
 
 
@@ -785,7 +825,7 @@ public class ClientMain : MonoBehaviour {
 
 
     internal static Dictionary<string, Action<string, LiteNetLib.Utils.NetDataReader>> ClientCustomCommandsDict = new();
-    
+
     internal static void RunCustomCommand(LiteNetLib.Utils.NetDataReader reader) {
         if (Net.IsServer) {
             return;
@@ -795,7 +835,7 @@ public class ClientMain : MonoBehaviour {
 
         if (ClientCustomCommandsDict.TryGetValue(com, out var action)) {
             try {
-                action.Invoke( com, reader);
+                action.Invoke(com, reader);
             } catch (Exception ex) {
                 log.error(ex.Message);
             }
@@ -807,37 +847,37 @@ public class ClientMain : MonoBehaviour {
 
 
     [ClientReceiver((byte)NetmsgId.CLIENT_GoBackToMainMenu)]
-	static void ClientReceiver__GoBackToMainMenu(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    static void ClientReceiver__GoBackToMainMenu(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		Multiplayer.DoMultiplayerStatusMessageLog("Received announcement to go to main menu.");
+        Multiplayer.DoMultiplayerStatusMessageLog("Received announcement to go to main menu.");
 
-		Multiplayer.showMultiplayerMenu = true;
-		PlayerCamera.main.ToMainMenu();
+        Multiplayer.showMultiplayerMenu = true;
+        PlayerCamera.main.ToMainMenu();
 
-	}
-
-
+    }
 
 
 
 
 
-	[ClientReceiver((byte)NetmsgId.PlayerPointFingerAtRelay)]
-	static void ClientReceiver__PlayerPointFingerAtRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		reader.Get(out knetid who);
-		reader.Get(out Vector2 pos);
+
+    [ClientReceiver((byte)NetmsgId.PlayerPointFingerAtRelay)]
+    static void ClientReceiver__PlayerPointFingerAtRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+
+        reader.Get(out knetid who);
+        reader.Get(out Vector2 pos);
         reader.Get(out byte t);
 
-        if (ScavPlayer.TryGetPlayerFromClientId(who, out var plr) ) {
+        if (ScavPlayer.TryGetPlayerFromClientId(who, out var plr)) {
 
-			if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(pos, $"C: PlayerPointFingerAtRelay {plr}");
-			//if (log.verbose) log.l($"CLIENT: received PlayerPointFingerAtRelay: {pos}");
+            if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(pos, $"C: PlayerPointFingerAtRelay {plr}");
+            //if (log.verbose) log.l($"CLIENT: received PlayerPointFingerAtRelay: {pos}");
 
-			plr.PointFingerAt(pos,t);
-		}
+            plr.PointFingerAt(pos, t);
+        }
 
-	}
+    }
 
 
 
@@ -847,7 +887,7 @@ public class ClientMain : MonoBehaviour {
 
 
     [ClientReceiver((byte)NetmsgId.CurrentWorldStateSync)]
-	static void ClientReceiver__CurrentWorldStateSync(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    static void ClientReceiver__CurrentWorldStateSync(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
         reader.Get(out SerializableRandomState randomstate);
         reader.Get(out bool worldgenerated);
@@ -855,24 +895,37 @@ public class ClientMain : MonoBehaviour {
         ServerIsGeneratingWorld = !worldgenerated;
 
         UnityEngine.Random.state = randomstate.State;
+#if FULLGAME
+        FullgameWorldCompat.ReadWorldExtras(reader);
+#endif
     }
 
 
 
 
-	[ClientReceiver((byte)NetmsgId.CLIENT_Announce_LayerModifier)]
-	static void ClientReceiver__Announce_LayerModifier(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    [ClientReceiver((byte)NetmsgId.CLIENT_Announce_LayerModifier)]
+    static void ClientReceiver__Announce_LayerModifier(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		reader.Get(out ushort modifierindex);
+        reader.Get(out ushort modifierindex);
+#if FULLGAME
+        float gravityY = Physics2D.gravity.y;
+        if (!reader.EndOfData) {
+            reader.Get(out gravityY);
+        }
+#endif
 
-		var lm = LayerModifier.availableModifiers[modifierindex];
+        var lm = LayerModifier.availableModifiers[modifierindex];
 
-		Plugin.log.LogInfo($"CLIENT: Received layer modifier: {nameof(lm)}  index: {lm.modifierIndex}");
+        Plugin.log.LogInfo($"CLIENT: Received layer modifier: {nameof(lm)}  index: {lm.modifierIndex}");
 
         Util.CallLambdaWhenWorldGenerates(() => {
 
             lm.Initialize(WorldGeneration.world);
             lm.active = true;
+#if FULLGAME
+            // turbulent rolled gravity on the host - stamp the shared value after Initialize
+            FullgameWorldCompat.ApplyModifierGravity(gravityY);
+#endif
 
             if (log.verbose) log.l($"Applied layer modifier {lm.GetType()}");
 
@@ -888,18 +941,18 @@ public class ClientMain : MonoBehaviour {
             Do_The_Modifier_Announcement(pf, dsc);
         });
 
-	}
+    }
 
 
 
 
-	[ClientReceiver((byte)NetmsgId.CLIENT_Announce_RegenerateWorld)]
-	static void ClientReceiver__Announce_RegenerateWorld(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    [ClientReceiver((byte)NetmsgId.CLIENT_Announce_RegenerateWorld)]
+    static void ClientReceiver__Announce_RegenerateWorld(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		reader.Get(out ushort doPod);
+        reader.Get(out ushort doPod);
 
-		var wginst = WorldGeneration.world;
-		if ((Net.IsClient) && wginst ) {
+        var wginst = WorldGeneration.world;
+        if ((Net.IsClient) && wginst) {
 
             if (wginst.generatingWorld) {
                 wginst.StopCoroutine("GenerateWorld");
@@ -909,25 +962,25 @@ public class ClientMain : MonoBehaviour {
                 Multiplayer.DoMultiplayerStatusMessageLog("Received RegenerateWorld announcement.");
             }
 
-                //OG: WorldGeneration.ContinueRun 
+            //OG: WorldGeneration.ContinueRun 
 
             PlayerCamera.main.body.forceWalk = false;
-			wginst.savePanel.SetActive(false);
+            wginst.savePanel.SetActive(false);
 
-			//OG: DrillPod.Update is also sligtly mixed into this  
+            //OG: DrillPod.Update is also sligtly mixed into this  
 
-			bool dopod = (doPod == 1);
+            bool dopod = (doPod == 1);
 
-			wginst.ResetLayerModifiers();
+            wginst.ResetLayerModifiers();
 
-			wginst.doPod = dopod;
-			wginst.StartCoroutine("RegenerateWorld", dopod);
+            wginst.doPod = dopod;
+            wginst.StartCoroutine("RegenerateWorld", dopod);
 
-			if (dopod) {
-				Sound.Play("drillpoduse", Vector2.zero, twoDimensional: true, pitchShift: false, null, 1f, 1f, noReverb: true);
-			}
-		}
-	}
+            if (dopod) {
+                Sound.Play("drillpoduse", Vector2.zero, twoDimensional: true, pitchShift: false, null, 1f, 1f, noReverb: true);
+            }
+        }
+    }
 
 
 
@@ -949,16 +1002,16 @@ public class ClientMain : MonoBehaviour {
 
 
     [ClientReceiver((byte)NetmsgId.PlayThisSoundHere, false)]
-	static void ClientReceiver__PlayThisSoundHere(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    static void ClientReceiver__PlayThisSoundHere(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		reader.Get(out Vector2 where);
-		reader.Get(out string soundname, true);
+        reader.Get(out Vector2 where);
+        reader.Get(out string soundname, true);
 
-		if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(where, $"C: PlayThisSoundHere {soundname}");
+        if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(where, $"C: PlayThisSoundHere {soundname}");
 
-		Sound.Play(soundname, where);
-        //Util.PlayWorldSoundOnScreenIfInRange(soundname, where,1,1,128); // TODO also send radius and use this
-	}
+        Sound.Play(soundname, where);
+        //util.PlayWorldSoundOnScreenIfInRange(soundname, where,1,1,128); // TODO also send radius and use this
+    }
 
 
     [ClientReceiver((byte)NetmsgId.ServerInfoUpdate, false)]
@@ -967,36 +1020,36 @@ public class ClientMain : MonoBehaviour {
         Net.CurrentServerInfo.Deserialize(reader);
 
     }
-    
+
 
 
     [ClientReceiver((byte)NetmsgId.CLIENT_PlayerBarkRelay)]
-	static void ClientReceiver__PlayerBarkRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    static void ClientReceiver__PlayerBarkRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
-		reader.Get(out knetid who);
+        reader.Get(out knetid who);
 
-		if (ScavPlayer.TryGetPlayerAndBodyFromClientId(who, out var plr, out var body) && !plr.IsLocal) {
-			if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(plr.pos, $"C: Bark");
+        if (ScavPlayer.TryGetPlayerAndBodyFromClientId(who, out var plr, out var body) && !plr.IsLocal) {
+            if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(plr.pos, $"C: Bark");
             body.eatTime = 0;
             body.GetComponent<PantSound>().Bark();
-			if (body.eatTime == 0.5f) {// to account for jitter
-				body.eatTime = 0.45f;
-			}
-		}
-		
-	}
+            if (body.eatTime == 0.5f) {// to account for jitter
+                body.eatTime = 0.45f;
+            }
+        }
+
+    }
 
 
 
 
-	[ClientReceiver((byte)NetmsgId.CLIENT_BodyTeleportPacket)]
-	static void ClientReceiver__SingleCharacterPositionsSync(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    [ClientReceiver((byte)NetmsgId.CLIENT_BodyTeleportPacket)]
+    static void ClientReceiver__SingleCharacterPositionsSync(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
         reader.Get(out knetid plrId);
         reader.Get(out knetid body_netId);
         reader.Get(out BodyTeleportPacket pack);
 
-		if (NetBody.TryGetNetBodyFromId(body_netId, out var nb)) {
+        if (NetBody.TryGetNetBodyFromId(body_netId, out var nb)) {
             if ((nb.IsPlayer && nb.IsLocal)) {
                 if (Util.IsGeneratingWorld() || !Util.IsInWorld()) {
                     _last_reminderpack_while_generating_received = true;
@@ -1009,18 +1062,18 @@ public class ClientMain : MonoBehaviour {
             } else {
                 nb.OnReceiveSyncPacket(pack);
             }
-		} else if (ScavPlayer.LocalPlayer != null && plrId == ScavPlayer.LocalPlayer.playerId && (Util.IsGeneratingWorld() || !Util.IsInWorld())) {
+        } else if (ScavPlayer.LocalPlayer != null && plrId == ScavPlayer.LocalPlayer.playerId && (Util.IsGeneratingWorld() || !Util.IsInWorld())) {
             // the spawn packet beat the body. keep it so the wait can finish, apply once the body exists.
             _last_reminderpack_while_generating = pack;
             _last_reminderpack_while_generating_received = true;
             log.l("CLIENT: spawn location arrived before the body. holding it.");
         }
-	}
+    }
 
 #if RELEASE
     internal static bool _last_reminderpack_while_generating_received = false;
 #else
-    internal static bool _last_reminderpack_while_generating_received__ = false; 
+    internal static bool _last_reminderpack_while_generating_received__ = false;
     internal static bool _last_reminderpack_while_generating_received {
         get {
             return _last_reminderpack_while_generating_received__;
@@ -1035,14 +1088,14 @@ public class ClientMain : MonoBehaviour {
 #endif
     internal static BodyTeleportPacket _last_reminderpack_while_generating;
 
-    
+
     [ClientReceiver((byte)NetmsgId.CLIENT_ragdollpack)]
     static void ClientReceiver__ragdollpack(knetid _, LiteNetLib.Utils.NetDataReader reader) {
         reader.Get(out knetid netbodyid);
-        if (NetBody.TryGetNetBodyFromId(netbodyid,out var nb)) {
+        if (NetBody.TryGetNetBodyFromId(netbodyid, out var nb)) {
             reader = reader.DecompressReader();
 
-            //ClientMain.ReadRagdollPacket(ref reader, nb.body);
+            //clientMain.ReadRagdollPacket(ref reader, nb.body);
         }
     }
 
@@ -1059,10 +1112,13 @@ public class ClientMain : MonoBehaviour {
     }
 
     [ClientReceiver((byte)NetmsgId.StartGameAnnouncement)]
-	static void ClientReceiver_StartGameAnnouncement(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+    static void ClientReceiver_StartGameAnnouncement(knetid _, LiteNetLib.Utils.NetDataReader reader) {
 
         reader.Get(out ServerMain.StartGameAnnouncementPacket sgap);
         reader.Get(out string runsettings, true);
+#if FULLGAME
+        AchievementBreakSync.ReadAnnouncementFlag(reader);
+#endif
 
         Multiplayer.rules = sgap.rules;
         Multiplayer.ApplyGameRules();
@@ -1070,10 +1126,10 @@ public class ClientMain : MonoBehaviour {
 
         WorldGeneration_GenerateWorld_MultiplayerPatch.firstworldgenparams.randomstate = sgap.randomstate;
 
-		WorldGeneration_GenerateWorld_MultiplayerPatch.client_firstworldgenparams_are_used = true;
-		
+        WorldGeneration_GenerateWorld_MultiplayerPatch.client_firstworldgenparams_are_used = true;
 
-		UnityEngine.Random.state = sgap.randomstate;
+
+        UnityEngine.Random.state = sgap.randomstate;
 
 
         // setting the settings
@@ -1088,21 +1144,29 @@ public class ClientMain : MonoBehaviour {
 
 
         SaveSystem.loadedRun = false;
-		if (PreRunScript.instance != null) {
+        if (PreRunScript.instance != null) {
+#if FULLGAME
+            // mid-run pick still open - don't WaitLoad until they Join
+            if (CharacterSelectWait.ShouldBlockStartGameAnnouncement()) {
+                log.warn("StartGameAnnouncement while late-join char select open; ignoring");
+                return;
+            }
+            CharacterSelectWait.Reset();
+#endif
             Multiplayer.DoMultiplayerStatusMessageLog($"### STARTING GAME (RECEIVED ANNOUNCEMENT FROM SERVER) ###");
 
             ScavGameStartPatch.starting_game = true;
-			PreRunScript.instance.StartCoroutine(PreRunScript.instance.WaitLoad());
-			Multiplayer.showMultiplayerMenu = false;
-		} else {
+            PreRunScript.instance.StartCoroutine(PreRunScript.instance.WaitLoad());
+            Multiplayer.showMultiplayerMenu = false;
+        } else {
             if (Util.IsInWorld()) {
                 log.warn("Received StartGameAnnouncement but im in the world already... bruh");
             } else {
                 log.warn("Received StartGameAnnouncement but theres no PreRunScript, what???");
             }
-		}
+        }
 
-	}
+    }
 
 
 
@@ -1161,21 +1225,21 @@ public class ClientMain : MonoBehaviour {
 
 
     [ClientReceiver((byte)NetmsgId.CLIENT_SetTimeScaleRelay)]
-	static void ClientReceiver__SetTimeScaleRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-		reader.Get(out ushort sc);
+    static void ClientReceiver__SetTimeScaleRelay(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+        reader.Get(out ushort sc);
 
-		if ((PlayerCamera.SpeedType)sc == PlayerCamera.SpeedType.Paused)
-			return;
+        if ((PlayerCamera.SpeedType)sc == PlayerCamera.SpeedType.Paused)
+            return;
 
-		if (PlayerCamera.main != null && !Multiplayer.rules.DisableTimeManipulation) {
-			if (log.verbose) log.l($"SetTimeScale: Received SetTimeScale from server: {(PlayerCamera.SpeedType)sc}");
+        if (PlayerCamera.main != null && !Multiplayer.rules.DisableTimeManipulation) {
+            if (log.verbose) log.l($"SetTimeScale: Received SetTimeScale from server: {(PlayerCamera.SpeedType)sc}");
 
-			PlayerCamera_SetTimeScale_MultiplayerPatch.force = true;
-			PlayerCamera.main.SetTimeScale((PlayerCamera.SpeedType)sc, true);
+            PlayerCamera_SetTimeScale_MultiplayerPatch.force = true;
+            PlayerCamera.main.SetTimeScale((PlayerCamera.SpeedType)sc, true);
 
             ClientMain.ServerWorldState.Deserialize();
-		}
-	}
+        }
+    }
 
 
     [ClientReceiver((byte)NetmsgId.CLIENT_CustomPrompt, false)]
@@ -1185,7 +1249,7 @@ public class ClientMain : MonoBehaviour {
         reader.Get(out string title);
         reader.Get(out string text);
 
-        UIChoicePrompt.ClientDoNetPrompt(key,promptid,title,text);
+        UIChoicePrompt.ClientDoNetPrompt(key, promptid, title, text);
     }
 
 

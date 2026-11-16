@@ -1,296 +1,306 @@
 using CasualtiesTogetherUtils;
+using HarmonyLib;
+using LiteNetLib;
+using LiteNetLib.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Unity.Collections;
-using LiteNetLib;
 using UnityEngine;
-using HarmonyLib;
+using UnityEngine.Tilemaps;
 
-namespace Together;
-
-
+namespace Together {
 
 
 
 
-public class SharedMain : MonoBehaviour {
 
-    public static float max_player_interaction_distance = 9f;
-    public static float max_player_interaction_distance_sq => max_player_interaction_distance * max_player_interaction_distance;
+    public class SharedMain : MonoBehaviour {
 
-    public static bool LocalWorldIsGenerating = false;
-    public static bool LocalWorldIsGenerated = false;
-    public static bool IsInCutscene = false;
-    public static double LastWorldgenFinishTime = 0;
+        public static float max_player_interaction_distance = 9f;
+        public static float max_player_interaction_distance_sq => max_player_interaction_distance * max_player_interaction_distance;
 
-    static bool[,] CHUNKS_VISIBLE_TO_PLAYERS = new bool[16, 16];
+        public static bool LocalWorldIsGenerating = false;
+        public static bool LocalWorldIsGenerated = false;
+        public static bool IsInCutscene = false;
+        public static double LastWorldgenFinishTime = 0;
+
+        static bool[,] CHUNKS_VISIBLE_TO_PLAYERS = new bool[16, 16];
 
 
-    public static bool CheckIfDispersionPunishmentProtocolRuleIsActive() {
-        return (Time.realtimeSinceStartupAsDouble - LastWorldgenFinishTime) > (Net.IsClient ? 10f : 20f) && ScavPlayer.AllLivingPlayers.Count() > 0
-            && Multiplayer.rules.PlayerScatterDisallowed
-            && Multiplayer.rules.ScatterMinGroupSize > 0;
-    }
-
-    //TODO Occasionally theres a nullreference !!!! when its called from MedicalSync.LateUpdate 
-    public static bool CheckIfShouldActivateDispersionPunishmentProtocol(ScavPlayer plr, out float max_recorded_dist, out int count_plrs_in_range, out int required_count_plrs_in_range) {
-
-        count_plrs_in_range = ScavPlayer.AllLivingPlayers.Count;
-
-        required_count_plrs_in_range = 0;
-        max_recorded_dist = 0;
-
-        // theyre already dead, dont do anything
-        if (!plr.IsAlive() || plr.levelPlayTime < 20) {
-            return false;
+        public static bool CheckIfDispersionPunishmentProtocolRuleIsActive() {
+            return (Time.realtimeSinceStartupAsDouble - LastWorldgenFinishTime) > (Net.IsClient ? 10f : 20f) && ScavPlayer.AllLivingPlayers.Count() > 0
+                && Multiplayer.rules.PlayerScatterDisallowed
+                && Multiplayer.rules.ScatterMinGroupSize > 0;
         }
 
-        // there is only one living player, dont check anything
-        if (count_plrs_in_range <= 1) {
-            return false;
-        }
-        var plrs = new List<ScavPlayer>(ScavPlayer.AllLivingPlayers);
-        plrs.RemoveAll(x => (
-                // || x.body.isCriticallyDying // commented cuz i wanna make them euthanize dying comrades
-                x.levelPlayTime < 20
-        ) );
-        if (Net.IsServer) {
-            plrs.RemoveAll(
-                x => (
-                    !x.ServerPlayerState.is_loaded_in
-                )
-            );
-        }
-        if (Multiplayer.rules.Teams) { // dont check those who are not in ur team
-            plrs.RemoveAll( x => (
-                    !x.IsInSameTeamAs(plr)
-            ) );
-        }
-        if (plrs.Count <= 1) { // not everyone has loaded 
-            return false;
+        //TODO Occasionally theres a nullreference !!!! when its called from MedicalSync.LateUpdate 
+        public static bool CheckIfShouldActivateDispersionPunishmentProtocol(ScavPlayer plr, out float max_recorded_dist, out int count_plrs_in_range, out int required_count_plrs_in_range) {
+
+            count_plrs_in_range = ScavPlayer.AllLivingPlayers.Count;
+
+            required_count_plrs_in_range = 0;
+            max_recorded_dist = 0;
+
+            // theyre already dead, dont do anything
+            if (!plr.IsAlive() || plr.levelPlayTime < 20) {
+                return false;
+            }
+
+            // there is only one living player, dont check anything
+            if (count_plrs_in_range <= 1) {
+                return false;
+            }
+            List<ScavPlayer> plrs = new List<ScavPlayer>(ScavPlayer.AllLivingPlayers);
+            plrs.RemoveAll(x => (
+                    // || x.body.isCriticallyDying // commented cuz i wanna make them euthanize dying comrades
+                    x.levelPlayTime < 20
+            ));
+            if (Net.IsServer) {
+                plrs.RemoveAll(
+                    x => (
+                        !x.ServerPlayerState.is_loaded_in
+                    )
+                );
+            }
+            if (Multiplayer.rules.Teams) { // dont check those who are not in ur team
+                plrs.RemoveAll(x => (
+                        !x.IsInSameTeamAs(plr)
+                ));
+            }
+            if (plrs.Count <= 1) { // not everyone has loaded 
+                return false;
+            }
+
+            //get required half count
+
+            required_count_plrs_in_range = Math.Max(1, (int)Mathf.Ceil(((float)plrs.Count) * ((float)Multiplayer.rules.ScatterMinGroupSize) * 0.01f));
+
+
+            float presqr = Util.MetersToTiles(Multiplayer.rules.ScatterPunishDistance);
+            presqr *= presqr;
+            Vector3 pos = plr.body.transform.position;
+            count_plrs_in_range = 0;
+            foreach (ScavPlayer x in ScavPlayer.AllLivingPlayers) {
+                float d = KM.DistanceSqr(x.body.transform.position, pos);
+                if (d < presqr) {
+                    count_plrs_in_range++;
+                    if (d > max_recorded_dist) {
+                        max_recorded_dist = d;
+                    }
+                }
+            }
+            max_recorded_dist = Mathf.Sqrt(max_recorded_dist);
+
+            if (count_plrs_in_range >= required_count_plrs_in_range) {
+                return false;
+            }
+            // the council has decided to kill them 
+            return true;
         }
 
-        //get required half count
-
-        required_count_plrs_in_range = Math.Max(1, (int)Mathf.Ceil(((float)plrs.Count) * ((float)Multiplayer.rules.ScatterMinGroupSize) * 0.01f));
 
 
-        var presqr = Util.MetersToTiles(Multiplayer.rules.ScatterPunishDistance);
-        presqr *= presqr;
-        var pos = plr.body.transform.position;
-        count_plrs_in_range = 0;
-        foreach (var x in ScavPlayer.AllLivingPlayers) {
-            var d = KM.DistanceSqr(x.body.transform.position, pos);
-            if (d < presqr) {
-                count_plrs_in_range++;
-                if (d > max_recorded_dist) {
-                    max_recorded_dist = d;
+        public static void CreatePlayerCharacters() {
+            if (!Util.IsInWorld()) {
+                return;
+            }
+
+            foreach (ScavPlayer plr in ScavPlayer.AllPlayers) {
+                try {
+#if FULLGAME
+                    // still on LateJoinCharSelect - CompleteLateJoin spawns after they pick.
+                    if (plr != null && CharacterSelectWait.IsPendingLateJoin(plr.playerId)) {
+                        continue;
+                    }
+#endif
+                    plr.CreateCharacter();
+                } catch (Exception e) {
+                    log.error($"CreatePlayerCharacters: {e}");
                 }
             }
         }
-        max_recorded_dist = Mathf.Sqrt(max_recorded_dist);
-
-        if (count_plrs_in_range >= required_count_plrs_in_range) {
-            return false;
-        }
-        // the council has decided to kill them 
-        return true;
-    }
 
 
 
-    public static void CreatePlayerCharacters() {
-        if (!Util.IsInWorld()) return;
-        foreach (var plr in ScavPlayer.ClientIdToPlayerDict.Values) {
-            try {
-                plr.CreateCharacter();
-            } catch (Exception e) {
-                log.error($"CreatePlayerCharacters: {e}");
+        public static void ForceUpdatePlayerLists() {
+            ScavPlayer.AllLivingPlayers.Clear();
+            ScavPlayer.AllDeadPlayers.Clear();
+
+            foreach (ScavPlayer plr in ScavPlayer.BodyToPlayerDict.Values) {
+                if (plr == null) {
+                    continue;
+                }
+
+                if (plr.body == null) {
+                    continue;
+                }
+
+                if (plr.body.alive) {
+                    ScavPlayer.AllLivingPlayers.Add(plr);
+                } else {
+                    ScavPlayer.AllDeadPlayers.Add(plr);
+                }
             }
         }
-    }
 
-
-
-    public static void ForceUpdatePlayerLists() {
-        ScavPlayer.AllLivingPlayers.Clear();
-        ScavPlayer.AllDeadPlayers.Clear();
-
-        foreach (var plr in ScavPlayer.BodyToPlayerDict.Values) {
-            if (plr == null) continue;
-            if (plr.body == null) continue;
-            if (plr.body.alive) {
-                ScavPlayer.AllLivingPlayers.Add(plr);
-            } else {
-                ScavPlayer.AllDeadPlayers.Add(plr);
+        // extended for multiplayer
+        public static bool WorldInSimRange(Vector2 pos) {
+            // offline still trusts the camera renderer. a kept throw has to count before that.
+            if (SimKeep.Covers(pos)) {
+                return true;
             }
-        }
-    }
 
-    // Extended for multiplayer
-    public static bool WorldInSimRange(Vector2 pos) {
-        // offline still trusts the camera renderer. a kept throw has to count before that.
-        if (SimKeep.Covers(pos))
-            return true;
-        bool stamped = false;
-        if (!KrokV5Optimization.FixSimRange.Range(pos, ref stamped))
-            return stamped;
-        bool inSimRange = false;
-        var blockpos = WorldGeneration.world.WorldToBlockPos(pos);
-        var renderer = WorldGeneration.world.GetClosestChunkRenderer(blockpos);
-        if (renderer != null) {
-            inSimRange = renderer.enabled;
-        }
+            bool stamped = false;
+            if (!KrokV5Optimization.FixSimRange.Range(pos, ref stamped)) {
+                return stamped;
+            }
 
-        if (!Net.IsRunning) {
+            bool inSimRange = false;
+            Vector2Int blockpos = WorldGeneration.world.WorldToBlockPos(pos);
+            TilemapRenderer renderer = WorldGeneration.world.GetClosestChunkRenderer(blockpos);
+            if (renderer != null) {
+                inSimRange = renderer.enabled;
+            }
+
+            if (!Net.IsRunning) {
+                return inSimRange;
+            }
+
+            if (Net.IsServer && !inSimRange) {
+                return SharedMain.PositionIsInSimulatedChunk_BlockPos(blockpos);
+            }
+
             return inSimRange;
         }
 
-        if (Net.IsServer && !inSimRange) {
-            return SharedMain.PositionIsInSimulatedChunk_BlockPos(blockpos);
+        public static bool PositionIsInSimulatedChunk(Vector2 pos) {
+            return PositionIsInSimulatedChunk_BlockPos(WorldGeneration.world.WorldToBlockPos(pos));
+        }
+        public static bool PositionIsInSimulatedChunk_BlockPos(Vector2Int blockpos) {
+            Vector2Int chunkpos = WorldGeneration.world.BlockToChunkPos(blockpos);
+
+            int ymax_m1 = CHUNKS_VISIBLE_TO_PLAYERS.GetLength(1) - 1;
+            int xmax_m1 = CHUNKS_VISIBLE_TO_PLAYERS.GetLength(0) - 1;
+
+            chunkpos.x = Mathf.Clamp(chunkpos.x, 0, xmax_m1);
+            chunkpos.y = Mathf.Clamp(chunkpos.y, 0, ymax_m1);
+
+            return CHUNKS_VISIBLE_TO_PLAYERS[chunkpos.x, chunkpos.y];
         }
 
-        return inSimRange;
-    }
+        static int VISIBLE_CHUNK_RANGE_HALF = 2;
+        static void _PlayerVisibleChunksAroundPos(Vector2 pos) {
+            //OG: WorldGeneration.UpdateChunkVisibility V520  but kinda simplified
 
-    public static bool PositionIsInSimulatedChunk(Vector2 pos) {
-        return PositionIsInSimulatedChunk_BlockPos(WorldGeneration.world.WorldToBlockPos(pos));
-    }
-    public static bool PositionIsInSimulatedChunk_BlockPos(Vector2Int blockpos) {
-        var chunkpos = WorldGeneration.world.BlockToChunkPos(blockpos);
+            float chunksize_inv = 1f / (float)WorldGeneration.CHUNKSIZE;
+            int half_chunkWidth = (int)((float)WorldGeneration.world.chunkWidth * 0.5f);
+            int half_chunkHeight = (int)((float)WorldGeneration.world.chunkHeight * 0.5f);
 
-        var ymax_m1 = CHUNKS_VISIBLE_TO_PLAYERS.GetLength(1) - 1;
-        var xmax_m1 = CHUNKS_VISIBLE_TO_PLAYERS.GetLength(0) - 1;
+            int ymax_m1 = CHUNKS_VISIBLE_TO_PLAYERS.GetLength(1) - 1;
+            int xmax_m1 = CHUNKS_VISIBLE_TO_PLAYERS.GetLength(0) - 1;
 
-        chunkpos.x = Mathf.Clamp(chunkpos.x, 0, xmax_m1);
-        chunkpos.y = Mathf.Clamp(chunkpos.y, 0, ymax_m1);
+            int num1 = Mathf.Clamp((int)(pos.x * chunksize_inv) - VISIBLE_CHUNK_RANGE_HALF + half_chunkWidth, 0, xmax_m1);
+            int num2 = Mathf.Clamp((int)(pos.x * chunksize_inv) + VISIBLE_CHUNK_RANGE_HALF + 1 + half_chunkWidth, 0, xmax_m1);
+            int num3 = Mathf.Clamp((int)(pos.y * chunksize_inv) - VISIBLE_CHUNK_RANGE_HALF + half_chunkHeight, 0, ymax_m1);
+            int num4 = Mathf.Clamp((int)(pos.y * chunksize_inv) + VISIBLE_CHUNK_RANGE_HALF + 1 + half_chunkHeight, 0, ymax_m1);
 
-        return CHUNKS_VISIBLE_TO_PLAYERS[chunkpos.x, chunkpos.y];
-    }
+            for (int y = num3; y <= num4; y++) {
+                for (int x = num1; x <= num2; x++) {
+                    CHUNKS_VISIBLE_TO_PLAYERS[x, y] = true;
+                }
+            }
 
-    static int VISIBLE_CHUNK_RANGE_HALF = 2;
-    static void _PlayerVisibleChunksAroundPos(Vector2 pos) {
-        //OG: WorldGeneration.UpdateChunkVisibility V520  but kinda simplified
+        }
 
-        float chunksize_inv = 1f / (float)WorldGeneration.CHUNKSIZE;
-        int half_chunkWidth = (int)((float)WorldGeneration.world.chunkWidth * 0.5f);
-        int half_chunkHeight = (int)((float)WorldGeneration.world.chunkHeight * 0.5f);
+        static void _UpdatePlayerVisibleChunks() {
+            if (!KrokV5Optimization.FixSimRange.Rebuild()) {
+                return;
+            }
 
-        var ymax_m1 = CHUNKS_VISIBLE_TO_PLAYERS.GetLength(1) - 1;
-        var xmax_m1 = CHUNKS_VISIBLE_TO_PLAYERS.GetLength(0) - 1;
+            for (int y = 0; y < CHUNKS_VISIBLE_TO_PLAYERS.GetLength(1); y++) {
+                for (int x = 0; x < CHUNKS_VISIBLE_TO_PLAYERS.GetLength(0); x++) {
+                    CHUNKS_VISIBLE_TO_PLAYERS[x, y] = false;
+                }
+            }
 
-        int num1 = Mathf.Clamp((int)(pos.x * chunksize_inv) - VISIBLE_CHUNK_RANGE_HALF + half_chunkWidth  , 0, xmax_m1);
-        int num2 = Mathf.Clamp((int)(pos.x * chunksize_inv) + VISIBLE_CHUNK_RANGE_HALF + 1 + half_chunkWidth  , 0, xmax_m1);
-        int num3 = Mathf.Clamp((int)(pos.y * chunksize_inv) - VISIBLE_CHUNK_RANGE_HALF + half_chunkHeight , 0, ymax_m1);
-        int num4 = Mathf.Clamp((int)(pos.y * chunksize_inv) + VISIBLE_CHUNK_RANGE_HALF + 1 + half_chunkHeight , 0, ymax_m1);
+            if (!LocalWorldIsGenerated) {
+                return;
+            }
+            _PlayerVisibleChunksAroundPos(WorldGeneration.world.mainCam.transform.position);
+            if (!Net.IsRunning || Net.IsClient) {
+                return;
+            }
 
-        for (int y = num3; y <= num4; y++) {
-            for (int x = num1; x <= num2; x++) {
-                CHUNKS_VISIBLE_TO_PLAYERS[x, y] = true;
+            foreach (KeyValuePair<Body, ScavPlayer> bp in ScavPlayer.BodyToPlayerDict) {
+                _PlayerVisibleChunksAroundPos(bp.Value.pos);
             }
         }
 
-    }
+        internal static float timer_SendPerformanceReport = 0;
+        void Update() {
+            using FindTheBugInator.Scope _bug = FindTheBugInator.Time(FindTheBugInator.Shared);
+            LocalWorldIsGenerated = Util.IsWorldGenerated();
+            LocalWorldIsGenerating = Util.IsGeneratingWorld();
 
-    static void _UpdatePlayerVisibleChunks() {
-        if (!KrokV5Optimization.FixSimRange.Rebuild())
-            return;
-        for (int y = 0; y < CHUNKS_VISIBLE_TO_PLAYERS.GetLength(1); y++) {
-            for (int x = 0; x < CHUNKS_VISIBLE_TO_PLAYERS.GetLength(0); x++) {
-                CHUNKS_VISIBLE_TO_PLAYERS[x, y] = false;
+            IsInCutscene = Util.IsInWorld() && Traverse.Create(Util.world).Field("cutsceneActive").GetValue<bool>();
+
+            ForceUpdatePlayerLists();
+
+            _UpdatePlayerVisibleChunks();
+
+            if (!Net.IsConnected) {
+                return;
             }
+
+            timer_SendPerformanceReport += ClientMain.AdaptiveSyncTimerDelta;
+            if (timer_SendPerformanceReport > 1) {
+                timer_SendPerformanceReport = 0;
+                UpdateSendPerformanceReport();
+            }
+
         }
 
-        if (!LocalWorldIsGenerated) {
-            return;
-        }
-        _PlayerVisibleChunksAroundPos(WorldGeneration.world.mainCam.transform.position);
-        if (!Net.IsRunning || Net.IsClient) {
-            return;
-        }
-        
-        foreach (var bp in ScavPlayer.BodyToPlayerDict) {
-            _PlayerVisibleChunksAroundPos(bp.Value.pos);
-        }
-    }
+        static void UpdateSendPerformanceReport() {
+            if (Net.IsClient) {
+                NetDataWriter writer = Net.CreateWriter(NetmsgId.CurrentPerformanceReport_fromclient);
 
-    internal static float timer_SendPerformanceReport = 0;
-    void Update() {
-        LocalWorldIsGenerated = Util.IsWorldGenerated();
-        LocalWorldIsGenerating = Util.IsGeneratingWorld();
+                writer.Put(ServerMain.CURRENT_FPS);
+                writer.Put(ServerMain.CURRENT_TPS);
 
-        IsInCutscene = Util.IsInWorld() && Traverse.Create(Util.world).Field("cutsceneActive").GetValue<bool>();
+                Net.Client_Send(DeliveryMethod.Unreliable, writer);
+                // WRITER END;
+            } else {
+                NetDataWriter writer = Net.CreateWriter(NetmsgId.CurrentPerformanceReport);
 
-        ForceUpdatePlayerLists();
+                writer.Put(ServerMain.CURRENT_FPS);
+                writer.Put(ServerMain.CURRENT_TPS);
 
-        _UpdatePlayerVisibleChunks();
+                Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, ServerMain.AllClientIdsExceptHost);
+                // WRITER END;
+            }
 
-        if (!Net.IsConnected) return;
-
-        timer_SendPerformanceReport += ClientMain.AdaptiveSyncTimerDelta;
-        if (timer_SendPerformanceReport > 1) {
-            timer_SendPerformanceReport = 0;
-            UpdateSendPerformanceReport();
         }
 
-    }
-
-    static void UpdateSendPerformanceReport() {
-        if (Net.IsClient) {
-            var writer = Net.CreateWriter(NetmsgId.CurrentPerformanceReport_fromclient);
-
-            writer.Put(ServerMain.CURRENT_FPS);
-            writer.Put(ServerMain.CURRENT_TPS);
-            
-            Net.Client_Send(DeliveryMethod.Unreliable, writer);
-            // WRITER END;
-        } else {
-            var writer = Net.CreateWriter(NetmsgId.CurrentPerformanceReport);
-
-            writer.Put(ServerMain.CURRENT_FPS);
-            writer.Put(ServerMain.CURRENT_TPS);
-
-            Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, ServerMain.AllClientIdsExceptHost);
-            // WRITER END;
+        [ClientReceiver((byte)NetmsgId.CurrentPerformanceReport, true)]
+        static void ClientReceiver__CurrentPerformanceReport(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+            reader.Get(out ClientMain.SERVER_FPS);
+            reader.Get(out ClientMain.SERVER_TPS);
         }
+
+
+        [ServerReceiver((byte)NetmsgId.CurrentPerformanceReport_fromclient)]
+        static void ServerReceiver__CurrentPerformanceReport_fromclient(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
+
+            if (ScavPlayer.TryGetPlayerFromClientId(clientId, out ScavPlayer plr)) {
+                reader.Get(out plr.ServerPlayerState.fps);
+                reader.Get(out plr.ServerPlayerState.tps);
+            }
+
+        }
+
 
     }
-
-	[ClientReceiver((byte)NetmsgId.CurrentPerformanceReport, true)]
-	static void ClientReceiver__CurrentPerformanceReport(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-		reader.Get(out ClientMain.SERVER_FPS);
-		reader.Get(out ClientMain.SERVER_TPS);
-	}
-
-
-	[ServerReceiver((byte)NetmsgId.CurrentPerformanceReport_fromclient)]
-	static void ServerReceiver__CurrentPerformanceReport_fromclient(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
-
-		if (ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr)) {
-			reader.Get(out plr.ServerPlayerState.fps);
-			reader.Get(out plr.ServerPlayerState.tps);
-		}
-
-	}
-
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

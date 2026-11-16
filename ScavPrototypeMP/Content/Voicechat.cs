@@ -683,7 +683,7 @@ internal class VoicechatOutput : StreamedAudioOutput {
                 if (Util.IsWorldGenerated()) {
                     audioSource.transform.position = plr.CameraViewPos;
                 } else {
-                    var vals = ScavPlayer.ClientIdToPlayerDict.Values.ToList();
+                    var vals = ScavPlayer.AllPlayers.ToList();
                     var i = vals.IndexOf(plr);
 
                     var progress = (((float)i + 0.5f) - ((float)vals.Count * 0.5f)) / vals.Count * 4;
@@ -1561,7 +1561,7 @@ public class Voicechat :  CasualtiesTogetherSingleton {
     static List<ScavPlayer> Server_VoiceRelayGetTargets(ScavPlayer yapper_plr) {
         var plrpos = yapper_plr.pos;
 
-        var targets = new List<ScavPlayer>(ScavPlayer.ClientIdToPlayerDict.Values);
+        var targets = new List<ScavPlayer>(ScavPlayer.AllPlayers);
         targets.Remove((ScavPlayer)yapper_plr);
 
         // if is in world, optimize the relay by not sending the packets to players who are out of range

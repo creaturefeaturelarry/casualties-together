@@ -31,6 +31,8 @@ namespace Together;
 public static class PlayerCamera_HandlePlayerHover_MultiplayerPatch {
 
     public static bool is_hovering_over_another_player = false;
+    // last non-local player under the cursor (Dune K-bite)
+    public static NetBody hoveredPlayerBody;
 
     public static void Postfix(PlayerCamera __instance) {
 
@@ -39,6 +41,7 @@ public static class PlayerCamera_HandlePlayerHover_MultiplayerPatch {
             var body = pc.body;
 
             is_hovering_over_another_player = false;
+            hoveredPlayerBody = null;
 
             // OG: PlayerCamera.HandleWorldHover()
             Component collider2D = Physics2D.OverlapPoint(Camera.main.ScreenToWorldPoint(Input.mousePosition), LayerMask.GetMask("Limb"))?.GetComponent<Limb>()?.body;
@@ -57,6 +60,9 @@ public static class PlayerCamera_HandlePlayerHover_MultiplayerPatch {
                         var mouseOverDescription_text = "";
 
                         is_hovering_over_another_player = true;
+                        if (is_pb) {
+                            hoveredPlayerBody = npc;
+                        }
 
                         npc.DoMouseHoverTooltip(ref mouseOverName_text, ref mouseOverDescription_text);
 
@@ -159,7 +165,19 @@ internal static class GlobalDark_Awake_MultiplayerPatch {
     }
 }
 
-#endregion // TOOLTIP_OVERRIDES
+// the fade image stays loaded after Darken(). a leftover raycast makes
+// UIUtil.IsPointerOverUIElement true, and HandleAttacks ignores left click.
+[HarmonyPatch(typeof(GlobalDark), "Update")]
+static class GlobalDark_Update_DontEatClicks {
+    static void Postfix(GlobalDark __instance) {
+        if (__instance == null || __instance.image == null) {
+            return;
+        }
+        __instance.image.raycastTarget = __instance.image.color.a >= 0.02f;
+    }
+}
+
+#endregion // tOOLTIP_OVERRIDES
 
 
 
@@ -175,24 +193,24 @@ public static class PlayerCamera_LateUpdate_TraderHold {
     private static void Postfix(PlayerCamera __instance) {
         TraderPinLog.Hold(__instance);
 
-        // Keep the vanilla body-based reading for living players. Once the
+        // keep the vanilla body-based reading for living players. Once the
         // local player is dead, make the reading follow the spectator camera.
         UpdateSpectatorDepthMeter(__instance);
     }
 
-    // The vanilla depth meter reads PlayerCamera.body, which is correct while
+    // the vanilla depth meter reads PlayerCamera.body, which is correct while
     // alive but stale after death when the spectator/free camera moves away.
     static void UpdateSpectatorDepthMeter(PlayerCamera camera) {
         if (!Net.IsRunning || camera == null) return;
-        if (camera.body.alive && !(UIInGame.SpectatorModeActive || Con._DEV_FREECAM)) 
+        if (camera.body.alive && !(UIInGame.SpectatorModeActive || Con._DEV_FREECAM))
             return;
-        
+
 
         var world = WorldGeneration.world;
         var depthLine = camera.depthLine;
-        if (world == null || depthLine == null || depthLine.parent == null || world.height <= 0) 
+        if (world == null || depthLine == null || depthLine.parent == null || world.height <= 0)
             return;
-        
+
 
         var depthUnits = (float)world.halfHeight - camera.transform.position.y;
         var meterHeight = depthLine.parent.GetComponent<RectTransform>().rect.size.y;
@@ -204,9 +222,7 @@ public static class PlayerCamera_LateUpdate_TraderHold {
         var depthLabel = depthLine.GetComponentInChildren<TMPro.TextMeshProUGUI>();
         if (depthLabel != null) {
             var totalDepthMeters = depthUnits * 0.3f + world.totalTraveled;
-            
-            depthLabel.text = $"{Mathf.RoundToInt(totalDepthMeters)}m";
-            
+            depthLabel.text = Util.UnitsDistance(totalDepthMeters);
         }
     }
 
@@ -260,6 +276,11 @@ public static class PlayerCamera_Update_MultiplayerPatch {
                     }
                 }
 
+                // dune: K attempts bite on hovered player (consent skipped if they are unconscious)
+                if (Input.GetKeyDown(KeyCode.K)) {
+                    NetBody.TryDuneKeybindBite();
+                }
+
                 if (pc.radialOpen) {
                     if (Util.IsInWoundView()) {
                         pc.radialOpen = false;
@@ -273,7 +294,14 @@ public static class PlayerCamera_Update_MultiplayerPatch {
                 try {
                     var retur = __instance.deathStats.Find("Return"); // TODO make it make a menu to choose if to disconnect/ go to main menu/ cancel
                     if (retur != null) {
-                        retur.gameObject.SetActive(Net.IsServer);
+                        bool showReturn = Net.IsServer;
+#if FULLGAME
+                        // ending card. keep return hidden until the other cutscenes finish.
+                        if (showReturn && ConcurrentEndings.BlockHostReturn()) {
+                            showReturn = false;
+                        }
+#endif
+                        retur.gameObject.SetActive(showReturn);
                         //retur.GetComponent<TextMeshProUGUI>().text = Lang.Get("endscreencalories");
                     }
                 } catch (Exception e) {
@@ -309,7 +337,7 @@ public static class PlayerCamera_HandleScreenShaders_MultiplayerPatch {
             var body = pc.body;
 
             CURRENTLY_OVERRIDING_VISUALS = ShouldOverrideVisualsToDefault();
-            if ( CURRENTLY_OVERRIDING_VISUALS ) {
+            if (CURRENTLY_OVERRIDING_VISUALS) {
                 forceDefaultShaderForNextFrame = false;
 
                 __instance.blackAmount = 0;
@@ -336,7 +364,7 @@ public static class PlayerCamera_HandleScreenShaders_MultiplayerPatch {
                     __instance.mainScreenPass.SetFloat("_PosterizeSteps", 124);
                 if (__instance.mainScreenPass.HasFloat("_NightVisAmount"))
                     __instance.mainScreenPass.SetFloat("_NightVisAmount", 0);
-                
+
 
                 __instance.blurPass.SetFloat("_BlurIntensity", 0f);
                 __instance.blurPass.SetFloat("_DropletAmount", 0f);
@@ -434,16 +462,16 @@ static class PlayerCamera_UIOverrideTryPickupFromWorld_MultiplayerPatch {
                             UIInGame.StopPlayerInteractionMenu();
                         }
                     } else {
-                        //KrokoshaPlugin.Logger.LogWarning($"TEMP DEV: not hovering over another playuer (Opened radial) DELETEME ");
+                        //krokoshaPlugin.Logger.LogWarning($"TEMP DEV: not hovering over another playuer (Opened radial) DELETEME ");
                     }
 
                 } else if (!pc.dragItem &&
                     // OG: PlayerCamera.TryPickupFromWorld()
                     (bool)usableObject && Vector2.Distance(body.transform.position, usableObject.transform.position) < 10f * usableObject.rangeMultiplier
                 ) {
-                    
+
                 }
-               
+
             }
         }
 
@@ -454,6 +482,10 @@ static class PlayerCamera_UIOverrideTryPickupFromWorld_MultiplayerPatch {
 [HarmonyPatch(typeof(PlayerCamera), nameof(PlayerCamera.ToMainMenu))]
 static class PlayerCamera_ToMainMenu_MultiplayerPatch {
     static void Prefix(WorldGeneration __instance) {
+#if FULLGAME
+        ConcurrentEndings.KeepSpectating = false;
+        ConcurrentEndings.SuppressDeathScreen = false;
+#endif
         // dont carry someone elses health panel into the menu. it leaves the inventory hud off.
         PlayerCamera_ToggleWoundView_MultiplayerPatch.CloseHealthPanel(PlayerCamera.main);
 
@@ -518,12 +550,27 @@ public static class PlayerCamera_SetTimeScale_MultiplayerPatch {
             if (speed == PlayerCamera.SpeedType.Paused)
                 return false;
 
-            if (Net.IsClient && ClientMain.ServerWorldState != null && ClientMain.ServerWorldState.timeScale.Value == 0) // Server is paused
+            if (Net.IsClient && ClientMain.ServerWorldState != null && ClientMain.ServerWorldState.timeScale.Value == 0) // server is paused
                 return false;
 
             var num = 1f;
             if (Net.IsClient && ClientMain.ServerWorldState != null) {
                 num = ClientMain.ServerWorldState.timeScale.Value;
+            }
+
+            // together-sleep owns timescale; don't let DisableTimeManipulation snap it back to 1
+            bool lobbySleeping = ServerMain.CheckIfEveryoneIsSleeping() && !Multiplayer.rules.DisableSleep;
+            if (lobbySleeping) {
+                num = ServerMain.SleepEnergySpeedMult;
+            }
+
+            // KO / dying used to take the vanilla 25x path whenever time manipulation was on.
+            if (!lobbySleeping && (speed == PlayerCamera.SpeedType.UnconsciousFast || speed == PlayerCamera.SpeedType.DyingFast)) {
+                Time.timeScale = num;
+                if (__instance.curTimeScale == PlayerCamera.SpeedType.UnconsciousFast || __instance.curTimeScale == PlayerCamera.SpeedType.DyingFast) {
+                    __instance.curTimeScale = PlayerCamera.SpeedType.Normal;
+                }
+                return false;
             }
 
             if (force) {
@@ -1131,16 +1178,21 @@ static class PlayerCamera_RefreshTraderInventories_MultiplayerPatch {
 [HarmonyPatch(typeof(PlayerCamera), nameof(PlayerCamera.StartSelfDestruct))]
 static class PlayerCamera_StartSelfDestruct_MultiplayerPatch {
     static void Postfix(PlayerCamera __instance) {
+        if (!Net.IsRunning) return;
 
+        ClientRequestSuicide();
+
+    }
+
+    public static void ClientRequestSuicide() {
         var writer = Net.CreateWriter(NetmsgId.SERVER_selfdestruct);
         writer.Put(true);
         Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
         // WRITER END;
 
-        if (ScavPlayer.TryGetLocalNetBody(out var locnb)) {
+        if (NetBody.TryGetLocalNetBody(out var locnb)) {
             locnb.SetNetHealthSyncIgnoreTime(4);
         }
-
     }
 
 
@@ -1150,10 +1202,10 @@ static class PlayerCamera_StartSelfDestruct_MultiplayerPatch {
 
             log.devevent($"Selfdestruct {pb}", plr.pos, true);
 
-            Util.StartCoroutine(SelfDestructSequence(pb));
+            WorldGeneration.world.StartCoroutine(SelfDestructSequence(pb));
         }
     }
-    public static readonly float SelfDestructIdentifier = 5434534; // Just a random unique number
+    public static readonly float SelfDestructIdentifier = 5434534; // just a random unique number
 
     static IEnumerator SelfDestructSequence(NetBody nb) {
         var body = nb.body;
@@ -1162,31 +1214,67 @@ static class PlayerCamera_StartSelfDestruct_MultiplayerPatch {
             to_who.Remove(nb.plr.playerId);
         }
 
+        if (nb.IsBodyLocal())
+            PlayerCamera.main.selfDestructActive = true;
 
-        body.eyeScareTime = 10f;
-        if (!nb.IsBodyLocal())
-            body.talker.Talk(Locale.GetCharacter("selfdestruct"), null, force: false, resetTalkTimer: true);
-        ServerMain.Server_AnnounceSound(body.GetPosition(), "selfdestruct1", to_who);
-        yield return new WaitForSeconds(3f);
-        body.eyeCloseTime = 10f;
-        yield return new WaitForSeconds(1.15f);
+        try {
+            var unchipped = nb.unchipped;
+            if (unchipped) {
+                body.GetComponent<SelfHarmer>().cooldownTime = 60f;
+                body.happiness = -90;
+                body.talker.Talk(Locale.GetCharacter("suicide"), null, force: false, resetTalkTimer: true);
+                yield return new WaitForSeconds(2f);
+                if (Body.censorMood) {
+                    body.TryStartFibrillation(true);
+                    body.vomiter.Vomit();
+                    body.vomiter.Vomit();
+                    body.vomiter.Vomit();
+                    body.vomiter.Vomit();
+                    body.vomiter.Vomit();
+                    yield return new WaitForSeconds(2f);
+                } else {
+                    var head = body.GetHead();
+                    YOU_SHOULD_KILL_YOURSELF_NOOOW.SelfHarm_Copypasted(0, body, ref head);
+                    yield return new WaitForSeconds(0.1f);
+                    body.Ragdoll();
+                    yield return new WaitForSeconds(0.5f);
+                    body.Ragdoll();
+                    body.consciousness *= 0.7f;
+                    yield return new WaitForSeconds(1f);
+                }
+                body.brainHealth = 0;
 
-        ServerMain.Server_AnnounceSound(body.GetPosition(), "gore", to_who);
-        ServerMain.Server_InstantiateInstance(body.limbs[0].transform.position, 0, "BloodExplosion", to_who);
-        ServerMain.Server_InstantiateInstance(body.limbs[0].transform.position, 0, "Special/ExplosionParticle", to_who);
+            } else {//OG: PlayerCamera.StartSelfDestruct V7.0.1
+                body.eyeScareTime = 10f;
+                if (!nb.IsBodyLocal())
+                    body.talker.Talk(Locale.GetCharacter("selfdestruct"), null, force: false, resetTalkTimer: true);
+                ServerMain.Server_AnnounceSound(body.GetPosition(), "selfdestruct1", to_who);
+                yield return new WaitForSeconds(3f);
+                body.eyeCloseTime = 10f;
+                yield return new WaitForSeconds(1.15f);
 
-        nb.OnDamageEvent(new BodyDamageEvent(nb, nb, null, SelfDestructIdentifier));
+                ServerMain.Server_AnnounceSound(body.GetPosition(), "gore", to_who);
+                ServerMain.Server_InstantiateInstance(body.limbs[0].transform.position, 0, "BloodExplosion", to_who);
+                ServerMain.Server_InstantiateInstance(body.limbs[0].transform.position, 0, "Special/ExplosionParticle", to_who);
 
-        yield return new WaitForSeconds(0.02f);
-        body.brainHealth = 0f;
-        body.consciousness = 0f;
-        body.heartRate = 0f;
-        body.limbs[0].muscleHealth = 0f;
-        body.limbs[0].skinHealth = 0f;
-        body.limbs[0].bleedAmount = 100f;
-        body.Disfigure();
-        body.RemoveEye();
-        body.RemoveEye();
+                nb.OnDamageEvent(new BodyDamageEvent(nb, nb, null, SelfDestructIdentifier));
+
+                yield return new WaitForSeconds(0.02f);
+                body.brainHealth = 0f;
+                body.consciousness = 0f;
+                body.heartRate = 0f;
+                body.limbs[0].muscleHealth = 0f;
+                body.limbs[0].skinHealth = 0f;
+                body.limbs[0].bleedAmount = 100f;
+                body.Disfigure();
+                body.RemoveEye();
+                body.RemoveEye();
+            }
+        } finally {
+            if (nb.IsBodyLocal())
+                PlayerCamera.main.selfDestructActive = false;
+        }
+
 
     }
 
@@ -1257,14 +1345,10 @@ public static class vyosna_dawn_HandleUnconsciousScreen_Patch {
 static class MoodleManager_AddMoodle_Patch {
 
     static bool Prefix(MoodleManager __instance, ref int intensity) {
-        //Add an intensity safeguard
+        //add an intensity safeguard
         if (intensity >= __instance.backgroundIcons.Length) {
             intensity = __instance.backgroundIcons.Length;
         }
         return true;
     }
 }
-
-
-
-    

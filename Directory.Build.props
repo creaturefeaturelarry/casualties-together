@@ -3,7 +3,7 @@
   
 	<PropertyGroup>
 
-		<ModVersion>5.4.1</ModVersion>
+		<ModVersion>5.5.1</ModVersion>
 		<FullModVersion>$(ModVersion)</FullModVersion>
 
 		<SlnRoot>$(SolutionDir)</SlnRoot>
@@ -20,6 +20,7 @@
 		<BuildId>$([System.Guid]::NewGuid().ToString("N"))</BuildId>
 		<BuildIdShort>$(BuildId.Substring(0, 4).ToUpper())</BuildIdShort>
 	</PropertyGroup>
+
 
 
 	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
@@ -61,7 +62,7 @@
 
 	<PropertyGroup>
 		<SteamGameFolder Condition="'$(GameType)' == 'Demo'">Casualties Unknown Demo</SteamGameFolder>
-		<SteamGameFolder Condition="'$(GameType)' == 'Fullgame'">Casualties Unknown Playtest</SteamGameFolder>
+		<SteamGameFolder Condition="'$(GameType)' == 'Fullgame'">Casualties Unknown</SteamGameFolder>
 	</PropertyGroup>
 
 	<PropertyGroup>

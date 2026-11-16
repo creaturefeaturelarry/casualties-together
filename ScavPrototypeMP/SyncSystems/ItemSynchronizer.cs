@@ -1,6 +1,6 @@
 using CasualtiesTogetherUtils;
-using KrokV5Optimization;
 using HarmonyLib;
+using KrokV5Optimization;
 using LiteNetLib;
 using System;
 using System.Collections.Generic;
@@ -24,9 +24,9 @@ namespace Together;
 
 
 
-public class ItemDespawnerIfUntouched :MonoBehaviour {
+public class ItemDespawnerIfUntouched : MonoBehaviour {
     void Awake() {
-       
+
     }
 
     public float despawntime = 60;
@@ -80,14 +80,14 @@ public static class CustomItemBehaviour_Update_MultiplayerPatch {
 
             if (item.id == "jetpack") { // jetpack uses keybind shit bruuh i dont wana
                 var pb = item.GetComponentInParent<NetBody>();
-                if (pb) { 
-                
+                if (pb) {
+
                     if (pb.IsLocal) {
                         return true;
                     }
 
                     //OG: CustomItemBehaviour.Update  
-                    if (item.condition > 0f && !item.isWet && (bool)item.transform.parent && item.transform.parent.TryGetComponent<Limb>(out var component2) && component2.body.conscious && !component2.body.currentClimbable && component2.body.moveDir.y > 0.1f) { 
+                    if (item.condition > 0f && !item.isWet && (bool)item.transform.parent && item.transform.parent.TryGetComponent<Limb>(out var component2) && component2.body.conscious && !component2.body.currentClimbable && component2.body.moveDir.y > 0.1f) {
                         item.condition -= Time.deltaTime * 0.0135f;
                     }
                 }
@@ -96,7 +96,7 @@ public static class CustomItemBehaviour_Update_MultiplayerPatch {
             } else if (item.id == "lightbulb") {
                 var pb = item.GetComponentInParent<NetBody>();
                 if (pb != null && pb.IsLocal && Net.IsClient) {
-                    __instance.state = 0; // Make it not trigger the explosion on client, so it wouldn't drop ahead of time
+                    __instance.state = 0; // make it not trigger the explosion on client, so it wouldn't drop ahead of time
                 }
             } else if ((item.id == "craftingbottle") && NetObjectRegistry.IsRegistered(item.gameObject) && item.TryGetComponent(out WaterContainerItem bottle) && (bottle.CurrentTotal <= 0f)) {
                 // stock deletes the mesh as soon as the bottle reads empty. the entity is still
@@ -141,7 +141,7 @@ public static class CustomItemBehaviour_Update_MultiplayerPatch {
                     }
                     break;
                 }
-                case "rangefinder":{
+                case "rangefinder": {
                     if ((bool)item.transform.parent && item.transform.parent.TryGetComponent<InventorySlot>(out var component) && (component == component.body.slots[0] || component == component.body.slots[1])) {
                         float z = Vector2.SignedAngle(Vector2.right, (component.body.targetLookPos - __instance.transform.position).normalized);
                         item.transform.eulerAngles = new Vector3(0f, 0f, z);
@@ -194,7 +194,7 @@ static class Item_Awake_MultiplayerPatch {
 
 [HarmonyPatch(typeof(Item), nameof(Item.Start))]
 static class Item_Start_MultiplayerPatch {
-    static void Postfix(Item __instance)  {
+    static void Postfix(Item __instance) {
         if (!Net.IsRunning) return;
 
         if (__instance.id == "campfire") {
@@ -260,8 +260,7 @@ public static class Item_Update_MultiplayerPatch {
         if (__instance != null)
             BagSleep.Note(__instance);
         // lit dynamite keeps its chunk even when it was dropped instead of thrown.
-        if (__instance != null && __instance.id == "dynamite" && __instance.TryGetComponent(out CustomItemBehaviour fuse))
-        {
+        if (__instance != null && __instance.id == "dynamite" && __instance.TryGetComponent(out CustomItemBehaviour fuse)) {
             object[] data = fuse.data;
             if (data != null && data.Length > 0 && data[0] is bool lit && lit)
                 SimKeep.ArmIfIdle(__instance.gameObject);
@@ -271,19 +270,22 @@ public static class Item_Update_MultiplayerPatch {
             __instance.condition = 0f;
 
         if (Net.IsRunning) {
-            if (__instance.TryGetComponent<SyncInfoGameObjectTracker>(out var tracker)) {
-                if ( tracker.isVisible && 
-                    //OG: Item.OnWillRenderObject   V5t2     it was moved here to work outside of hosts view
-                    __instance.canGetWet && Mathf.Abs(__instance.transform.position.x) < (float)WorldGeneration.world.halfWidth && Mathf.Abs(__instance.transform.position.y) < (float)WorldGeneration.world.halfHeight && FluidManager.main.HasLiquid(WorldGeneration.world.WorldToBlockPos(__instance.transform.position))
-                ) {
+            if (__instance.TryGetComponent<SyncInfoGameObjectTracker>(out _)) {
+                // stock wets from OnWillRenderObject, which this build skips. the view flag
+                // used to be required here, so a torch outside the host camera never got wet
+                // and the host condition put the client's flame back on.
+                if (TorchWet.InWetLiquid(__instance) && __instance.canGetWet) {
                     __instance.wetTime = Time.time;
+                    if (__instance.id == "torch") {
+                        if (Net.IsServer)
+                            TorchWet.Note(__instance);
+                        else
+                            TorchWet.Report(__instance);
+                    }
                 }
             }
         }
     }
-
-
-
 
     static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator il) {
         var codes = new List<CodeInstruction>(instructions);
@@ -319,10 +321,10 @@ public static class Item_Update_MultiplayerPatch {
         //call	bool [KrokoshaCasualtiesMP]KrokoshaCasualtiesMP.SharedMain::MPinSimRange(valuetype [UnityEngine.CoreModule]UnityEngine.Vector2)
 
         newInstructions.Add(new CodeInstruction(OpCodes.Ldarg_0));
-        newInstructions.Add(new CodeInstruction(OpCodes.Call,AccessTools.Method(typeof(UnityEngine.Component), "get_transform")));
-        newInstructions.Add(new CodeInstruction(OpCodes.Callvirt,AccessTools.Method(typeof(UnityEngine.Transform), "get_position")));
-        newInstructions.Add(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(UnityEngine.Vector2), "op_Implicit", new Type[] { typeof(UnityEngine.Vector3) } )));
-        newInstructions.Add(new CodeInstruction(OpCodes.Call,AccessTools.Method(typeof(SharedMain), nameof(SharedMain.WorldInSimRange))));
+        newInstructions.Add(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(UnityEngine.Component), "get_transform")));
+        newInstructions.Add(new CodeInstruction(OpCodes.Callvirt, AccessTools.Method(typeof(UnityEngine.Transform), "get_position")));
+        newInstructions.Add(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(UnityEngine.Vector2), "op_Implicit", new Type[] { typeof(UnityEngine.Vector3) })));
+        newInstructions.Add(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(SharedMain), nameof(SharedMain.WorldInSimRange))));
 
 
 #if DEBUG
@@ -353,8 +355,88 @@ public static class Item_Update_MultiplayerPatch {
 
 }
 
+// a client standing in water can be outside the host's awake chunks. the host copy then
+// never drains, and the next packet lights the client's torch again. the client reports
+// the torch, the host drains it, and a client who can see the water does not take a higher condition.
+static class TorchWet {
+    static readonly Dictionary<int, Item> Noted = new Dictionary<int, Item>();
+    static readonly Dictionary<int, float> NextReport = new Dictionary<int, float>();
+    static readonly List<int> Drop = new List<int>();
 
+    [CTPostInit]
+    static void Init() {
+        ServerMain.ServerCustomCommandsDict["torch_wet"] = (plr, cmd, args) => {
+            if (args.Length < 2 || !ushort.TryParse(args[1], out ushort raw))
+                return;
+            if (!NetObjectRegistry.TryGetSyncInfo((knetid)raw, out SyncInfo si) || si == null || si.IsDestroyed || si.item == null)
+                return;
+            Item item = si.item;
+            if (item.id != "torch")
+                return;
+            bool near = plr != null && plr.body != null && Vector2.Distance(plr.body.transform.position, item.transform.position) <= 10f;
+            if (!near && !InWetLiquid(item))
+                return;
+            item.wetTime = Time.time;
+            Note(item);
+            if (!item.gameObject.activeInHierarchy)
+                si.WriteObjectIntoPacket();
+        };
+    }
 
+    public static bool InWetLiquid(Item item) {
+        if (item == null || WorldGeneration.world == null || FluidManager.main == null)
+            return false;
+        Vector2 p = item.transform.position;
+        if (Mathf.Abs(p.x) >= WorldGeneration.world.halfWidth || Mathf.Abs(p.y) >= WorldGeneration.world.halfHeight)
+            return false;
+        return FluidManager.main.HasWetLiquid(WorldGeneration.world.WorldToBlockPos(p));
+    }
+
+    public static void Note(Item item) {
+        if (item != null)
+            Noted[item.GetInstanceID()] = item;
+    }
+
+    public static void Report(Item item) {
+        if (!Net.IsClient || Net.IsServer || item == null || item.id != "torch")
+            return;
+        if (!NetObjectRegistry.TryGetSyncInfo(item, out SyncInfo si) || si == null || si.IsDestroyed)
+            return;
+        int id = item.GetInstanceID();
+        float now = Time.unscaledTime;
+        if (NextReport.TryGetValue(id, out float at) && now < at)
+            return;
+        NextReport[id] = now + 0.5f;
+        LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("CustomCommand");
+        writer.Put("torch_wet " + si.syncId.id);
+        Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
+    }
+
+    // the mesh is off on the host, so CustomItemBehaviour never subtracts. catch up here.
+    public static void Tick() {
+        if (!Net.IsServer || Noted.Count == 0)
+            return;
+        float now = Time.time;
+        float dt = Time.deltaTime;
+        Drop.Clear();
+        foreach (var pair in Noted) {
+            Item item = pair.Value;
+            if (item == null || now - item.wetTime >= 120f) {
+                Drop.Add(pair.Key);
+                continue;
+            }
+            if (item.gameObject.activeInHierarchy || item.condition <= 0f)
+                continue;
+            item.condition = Mathf.Max(0f, item.condition - dt);
+            if (NetObjectRegistry.TryGetSyncInfo(item, out SyncInfo si) && si != null && !si.IsDestroyed)
+                si.WriteObjectIntoPacket();
+        }
+        for (int i = 0; i < Drop.Count; i++) {
+            Noted.Remove(Drop[i]);
+            NextReport.Remove(Drop[i]);
+        }
+    }
+}
 
 [HarmonyPatch(typeof(WaterContainerItem), nameof(WaterContainerItem.UpdateCondition))]
 static class WaterContainerItem_UpdateCondition_Clamp {
@@ -386,8 +468,8 @@ static class Item_HandleDecay_MultiplayerPatch {
             decMultiplier *= 0f;
         }
 
-        if ((__instance.Stats.decayInfo & (byte)ItemInfo.DecayType.NoDecayWhenStill) != 0 && 
-            (!__instance.transform.parent 
+        if ((__instance.Stats.decayInfo & (byte)ItemInfo.DecayType.NoDecayWhenStill) != 0 &&
+            (!__instance.transform.parent
                 || __instance.GetOrAddComponent<BodyGetterOverrider>().GetBody().rb.velocity.magnitude < 0.5f) // only change is here
         ) {
             decMultiplier *= 0f;
@@ -414,12 +496,12 @@ static class Item_OnWillRenderObject_MultiplayerPatch {
 
         // i moved the wetness calculation to Update, cuz items can be out of view
 
-        if (__instance.TryGetComponent<SyncInfoGameObjectTracker>( out var tracker)) {
+        if (__instance.TryGetComponent<SyncInfoGameObjectTracker>(out var tracker)) {
             tracker.isInSimulationRange = true;
             tracker.isVisible = true;
             return false;
         }
-        
+
         return true;
     }
 }
@@ -481,19 +563,17 @@ public static class Item_SetupItems_Listener {
         Plugin.log.LogWarning("############### Item Tools list END #############################\n");
 
 
-        Plugin.log.LogWarning("############### Liquids Registry START ###########################");  // V5t4 therea re 49 liquids
+        Plugin.log.LogWarning("############### Liquids Registry START ###########################");  // v5t4 therea re 49 liquids
 
         Plugin.log.LogWarning($"total liquid types count: {Liquids.Registry.Count}");
 
         Plugin.log.LogWarning("############### Liquids Registry END #############################");
 
 #endif
-       
+
         if (Plugin.dump_game_ids) {
             Plugin.log.LogInfo($"\ntotal item count: {Item.GlobalItems.Count}");
-            Plugin.log.LogInfo($"############### DUMPING ALL ITEM IDs START ###########################\n{
-                (String.Join("\n", Item.GlobalItems.Keys))
-            }");
+            Plugin.log.LogInfo($"############### DUMPING ALL ITEM IDs START ###########################\n{(String.Join("\n", Item.GlobalItems.Keys))}");
 
             Plugin.log.LogInfo("############### DUMPING ALL ITEM IDs END #############################\n");
         }
@@ -515,6 +595,8 @@ public static class Item_SetupItems_Listener {
             Plugin.log.LogWarning("Created liquid id to hash dictionary!");
 #endif
         }
+
+        Item_DoAmputate_MultiplayerPatch.SeedAmputateToolsFromGlobalItems();
 
 
 
@@ -564,7 +646,7 @@ public static class Item_SetupItems_Listener {
         var og_action = Item.GlobalItems["scaffoldingpack"].useAction;
         Item.GlobalItems["scaffoldingpack"].useAction = delegate (Body body, Item item) {
 
-            if (body.canPlaceBlock ) {
+            if (body.canPlaceBlock) {
             } else {
                 return; // OG does that
             }
@@ -611,7 +693,7 @@ public static class Item_SetupItems_Listener {
                 Util.PlayWorldSoundOnScreenIfInRange("flashlighttoggle", item.transform.position, 0.7f, 1);
             }
         };
-        ReplaceItemUseAction("epda", (body,item,ogAction) => {
+        ReplaceItemUseAction("epda", (body, item, ogAction) => {
             if (body.IsBodyLocal()) {
                 ogAction(body, item);
             } else {
@@ -690,7 +772,7 @@ public static class Item_SetupItems_Listener {
         };
 
         //OG: Item.SetupItems       V6.1
-        Item.GlobalItems["blueprint"].useAction = delegate(Body body, Item item) {
+        Item.GlobalItems["blueprint"].useAction = delegate (Body body, Item item) {
             item.condition = 0f;
             body.skills.AddExp(2, 30f);
             var recipeindex = item.GetComponent<BlueprintScript>().recipeIndex;
@@ -724,13 +806,13 @@ public static class Item_SetupItems_Listener {
         //OG: Item.SetupItems       V5t2
         Item.GlobalItems["terrainscanner"].useAction = delegate (Body body, Item item) {
             if (item.condition > 0.01f) {
-                if (Util.IsBodyLocal(body)) { 
-                
+                if (Util.IsBodyLocal(body)) {
+
                     if ((bool)ScannerScript.main) {
                         UnityEngine.Object.Destroy(ScannerScript.main.gameObject);
                     }
                     (UnityEngine.Object.Instantiate(Resources.Load("Special/ScannerUI"), PlayerCamera.main.mainView.transform) as GameObject).GetComponent<ScannerScript>().pos = item.transform.position;
-                
+
                 } else {
                     Util.PlayWorldSoundOnScreenIfInRange("flashlighttoggle", item.transform.position, 0.7f, 1);
                 }
@@ -738,8 +820,8 @@ public static class Item_SetupItems_Listener {
             }
         };
 
-		//OG: Item.SetupItems       V510
-		Item.GlobalItems["sleepingbag"].useAction = delegate (Body body, Item item) {
+        //OG: Item.SetupItems       V510
+        Item.GlobalItems["sleepingbag"].useAction = delegate (Body body, Item item) {
             if (Multiplayer.rules.DisableSleep) {
 
                 if (body.IsBodyLocal()) {
@@ -751,13 +833,13 @@ public static class Item_SetupItems_Listener {
 
             Body_get_canTakeNap_MultiplayerPatch.force = true;
             if (body.canTakeNap && !body.usingSleepingBag) {
-				item.condition -= 0.0501f;
-                
+                item.condition -= 0.0501f;
+
                 PlayerCamera_ToggleWoundView_MultiplayerPatch.IgnoreNext = true;
                 body.TakeANap();
                 PlayerCamera_ToggleWoundView_MultiplayerPatch.IgnoreNext = false;
                 if (body.IsBodyLocal()) {
-                    
+
                     if (ScavPlayer.LocalPlayer != null) {
                         if (ScavPlayer.LocalPlayer.TryGetNetBody(out var nb))
                             nb.SetNetHealthSyncIgnoreTime(1f);
@@ -765,28 +847,28 @@ public static class Item_SetupItems_Listener {
                 }
 
                 body.usingSleepingBag = true;
-				RaycastHit2D raycastHit2D = Physics2D.Raycast(body.transform.position, Vector2.down, 100f, LayerMask.GetMask("Ground"));
-				if ((bool)raycastHit2D) {
-					
+                RaycastHit2D raycastHit2D = Physics2D.Raycast(body.transform.position, Vector2.down, 100f, LayerMask.GetMask("Ground"));
+                if ((bool)raycastHit2D) {
+
                     var sleepbag = Utils.Create("Special/sleepingbaguse", raycastHit2D.point + Vector2.up, 0f);
-                    GameObject.Destroy(sleepbag,10);
-				}
-			} else {
+                    GameObject.Destroy(sleepbag, 10);
+                }
+            } else {
                 if (body.IsBodyLocal())
-				    PlayerCamera.main.PlayUISound(PlayerCamera.UISoundType.Deny);
-			}
-		};
+                    PlayerCamera.main.PlayUISound(PlayerCamera.UISoundType.Deny);
+            }
+        };
 
-		
 
-		// FLUIDS:
 
-        //No fluid patches are necessary anymore, empty section
-        
+        // FLUIDS:
+
+        //no fluid patches are necessary anymore, empty section
+
 
 
         if (log.verbose) Plugin.log.LogInfo("Patched items!");
-	}
+    }
 
     public delegate void ReplacementItemUse(Body body, Item item, ItemInfo.Use originalUse);
 
@@ -796,7 +878,7 @@ public static class Item_SetupItems_Listener {
             return;
         }
         var original = info.useAction;
-        info.useAction = (b,i) => {
+        info.useAction = (b, i) => {
             try {
                 if (action != null) {
                     action(b, i, original);
@@ -807,10 +889,10 @@ public static class Item_SetupItems_Listener {
                 log.error($"Item Use Action: {e}");
             }
         };
-	}
+    }
 
 
-    
+
 
 
     [ClientReceiver((byte)NetmsgId.CLIENT_BlueprintThing)]
@@ -826,7 +908,7 @@ public static class Item_SetupItems_Listener {
     }
 
 
-    [ServerReceiver((byte)NetmsgId.SERVER_ItemPlaceBlock)] 
+    [ServerReceiver((byte)NetmsgId.SERVER_ItemPlaceBlock)]
     static void Server_ItemPlaceBlock(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
 
         reader.Get(out knetid itemsyncid);
@@ -835,7 +917,7 @@ public static class Item_SetupItems_Listener {
 
         if (
             ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out var plr, out var body) && body.conscious &&
-            NetObjectRegistry.TryGetSyncInfo(itemsyncid, out var si) && si.IsItem() && ItemSync.CheckIfBodyReachThisItem(si, body) 
+            NetObjectRegistry.TryGetSyncInfo(itemsyncid, out var si) && si.IsItem() && ItemSync.CheckIfBodyReachThisItem(si, body)
         ) {
             var item = si.item;
 
@@ -871,9 +953,9 @@ public static class Item_SetupItems_Listener {
 
 
 [HarmonyPatch(typeof(Body), nameof(Body.DropWearable))]
-public static class Body_DropWearable_MultiplayerPatch{
+public static class Body_DropWearable_MultiplayerPatch {
     static bool force_this_shit = false;
-    public static void Force(Body __instance, Item item)    {
+    public static void Force(Body __instance, Item item) {
         force_this_shit = true;
         if (__instance != null)
             __instance.DropWearable(item);
@@ -882,15 +964,15 @@ public static class Body_DropWearable_MultiplayerPatch{
         HeldSeat.Detach(item);
     }
 
-    public static void Postfix(Body __instance, Item item)    {
-		HeldSeat.Release(item);
-		if (!Net.IsRunning)
-			return;
+    public static void Postfix(Body __instance, Item item) {
+        HeldSeat.Release(item);
+        if (!Net.IsRunning)
+            return;
 
-		// forced pickups are only from scripted, or a part of a larget methods, we can ignore force
-		if (!force_this_shit && Util.IsWorldGenerated())  {
+        // forced pickups are only from scripted, or a part of a larget methods, we can ignore force
+        if (!force_this_shit && Util.IsWorldGenerated()) {
             var body = __instance;
-            if (Util.IsBodyLocal(body) && !ItemSync.ItemCanBeIgnoredForNetwork(item) )   {
+            if (Util.IsBodyLocal(body) && !ItemSync.ItemCanBeIgnoredForNetwork(item)) {
                 MoveCommit.SubmitLive(item);
             }
         }
@@ -900,11 +982,11 @@ public static class Body_DropWearable_MultiplayerPatch{
 
 
 
-[HarmonyPatch(typeof(Body), nameof(Body.WearWearable) )]
-public static class Body_WearWearable_MultiplayerPatch{
-    
+[HarmonyPatch(typeof(Body), nameof(Body.WearWearable))]
+public static class Body_WearWearable_MultiplayerPatch {
 
-    static void Postfix(Body __instance, Item item )  {
+
+    static void Postfix(Body __instance, Item item) {
         if (!Net.IsRunning)
             return;
         if (item != null && item.TryGetComponent(out BodyGetterOverrider bgo)) { bgo.SetBody(__instance); }
@@ -920,7 +1002,7 @@ public static class Body_WearWearable_MultiplayerPatch{
 
 
 //OG: SwapSlots is called only from PlayerCamera once
-[HarmonyPatch(typeof(Body), nameof(Body.SwapSlots) )]
+[HarmonyPatch(typeof(Body), nameof(Body.SwapSlots))]
 static class Body_SwapSlots_MultiplayerPatch {
     static void Prefix() {
         MoveCommit.Push();
@@ -937,16 +1019,16 @@ static class Body_SwapSlots_MultiplayerPatch {
 
 [HarmonyPatch(typeof(Container), nameof(Container.UnloadItem))]
 static class Container_UnloadItem_MultiplayerPatch {
-    static void Prefix(Container __instance, Item item, Body body ) {
+    static void Prefix(Container __instance, Item item, Body body) {
         if (ItemSync.TryGetSyncInfo(item, out var si)) {
-			if (Net.IsServer) {
-				//NetObjectRegistry.Server_QueueSync(si);
-			}
-			if (PlayerCamera_TryPerformInventoryAction_MultiplayerPatch.is_inside_TryPerformInventoryAction) {
-				ItemSync.ItemContainerChanged.Add(si);
-				si.SetIgnoreTimeForRoundTrip(1);
-			}
-		}
+            if (Net.IsServer) {
+                //netObjectRegistry.Server_QueueSync(si);
+            }
+            if (PlayerCamera_TryPerformInventoryAction_MultiplayerPatch.is_inside_TryPerformInventoryAction) {
+                ItemSync.ItemContainerChanged.Add(si);
+                si.SetIgnoreTimeForRoundTrip(1);
+            }
+        }
     }
 
     // bag unload never goes through DropItem, so the click colliders stayed off and the body stayed asleep
@@ -989,9 +1071,9 @@ public static class PlayerCamera_TryPerformInventoryAction_MultiplayerPatch {
 
     static bool Prefix(PlayerCamera __instance, ref bool __result, RaycastResult hit, List<RaycastResult> uiCasts) {
         if (!Net.IsRunning) return true;
-        
+
         if (Util.IsWorldGenerated()) {
-            
+
             if (!hit.gameObject.TryGetComponent(out InvButton component) || !component.Overlaps(uiCasts)) {
                 is_inside_TryPerformInventoryAction = false;
                 return false;
@@ -1005,8 +1087,8 @@ public static class PlayerCamera_TryPerformInventoryAction_MultiplayerPatch {
             if ((bool)item && (bool)item.battery) {
 
 
-                if (ItemSync.TryGetSyncInfo(item, out var si1) && ItemSync.TryGetSyncInfo(__instance.dragItem, out var si2)) { 
-                
+                if (ItemSync.TryGetSyncInfo(item, out var si1) && ItemSync.TryGetSyncInfo(__instance.dragItem, out var si2)) {
+
                     if (
                         __instance.dragItem.Stats.HasTag("tool") &&
                         //OG: BatteryItem.UnloadBattery V5t4
@@ -1029,8 +1111,8 @@ public static class PlayerCamera_TryPerformInventoryAction_MultiplayerPatch {
                     }
                     if (__instance.dragItem.Stats.HasTag("battery") &&
                         //OG: BatteryItem.LoadBattery V5t4
-                        !item.battery.hasBattery && 
-                        !(__instance.dragItem.Stats.GetType() != typeof(BatteryInfo)) 
+                        !item.battery.hasBattery &&
+                        !(__instance.dragItem.Stats.GetType() != typeof(BatteryInfo))
                     ) {
 
                         var writer = Net.CreateWriter(NetmsgId.SERVER_ItemBatteryManipulation);
@@ -1145,7 +1227,7 @@ public static class PlayerCamera_TryPerformInventoryAction_MultiplayerPatch {
         }
         return true;
     }
-    
+
 
 
     [ServerReceiver((byte)NetmsgId.SERVER_ItemBatteryManipulation)]
@@ -1157,18 +1239,18 @@ public static class PlayerCamera_TryPerformInventoryAction_MultiplayerPatch {
 
         if (ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out var plr, out var pb) &&
             ItemSync.TryGetItemSyncInfo(syncid_item_target, out var item_si) &&
-            ItemSync.CheckIfBodyReachThisItem(item_si,pb.body,20,false) &&
+            ItemSync.CheckIfBodyReachThisItem(item_si, pb.body, 20, false) &&
             ItemSync.TryGetItemSyncInfo(syncid_item2, out var item_tool_or_battery) &&
-            ItemSync.CheckIfBodyReachThisItem(item_tool_or_battery, pb.body, 20, false) 
+            ItemSync.CheckIfBodyReachThisItem(item_tool_or_battery, pb.body, 20, false)
         ) {
 
             if (log.verbose) Plugin.log.LogInfo($"ItemBatteryManipulation check success {plr} -> {item_si} + {item_tool_or_battery}");
 
             var tool = item_tool_or_battery.item;
             var item = item_si.item;
-            if (item.battery) { 
-            
-                if (!load && tool.Stats.HasTag("tool") ) {
+            if (item.battery) {
+
+                if (!load && tool.Stats.HasTag("tool")) {
                     // i have to do spawning myself, fuck the unnecessary PlayerCamera.main.body everywhere
 
                     //OG: BatteryItem.UnloadBattery  V7.0.1
@@ -1182,83 +1264,100 @@ public static class PlayerCamera_TryPerformInventoryAction_MultiplayerPatch {
 
                     item.battery.UnloadBattery(true);  // do the original action but force it to not spawn the battery
 
-                } else if (load && tool.Stats.HasTag("battery") ) {
+                } else if (load && tool.Stats.HasTag("battery")) {
                     item.battery.LoadBattery(tool); // do the original action
                 }
 
-                //NetObjectRegistry.Server_QueueSync(item_si);
+                //netObjectRegistry.Server_QueueSync(item_si);
 
             }
 
             return;
         }
-        log.serverdeny($"ItemBatteryManipulation denied for: {DebugHelp.GetPlayerFullDebugString(clientId)}  item1:{syncid_item_target}  item2:{syncid_item2}");        
+        log.serverdeny($"ItemBatteryManipulation denied for: {DebugHelp.GetPlayerFullDebugString(clientId)}  item1:{syncid_item_target}  item2:{syncid_item2}");
     }
 
 }
 
 // the favourite key flips the copy on screen. the host item is the one that gets saved.
-[HarmonyPatch(typeof(PlayerCamera), nameof(PlayerCamera.HandleWhileDragging))]
-static class PlayerCamera_Favourite_MultiplayerPatch {
+#if FULLGAME
+// customizer writes label/swatch locally. push so late joiners and remotes see the same item.
+[HarmonyPatch(typeof(PlayerCamera), nameof(PlayerCamera.CloseItemCustomizer))]
+static class PlayerCamera_CloseItemCustomizer_MultiplayerPatch {
     static Item watched;
-    static bool before;
 
-    static void Prefix(List<RaycastResult> uiCasts) {
+    static void Prefix(PlayerCamera __instance) {
         watched = null;
-        if (!Net.IsRunning || uiCasts == null)
+        if (!Net.IsRunning) {
             return;
-        if (!Input.GetKeyDown(KeyBinds.GetBind("favourite")))
-            return;
-        for (int i = 0; i < uiCasts.Count; i++) {
-            if (!uiCasts[i].gameObject.TryGetComponent(out InvButton button) || !button.Overlaps(uiCasts))
-                continue;
-            Item item = button.GetItem();
-            if (item != null) {
-                watched = item;
-                before = item.favourited;
-            }
-            break;
         }
+        watched = __instance.customizedItem;
     }
 
     static void Postfix() {
-        if (!Net.IsRunning || watched == null || watched.favourited == before)
+        if (!Net.IsRunning || watched == null) {
             return;
-        if (!ItemSync.TryGetSyncInfo(watched, out SyncInfo si) || si == null)
-            return;
-        var writer = Net.CreateWriter(NetmsgId.SERVER_ItemFavourited);
-        writer.Put(si.syncId);
-        writer.Put(watched.favourited);
-        Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
-        if (Net.IsClient)
-            ItemSync.PredictFavourite(si.syncId, watched.favourited);
+        }
+        ItemSync.PushCosmetics(watched);
+        // favourite star is local-only - do not push SyncVar / SERVER_ItemFavourited
     }
+}
+
+[HarmonyPatch]
+static class ItemCosmetics_NetReceivers {
+    [ServerReceiver((byte)NetmsgId.SERVER_ItemCosmetics)]
+    static void Server_ItemCosmetics(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
+        reader.Get(out knetid id);
+        reader.Get(out string label);
+        reader.Get(out byte swatch);
+        if (!ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out ScavPlayer plr, out Body body)) {
+            return;
+        }
+        if (!ItemSync.TryGetItemSyncInfo(id, out SyncInfo si) || si == null || si.item == null) {
+            return;
+        }
+        bool ok = body != null && ItemSync.CheckIfBodyReachThisItem(si, body);
+        if (ok) {
+            si.item.label = label ?? "";
+            si.item.colorSwatch = swatch;
+            si.itemLabel.Value = si.item.label;
+            si.colorSwatch.Value = (byte)Mathf.Clamp(si.item.colorSwatch, 0, 255);
+        } else if (plr != null && !plr.IsLocal) {
+            ItemSync.EchoCosmetics(plr, si);
+        }
+    }
+
+    [ClientReceiver((byte)NetmsgId.CLIENT_ItemCosmetics, false)]
+    static void Client_ItemCosmetics(knetid _, LiteNetLib.Utils.NetDataReader reader) {
+        reader.Get(out knetid id);
+        reader.Get(out string label);
+        reader.Get(out byte swatch);
+        ItemSync.ClearCosmeticsPending(id);
+        if (ItemSync.TryGetItemSyncInfo(id, out SyncInfo si) && si != null && si.item != null) {
+            si.item.label = label ?? "";
+            si.item.colorSwatch = swatch;
+        }
+    }
+}
+#endif
+
+// favourite star is local UI only. RecipeItem skips favourited ingredients, so syncing the star
+// made one peer's favorite hide the item from craft matching on the host/other peers.
+[HarmonyPatch(typeof(PlayerCamera), nameof(PlayerCamera.HandleWhileDragging))]
+static class PlayerCamera_Favourite_MultiplayerPatch {
+    // intentionally empty - stock toggle stays local; no SERVER_ItemFavourited traffic.
 
     [ServerReceiver((byte)NetmsgId.SERVER_ItemFavourited)]
     static void Server_ItemFavourited(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
-        reader.Get(out knetid id);
-        reader.Get(out bool want);
-        if (!ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out var plr, out var body))
-            return;
-        if (!ItemSync.TryGetItemSyncInfo(id, out SyncInfo si) || si == null || si.item == null)
-            return;
-        bool ok = body != null && ItemSync.CheckIfBodyReachThisItem(si, body);
-        if (ok)
-            si.item.favourited = want;
-        else if (si.item.favourited == want)
-            si.item.favourited = !want;
-        si.favourited.Value = si.item.favourited;
-        if (!ok && plr != null && !plr.IsLocal)
-            ItemSync.EchoFavourite(plr, si);
+        // old peers may still send this; ignore so their star never lands on the host item
+        reader.Get(out knetid _);
+        reader.Get(out bool _);
     }
 
     [ClientReceiver((byte)NetmsgId.CLIENT_ItemFavourited, false)]
     static void Client_ItemFavourited(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-        reader.Get(out knetid id);
-        reader.Get(out bool value);
-        ItemSync.ClearFavouritePending(id);
-        if (ItemSync.TryGetItemSyncInfo(id, out SyncInfo si) && si != null && si.item != null)
-            si.item.favourited = value;
+        reader.Get(out knetid _);
+        reader.Get(out bool _);
     }
 }
 
@@ -1271,7 +1370,7 @@ public static class Body_CombineItems_MultiplayerPatch {
 
 
     //OG: Body.CombineItems V5t2  but i just commented out the stupidass playercamera, and also it returns false if it was water container
-    public static bool Body_CombineItems(Body combinerguy ,Item it1, Item it2) {
+    public static bool Body_CombineItems(Body combinerguy, Item it1, Item it2) {
         if (!combinerguy.CanCombine(it1, it2)) {
             return true;
         }
@@ -1285,7 +1384,7 @@ public static class Body_CombineItems_MultiplayerPatch {
         }
         if (it1.TryGetComponent<WaterContainerItem>(out var component) && it2.TryGetComponent<WaterContainerItem>(out var component2)) {
             if (component.SpaceLeft > 0f && it1.id != "craftingbottle") {
-                if (Util.IsBodyLocal(combinerguy)) { 
+                if (Util.IsBodyLocal(combinerguy)) {
                     PlayerCamera.main.StartLiquidTransfer(component, component2);
                 }
             }
@@ -1355,12 +1454,12 @@ public static class Body_CombineItems_MultiplayerPatch {
         if (Net.IsRunning && Util.IsWorldGenerated()) {
 
             if (!Util.IsBodyLocal(__instance)) {
-                Body_CombineItems(__instance, it1, it2);    
+                Body_CombineItems(__instance, it1, it2);
                 return false;
             }
 
             if (__instance.CanCombine(it1, it2)) {
-                return DoTheCombineAnnouncement(false,0, __instance, it1, it2);
+                return DoTheCombineAnnouncement(false, 0, __instance, it1, it2);
             }
 
             return false; // i reimplemented dat shi, only my version of the function runs
@@ -1385,8 +1484,8 @@ public static class LiquidTransfer_Finish_MultiplayerPatch {
 
 
 
-[HarmonyPatch(typeof(Body),  nameof(Body.SwitchHands) )]
-static class Body_SwitchHands_MultiplayerPatch{
+[HarmonyPatch(typeof(Body), nameof(Body.SwitchHands))]
+static class Body_SwitchHands_MultiplayerPatch {
     static void Prefix() {
         MoveCommit.Push();
     }
@@ -1411,13 +1510,13 @@ public static class Body_PickUpItem_MultiplayerPatch {
         if (body.IsBodyLocal()) {
             if (PlayerCamera.main.craftingPanel.activeSelf) {
                 PlayerCamera.main.RefreshRecipeList();
-			}
-		}
+            }
+        }
 
         if (!Net.IsRunning) return;
         if (SharedMain.LocalWorldIsGenerated) {
             if (Net.IsServer) {
-                
+
             } else {
                 if (body.IsBodyLocal()) {
                     if (!ItemSync.ItemCanBeIgnoredForNetwork(item) && body.HoldingItem(item))
@@ -1425,21 +1524,21 @@ public static class Body_PickUpItem_MultiplayerPatch {
                 }
             }
         }
-        
+
 
         if (item.TryGetComponent(out BodyGetterOverrider bgo)) { bgo.SetBody(__instance); }
-	}
+    }
 }
 
 
 
 
 
-[HarmonyPatch(typeof(Body), nameof(Body.ThrowItem) )]
-static class Body_ThrowItem_MultiplayerPatch{
+[HarmonyPatch(typeof(Body), nameof(Body.ThrowItem))]
+static class Body_ThrowItem_MultiplayerPatch {
     static Item _thrown;
 
-    static void Prefix(Body __instance, float force, ref SyncInfo __state)   {
+    static void Prefix(Body __instance, float force, ref SyncInfo __state) {
         __state = null;
         _thrown = __instance.GetItem(__instance.handSlot);
         MoveCommit.BeginThrow();
@@ -1447,7 +1546,7 @@ static class Body_ThrowItem_MultiplayerPatch{
             var body = __instance;
             var item = _thrown;
             // its me 
-            if (Util.IsBodyLocal(body) && item != null ) {
+            if (Util.IsBodyLocal(body) && item != null) {
                 if (NetObjectRegistry.TryGetSyncInfo(item, out __state)) {
                     var i = Array.IndexOf(ItemSync.Client_last_inventory_state, __state);
                     if (i != -1) {
@@ -1480,7 +1579,7 @@ static class Body_ThrowItem_MultiplayerPatch{
 
 
 
-[HarmonyPatch(typeof(Body), nameof(Body.DropItem) , new Type[] { typeof(Item) })]
+[HarmonyPatch(typeof(Body), nameof(Body.DropItem), new Type[] { typeof(Item) })]
 static class Body_DropItem_MultiplayerPatch {
     // stock craft spend drops on the camera body. that body is the host, and it is not holding the ingredient.
     static void Prefix(Body __instance, Item item, out bool __state) {
@@ -1489,7 +1588,7 @@ static class Body_DropItem_MultiplayerPatch {
             __state = __instance != null && item != null && __instance.HoldingItem(item);
         } catch (Exception) { }
     }
-	static void Postfix(Body __instance, Item item, bool __state) {
+    static void Postfix(Body __instance, Item item, bool __state) {
         SlotHold.Release(__instance, item);
         HeldSeat.Release(item);
         // a body that was not holding it did not drop it. publishing that as this player's move checks the wrong person.
@@ -1516,7 +1615,7 @@ public static class PlayerCamera_HandleReleaseDragging_MultiplayerPatch {
         if (Net.IsRunning) {
             var pc = __instance;
             var body = pc.body;
-           
+
             if (pc.dragItem) {
                 if (ItemSync.TryGetSyncInfo(pc.dragItem, out var si)) {
 
@@ -1533,8 +1632,8 @@ public static class PlayerCamera_HandleReleaseDragging_MultiplayerPatch {
         if (__state != null) {
             var pc = __instance;
             var body = pc.body;
-            
-            var newici = ItemSync.ItemGetContainerInfo(__state.item); 
+
+            var newici = ItemSync.ItemGetContainerInfo(__state.item);
 
             if (newici.JustContainerChanged(last_ici) && newici.inv_slot == null) {
                 ItemSync.ItemContainerChanged.Add(__state);
@@ -1570,7 +1669,7 @@ static class PlayerCamera_TryPerformWorldActions_MultiplayerPatch {
         bool onLimb = drag.transform.parent != null && drag.transform.parent.GetComponent<Limb>() != null;
         if (drag.Stats != null && drag.Stats.wearable && dragged > 10f && (onLimb || (bool)__instance.body.GetWearable(drag.id))) {
             __instance.body.DropWearable(drag);
-            // GetWearable can miss a bag that is still parented to the back. the copies would stay and the rigidbody would fall through.
+            // getWearable can miss a bag that is still parented to the back. the copies would stay and the rigidbody would fall through.
             if (drag.transform.parent != null && drag.transform.parent.GetComponent<Limb>() != null)
                 HeldSeat.Detach(drag);
         }
@@ -1728,12 +1827,12 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     }
 
     public class ItemsContainerInfo {
-        public bool has_container ;
+        public bool has_container;
         public bool is_netbody;
         public bool is_in_locplr_surface_inv;
         public bool is_in_surface_inv;
         public knetid knetid;
-        // Version of knetid at the time of this read. 0 when there is no container.
+        // version of knetid at the time of this read. 0 when there is no container.
         public byte containerVer;
 
         public Item item;
@@ -1745,7 +1844,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         public InventorySlot inv_slot;
         public byte inv_slot_number;
         public ScavPlayer plr;
-         
+
         public Container container;
         public SyncInfo container_si;
 
@@ -1759,7 +1858,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         }
         public bool Equals(ItemsContainerInfo otherici) {
 
-            return has_container == otherici.has_container  &&
+            return has_container == otherici.has_container &&
                 is_netbody == otherici.is_netbody &&
                 item == otherici.item &&
                 is_wearing == otherici.is_wearing &&
@@ -1771,7 +1870,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
 
 
         public override string ToString() {
-            var str =  "ICI-";
+            var str = "ICI-";
             if (!has_container) {
                 str += "NONE";
             } else {
@@ -1784,7 +1883,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
                     }
                 } else if (inv_slot != null) {
                     str += $"INV-{inv_slot_number.ToString()}-({bodynpc})";
-                }  
+                }
             }
             return str;
         }
@@ -1794,7 +1893,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     public static ItemsContainerInfo ItemGetContainerInfo(Item item) {
 
         var ici = new ItemsContainerInfo();
-        
+
         ici.item = item;
         try {
 
@@ -1844,7 +1943,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
                 } else if (p.TryGetComponent<Container>(out var cont)) {
                     ici.has_container = true;
 
-                    // GetComponentInParent ignores a turned off item, so a slept bag
+                    // getComponentInParent ignores a turned off item, so a slept bag
                     // child looked like it was in nobody's inventory.
                     ici.bodynpc = ParentBody(item.transform);
                     if (ici.bodynpc == null) {
@@ -1892,6 +1991,41 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     }
 
 
+    public static void ApplyWearableSpriteSwap(Item item, Body body) {
+        if (item == null || body == null) {
+            return;
+        }
+        if (!item.TryGetComponent<WearableSpriteSwap>(out var swap) || swap == null) {
+            return;
+        }
+        int chr = CharacterSpawn.ClampChar(body.charType);
+        SpriteRenderer sr = item.GetComponent<SpriteRenderer>();
+        if (sr != null && swap.sprites != null && swap.sprites.Count > chr && swap.sprites[chr] != null) {
+            sr.sprite = swap.sprites[chr];
+        }
+        float scale = 1f;
+        if (swap.customScale != null && swap.customScale.Count > chr && swap.customScale[chr] != 0f) {
+            scale = swap.customScale[chr];
+        }
+        item.transform.localScale = Vector3.one * scale;
+    }
+
+    public static void RefreshWearableSpeciesSprites(Body body) {
+        if (body == null) {
+            return;
+        }
+        foreach (Item item in body.GetAllWearables()) {
+            if (item == null) {
+                continue;
+            }
+            ApplyWearableSpriteSwap(item, body);
+            if (item.TryGetComponent<Wearable>(out var wearable)) {
+                item.TryGetComponent(out WearableSpriteSwap swap);
+                wearable.CreateSprites(body, swap);
+            }
+        }
+    }
+
     public static void Body_ForceWearWearable(Body body, Item item) {
 
         Limb limb = body.LimbByName(item.Stats.desiredWearLimb);
@@ -1901,7 +2035,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         }
 
         Item wearableBySlotID = body.GetWearableBySlotID(item.Stats.wearSlotId);
-        if (wearableBySlotID != null ) {
+        if (wearableBySlotID != null) {
             if (wearableBySlotID == item) { //its already equipped
                 return;
             }
@@ -1920,16 +2054,26 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         item.rb.simulated = false;
         item.GetComponent<SpriteRenderer>().sortingOrder = limb.GetComponent<SpriteRenderer>().sortingOrder + item.Stats.wearableVisualOffset;
         item.transform.SetParent(limb.transform);
-        item.transform.localScale = Vector3.one;
         item.transform.localRotation = Quaternion.identity;
         item.transform.localPosition = Vector3.zero;
+#if FULLGAME
+        ApplyWearableSpriteSwap(item, body);
+#endif
+        if (!item.TryGetComponent<WearableSpriteSwap>(out _)) {
+            item.transform.localScale = Vector3.one;
+        }
         if (item.TryGetComponent<Wearable>(out var component)) {
+#if FULLGAME
+            item.TryGetComponent(out WearableSpriteSwap swap);
+            component.CreateSprites(body, swap);
+#else
             component.CreateSprites(body);
+#endif
         }
 
     }
 
-	public static void Container_ForceLoadItem(Item item, Container container) {
+    public static void Container_ForceLoadItem(Item item, Container container) {
         //OG: Container.LoadItem V6.1
         if (BrokenContainer(container))
             ParentTestChest("chest FAIL load", item, container != null ? container.gameObject : null);
@@ -1950,7 +2094,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         }
         Container.UpdateItemLight(item.gameObject, !container.itemsVisible);
 
-		BagSleep.Refresh(container);
+        BagSleep.Refresh(container);
         if (left != container)
             BagSleep.Refresh(left);
     }
@@ -1974,7 +2118,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     public static void SafeUnloadItem(Item item) {
         SafeUnloadItem(ItemGetContainerInfo(item));
     }
-    public static void SafeUnloadItem(ItemsContainerInfo ici)  {
+    public static void SafeUnloadItem(ItemsContainerInfo ici) {
         if (!KrokV5Optimization.FixInvSync.SkipLoose(ici))
             return;
         if (ici.has_container) {
@@ -1983,7 +2127,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
                 si._position.Value = ici.item.transform.position;
             }
             if (ici.is_wearing) {
-                if (NetBody.TryGetNetBodyFromId(ici.body_netid, out var nb) ) {
+                if (NetBody.TryGetNetBodyFromId(ici.body_netid, out var nb)) {
                     Body_DropWearable_MultiplayerPatch.Force(nb.body, ici.item);
                 }
             } else if (ici.inv_slot != null) {
@@ -2014,12 +2158,36 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         if (item.Stats != null && item.Stats.wearable && !item.Stats.usable) {
             return false;
         }
-        // Reusable items may have a valid action at zero condition.
-        return item.condition <= 0.0001f && (item.Stats == null || item.Stats.destroyAtZeroCondition);
+        // reusable items may have a valid action at zero condition.
+        if (item.Stats != null && !item.Stats.destroyAtZeroCondition) {
+            return false;
+        }
+        return item.condition <= 0.0001f;
+    }
+
+    // the draw already happened. publish the new blood and the donor's volume.
+    [HarmonyPatch(typeof(Item), nameof(Item.DrawBlood))]
+    static class Item_DrawBlood_MultiplayerPatch {
+        static void Postfix(WaterContainerItem wat, Limb limb) {
+            if (!Net.IsServer || wat == null) {
+                return;
+            }
+            Item item = wat.GetComponent<Item>();
+            if (item != null && NetObjectRegistry.TryGetSyncInfo(item.gameObject, out SyncInfo si) && si != null && !si.IsDestroyed) {
+                si.WriteObjectIntoPacket();
+            }
+            if (limb != null && limb.body != null && limb.body.TryGetNetBody(out NetBody nb)) {
+                MedicalSync.Server_QueueSendCharacterHealth(nb, true);
+            }
+        }
     }
 
     public static void BetterUseItem(Body body, Item item) {
         ItemSync.SetBodyOverride(item, body);
+#if FULLGAME
+        // host re-runs client eats here; foliagemeal etc. gate on body.charType - must match Ready pick
+        CharacterSpawn.EnsureBodySpecies(body);
+#endif
         if (item.Stats.wearable) {
             ItemSync.Body_ForceWearWearable(body, item);
             if (item.transform.parent != null) {
@@ -2130,7 +2298,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
             ParentTestChest("chest host clear", named[i].item, bag.go);
         }
     }
-    
+
 
     public static bool ItemIsInContainer(Item item) {
         return item.transform.parent != null;
@@ -2140,7 +2308,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     }
     public static bool ItemIsInContainer(SyncInfo si) {
         return si.go.transform.parent != null;
-    } 
+    }
     public static bool ItemIsRegistered(Item item) {
         return NetObjectRegistry.IsRegistered(item.gameObject);
     }
@@ -2268,7 +2436,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     }
 
 
-    public static void Client_AnnounceContainerChange(SyncInfo si)  {
+    public static void Client_AnnounceContainerChange(SyncInfo si) {
         if (!KrokV5Optimization.BagPlace.BeforeAnnounce(si))
             return;
         if (si == null || si.item == null)
@@ -2364,6 +2532,77 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         Net.Server_SendTo(DeliveryMethod.ReliableOrdered, writer, plr.playerId);
     }
 
+#if FULLGAME
+    struct CosmeticsPending {
+        internal string label;
+        internal byte swatch;
+        internal double until;
+    }
+    static readonly Dictionary<knetid, CosmeticsPending> CosmeticsPendingMap = new Dictionary<knetid, CosmeticsPending>();
+
+    internal static void PredictCosmetics(knetid id, string label, byte swatch) {
+        CosmeticsPendingMap[id] = new CosmeticsPending {
+            label = label ?? "",
+            swatch = swatch,
+            until = Time.realtimeSinceStartupAsDouble + ClientMain.RTT_IN_SECONDS_with_margin + 1.0
+        };
+    }
+
+    internal static void ClearCosmeticsPending(knetid id) {
+        CosmeticsPendingMap.Remove(id);
+    }
+
+    // keep the local customizer edit until the host copy catches up.
+    internal static void ApplyCosmetics(Item item, knetid id, string label, byte swatch) {
+        if (item == null) {
+            return;
+        }
+        if (CosmeticsPendingMap.TryGetValue(id, out CosmeticsPending pending)) {
+            bool match = (pending.swatch == swatch) && ((pending.label ?? "") == (label ?? ""));
+            if (match || Time.realtimeSinceStartupAsDouble >= pending.until) {
+                CosmeticsPendingMap.Remove(id);
+            } else {
+                return;
+            }
+        }
+        item.label = label ?? "";
+        item.colorSwatch = swatch;
+    }
+
+    internal static void EchoCosmetics(ScavPlayer plr, SyncInfo si) {
+        if (plr == null || si == null || si.item == null) {
+            return;
+        }
+        LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.CLIENT_ItemCosmetics);
+        writer.Put(si.syncId);
+        writer.Put(si.item.label ?? "");
+        writer.Put((byte)Mathf.Clamp(si.item.colorSwatch, 0, 255));
+        Net.Server_SendTo(DeliveryMethod.ReliableOrdered, writer, plr.playerId);
+    }
+
+    internal static void PushCosmetics(Item item) {
+        if (!Net.IsRunning || item == null) {
+            return;
+        }
+        if (!TryGetSyncInfo(item, out SyncInfo si) || si == null) {
+            return;
+        }
+        string label = item.label ?? "";
+        byte swatch = (byte)Mathf.Clamp(item.colorSwatch, 0, 255);
+        if (Net.IsServer) {
+            si.itemLabel.Value = label;
+            si.colorSwatch.Value = swatch;
+            return;
+        }
+        LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.SERVER_ItemCosmetics);
+        writer.Put(si.syncId);
+        writer.Put(label);
+        writer.Put(swatch);
+        Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
+        PredictCosmetics(si.syncId, label, swatch);
+    }
+#endif
+
     public static bool TryGetItem(knetid syncid, out SyncInfo isi, out Item item) {
         if (NetIdToSyncInfoDict.TryGetValue(syncid, out var isii) && isii.go != null && isii.IsItem()) {
             isi = isii;
@@ -2375,7 +2614,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         return false;
     }
     public static bool TryGetItemSyncInfo(Item item, out SyncInfo isi) {
-        if (SyncRegistry.TryGetValue(item.gameObject, out var isii) ) {
+        if (SyncRegistry.TryGetValue(item.gameObject, out var isii)) {
             isi = isii;
             return true;
         }
@@ -2428,13 +2667,13 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     }
 
     public static bool CheckIfBodyReachThisItem(Item item, Body my_body, float maxdist = 20f, bool check_obstruction = false) {
-        return CheckIfBodyReachThisItem(item.gameObject,my_body,maxdist, check_obstruction);
+        return CheckIfBodyReachThisItem(item.gameObject, my_body, maxdist, check_obstruction);
     }
     public static bool CheckIfBodyReachThisItem(SyncInfo item, Body my_body, float maxdist = 20f, bool check_obstruction = false) {
         return CheckIfBodyReachThisItem(item.go, my_body, maxdist, check_obstruction);
     }
 #if !RELEASE
-    const bool CheckIfBodyReachThisItem_VERBOSE =  false;
+    const bool CheckIfBodyReachThisItem_VERBOSE = false;
 #endif
 
     // parented to a bag, but the transform is still at the save coordinate. put it on the bag.
@@ -2561,14 +2800,14 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         }
 
         Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
-        
+
     }
 
     static void DoClientInventoryUpdate() {
         var newstate = RecordInvState(Util.GetLocalBody());
 
         SyncInfo old = null;
-        SyncInfo nn  = null;
+        SyncInfo nn = null;
         try {
             for (int i = 0; i < newstate.Length; i++) {
                 old = (Client_last_inventory_state[i]);
@@ -2578,7 +2817,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
                     old = null;
                 }
 
-				if (old != nn) {
+                if (old != nn) {
                     if (nn == null) {
                         if (!newstate.Contains(old)) { // it may have been just moved to another slot
                             if (SlotEmptyBecauseBagged(old)) {
@@ -2604,7 +2843,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     }
 
     void Update() {
-        
+
     }
     void FixedUpdate() {
         if (Multiplayer.IsNetworkActiveAndIsWorldGenerated() && Net.IsClient) {
@@ -2621,18 +2860,17 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     }
 
     public static bool CheckIfBodyCanStealThisItem(GameObject item, Body my_body, ItemsContainerInfo ici = null) {
-        return CheckIfBodyCanStealThisItem(item.GetComponent<Item>(),my_body, ici);
+        return CheckIfBodyCanStealThisItem(item.GetComponent<Item>(), my_body, ici);
     }
 
     public static bool CheckIfBodyCanStealThisItem(Item item, Body my_body, ItemsContainerInfo ici = null) {
         ici ??= ItemGetContainerInfo(item);
-        if (ici.has_container) { 
-            if (ici.bodynpc != null)
-            {
+        if (ici.has_container) {
+            if (ici.bodynpc != null) {
                 if (Multiplayer.rules.NoInventoryLock) {
                     return true;
                 }
-            
+
                 var otherbody = ici.bodynpc.body;
                 var is_on_consious_player = otherbody != my_body && otherbody.conscious && (ici.is_wearing || ici.is_netbody);
                 if (is_on_consious_player) {
@@ -2653,7 +2891,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         return false;
     }
     public static bool TryGetItemSyncInfo(knetid item_syncid, out SyncInfo si) {
-        if (NetIdToSyncInfoDict.TryGetValue(item_syncid, out var isi) && isi.IsItem()) {
+        if (NetIdToSyncInfoDict.TryGetValue(item_syncid, out var isi) && isi.go != null && isi.IsItem()) {
             si = isi;
             return si != null;
         }
@@ -2682,7 +2920,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     internal static int cur_items_check_index = 0;
     internal static List<Item> cur_items_check = new List<Item>();
 
-    
+
 
 
 
@@ -2710,7 +2948,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
                         if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(body.transform.position, $"S: BodyCombineItems {cancombine} {clientId} {isi1} x {isi2} ");
 
                         if (cancombine) {
-                            Server_AnnounceCombineSound(isi1, isi2,clientId);
+                            Server_AnnounceCombineSound(isi1, isi2, clientId);
                             Body_CombineItems_MultiplayerPatch.Body_CombineItems(body, isi1.item, isi2.item);
                         }
                     }
@@ -2772,7 +3010,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
 
 
 
-    [ServerReceiver( (byte)NetmsgId.SERVER_ItemChangeContainer)]
+    [ServerReceiver((byte)NetmsgId.SERVER_ItemChangeContainer)]
     static void ServerReceiver__ItemChangeContainer(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
 
         reader.Get(out bool hascontainer);
@@ -2849,7 +3087,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         // ignore this request if still didnt generate world
         if (Util.IsWorldGenerated() && Util.IsFinite(force)) {
             if (
-                NetIdToSyncInfoDict.TryGetValue(syncid, out var isi) 
+                NetIdToSyncInfoDict.TryGetValue(syncid, out var isi)
                 && isi.IsItem()
                 && ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out var plr, out var pb)
             ) {
@@ -2866,7 +3104,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
                     if (!person_is_host)
                         body.ThrowItem(force);
 
-                    
+
                     if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(body.transform.position, $"S: ThrowItem {clientId} {isi} {force} ");
 
                     NetObjectRegistry.SafeNewGO(isi.go);
@@ -2918,7 +3156,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         log.serverdeny($"ItemPickup {plr} {itemId}: {why}");
     }
 
-    // PickUpItem with force still refuses a blocked slot and a hands-only item. check that before unloading.
+    // pickUpItem with force still refuses a blocked slot and a hands-only item. check that before unloading.
     internal static bool HostCanSeat(Body body, Item item, int slot, out string why) {
         why = "slot blocked";
         if (item == null || item.Stats == null)
@@ -3049,7 +3287,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         reader.Get(out knetid syncid);
 
 #if !RELEASE
-        log.warn($"SERVER_ItemDrop: {DebugHelp.GetPlayerFullDebugString(clientId)} syncid: {syncid}"); 
+        log.warn($"SERVER_ItemDrop: {DebugHelp.GetPlayerFullDebugString(clientId)} syncid: {syncid}");
 #endif
 
         // ignore this request if still didnt generate world
@@ -3107,7 +3345,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
                                 SafeUnloadItem(item);
                                 item.transform.position = body.transform.position;
 
-                                ItemSync.Body_ForceWearWearable(body,item);
+                                ItemSync.Body_ForceWearWearable(body, item);
 
                             }
                         }

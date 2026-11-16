@@ -48,6 +48,7 @@ internal static class Settings_DefaultSettings_Patch {
                     category = Setting.SettingCategory.Input
                 });
             }
+
     }
 }
 [HarmonyPatch(typeof(SettingsMenu), nameof(SettingsMenu.Start))]
@@ -61,7 +62,7 @@ internal static class SettingsMenu_Start_Patch {
         return true;
     }
 }
-[HarmonyPatch(typeof(SettingsMenu), nameof(SettingsMenu.SelectTab), new Type[] {typeof(Setting.SettingCategory)})]
+[HarmonyPatch(typeof(SettingsMenu), nameof(SettingsMenu.SelectTab), new Type[] { typeof(Setting.SettingCategory) })]
 internal static class SettingsMenu_SelectTab_Patch {
     internal static int currentSelectedTab;
     static bool Prefix(SettingsMenu __instance, Setting.SettingCategory category) {
@@ -77,10 +78,16 @@ internal static class SettingsMenu_SelectTab_Patch {
 
 public static class Util_UnityExtensions {
 
+
+    public static TMP_Text SetAlpha(this TMP_Text img, float alpha) {
+        if (img != null)
+            img.color = img.color.WithAlpha(alpha);
+        return img;
+    }
     public static Image SetAlpha(this Image img, float alpha) {
         if (img != null) {
             img.color = img.color.WithAlpha(alpha);
-        } 
+        }
         return img;
     }
 
@@ -97,10 +104,18 @@ public static class Util_UnityExtensions {
     public static void SetParent(this Transform t, Component p, bool worldPositionStays = true) => t.SetParent(p.transform, worldPositionStays);
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void SetParent(this Transform t, GameObject p, bool worldPositionStays = true) => t.SetParent(p.transform, worldPositionStays);
+    public static void DestroyGameObject(this UnityEngine.Object uo) {
+        if (uo != null)
+            GameObject.Destroy(uo.GameObject());
+    }
+    public static void DestroyGameObjectImmediate(this UnityEngine.Object uo) {
+        if (uo != null)
+            GameObject.DestroyImmediate(uo.GameObject());
+    }
 
     public static Component GetOrAddComponent(this UnityEngine.Object uo, Type componentType) {
         var go = uo.GameObject();
-        if (go == null) 
+        if (go == null)
             throw new NotSupportedException(uo.GetType().ToString());
         return go.GetComponent(componentType) ?? go.AddComponent(componentType);
     }
@@ -127,15 +142,18 @@ public static class Util_MiscSystemExtensions {
         return source.ElementAt(UnityEngine.Random.Range(0, source.Count()));
     }
 
+    public static float NextFloat(this System.Random r, float min, float max) {
+        return (float)(r.NextDouble() * (max - min) + min);
+    }
     public static bool IsSimpleType(this Type type) {
         return type.IsPrimitive
         || type == typeof(string);
-    }   
+    }
 
     public static int CountOccurences(this string text, string substring) {
         int c = 0;
         int i = 0;
-        while ((i = text.IndexOf(substring,i)) != -1) {
+        while ((i = text.IndexOf(substring, i)) != -1) {
             c++;
             i += substring.Length;
         }
@@ -167,7 +185,7 @@ public static class Util_MiscSystemExtensions {
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Vector2 Clamp(this Vector2 v2, in float a, in float b) {
-        return new Vector2(Math.Clamp(v2.x,a,b), Math.Clamp(v2.y, a, b));
+        return new Vector2(Math.Clamp(v2.x, a, b), Math.Clamp(v2.y, a, b));
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Vector2 Abs(this Vector2 v2) {
@@ -175,7 +193,7 @@ public static class Util_MiscSystemExtensions {
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Vector2 Max(this Vector2 v2, in Vector2 other) {
-        return new Vector2(Math.Max(v2.x,other.x), Math.Max(v2.y, other.y));
+        return new Vector2(Math.Max(v2.x, other.x), Math.Max(v2.y, other.y));
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Vector2 Min(this Vector2 v2, in Vector2 other) {
@@ -205,7 +223,7 @@ public static class Util_MiscSystemExtensions {
     }
 
     public static string ToStringInvariant(this object obj) {
-        string aaa = null; 
+        string aaa = null;
         var prev = CultureInfo.CurrentCulture;
         try {
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
@@ -223,7 +241,7 @@ public static class Util_MiscSystemExtensions {
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static float Center(this RangeF r) {
-        return Mathf.LerpUnclamped(r.min,r.max,0.5f);
+        return Mathf.LerpUnclamped(r.min, r.max, 0.5f);
     }
     public static RangeF Widen(this RangeF r, in float number) {
         var r1 = new RangeF(r.min, r.max);
@@ -242,7 +260,7 @@ public static class Util_MiscSystemExtensions {
     public static int StableHash(this string s) { // ai generated
         if (s == null)
             return 0;
-        
+
         unchecked {
             const int fnvPrime = 16777619;
             int hash = (int)2166136261;
@@ -274,7 +292,7 @@ public static class Util_MiscSystemExtensions {
         foreach (var c in b) {
             arr.Append((char)c);
         }
-        return arr.ToString() ;
+        return arr.ToString();
     }
 
 
@@ -283,7 +301,7 @@ public static class Util_MiscSystemExtensions {
         for (int i = array.Count - 1; i > 0; i--) {
             int randomIndex = UnityEngine.Random.Range(0, i + 1);
 
-            // Swap
+            // swap
             T temp = array[i];
             array[i] = array[randomIndex];
             array[randomIndex] = temp;
@@ -323,7 +341,7 @@ public static class Util_MiscSystemExtensions {
     }
     public static Sprite Clone(this Sprite spr) {
         var t = spr.texture.Clone();
-        return  Sprite.Create(t,spr.rect,spr.pivot,spr.pixelsPerUnit);
+        return Sprite.Create(t, spr.rect, spr.pivot, spr.pixelsPerUnit);
     }
     public static void TextureBW(this Texture2D t) {
         var p = t.GetPixels();
@@ -331,7 +349,7 @@ public static class Util_MiscSystemExtensions {
             //var c = p[i];
             //var avg = Mathf.Max(c.r, c.g ,c.b);
             //p[i] = new Color(avg, avg, avg, c.a);
-            
+
             p[i] = p[i].ColorBW();
         }
         t.SetPixels(p);
@@ -344,7 +362,7 @@ public static class Util_MiscSystemExtensions {
 }
 
 public static class Util_MiscCUExtensions {
-    
+
     public static Dictionary<int, List<string>> GetArgAutofill(this Command com) {
         if (com.argAutofill == null) {
             com.argAutofill = new();
@@ -412,9 +430,9 @@ public static class Util_ItemExtensions {
 public static class Util_ContainerExtensions {
 
     public static List<Item> GetAllItems(this Container container) {
-        var list = new List<Item>(container.transform.childCount);    
-        foreach (Transform item in container.transform) 
-            if (item.TryGetComponent<Item>(out var component)) 
+        var list = new List<Item>(container.transform.childCount);
+        foreach (Transform item in container.transform)
+            if (item.TryGetComponent<Item>(out var component))
                 list.Add(component);
         return list;
     }
@@ -441,7 +459,22 @@ public static class Util_LimbExtensions {
     }
 
     public static bool HasProsthetic(this Limb limb) {
-        return Traverse.Create(limb).Field("prostheticInfo").Field("hasProsthetic").GetValue<bool>();
+        if (limb == null) {
+            return false;
+        }
+        try {
+            Traverse info = Traverse.Create(limb).Field("prostheticInfo");
+            if (!info.FieldExists()) {
+                return false;
+            }
+            object boxed = info.GetValue();
+            if (boxed == null) {
+                return false;
+            }
+            return Traverse.Create(boxed).Field("hasProsthetic").GetValue<bool>();
+        } catch {
+            return false;
+        }
     }
 
 }
@@ -618,7 +651,7 @@ public static class Util_BodyExtensions {
                 UnityEngine.Object.Destroy(component3);
 
             if (body.TryGetNetBody(out var nb)) {
-                // To ensure attempt to get the real coutils instance
+                // to ensure attempt to get the real coutils instance
                 if (nb.IsPlayer && nb.plr.CoUtilsInstance != null) {
                     var coutil = nb.plr.CoUtilsInstance;
                     coutil.CancelAll();
@@ -645,7 +678,7 @@ public static class Util_BodyExtensions {
 
     //OG: Body.ForceAutoPickUpItem V7.0.1
     public static void ForceAutoPickUpItem(this Body body, Item item) {
-        //Only removed the noautopickup check
+        //only removed the noautopickup check
 
         if (!item.Stats.wearable) {
             int? num = body.FirstEmptySlot();
@@ -761,7 +794,7 @@ public static class Util {
         return null;
     }
 
-    
+
 
 
     #endregion
@@ -808,7 +841,7 @@ public static class Util {
         StartCoroutine(_CoroutineCallLambdaWhen(Util.IsWorldGenerated, func));
     }
 
-    //  Util.CallLambdaWhen(() => { return true; }, () => { });
+    //  util.CallLambdaWhen(() => { return true; }, () => { });
     public static void CallLambdaWhen(Func<bool> condition, Delegate func) {
         StartCoroutine(_CoroutineCallLambdaWhen(condition, func));
     }
@@ -829,7 +862,7 @@ public static class Util {
     public static void DelayCallLambda(float delay_sec, Delegate func) {
         StartCoroutine(_DelayCallLambdaCoroutine(delay_sec, func));
     }
-    
+
     internal static IEnumerator _DelayCallLambdaCoroutine(float delay_sec, Delegate func) {
         yield return new WaitForSecondsRealtime(delay_sec);
 
@@ -862,7 +895,7 @@ public static class Util {
 
     public static Task StartCoroutineAsync(IEnumerator coroutine) {
         var tcs = new TaskCompletionSource<object>();
-        CoroutineRunner.get().StartCoroutine(RunCoroutineForAsync(coroutine,tcs));
+        CoroutineRunner.get().StartCoroutine(RunCoroutineForAsync(coroutine, tcs));
         return tcs.Task;
     }
     private static IEnumerator RunCoroutineForAsync(IEnumerator coroutine, TaskCompletionSource<object> tcs) {
@@ -1000,10 +1033,6 @@ public static class Util {
     }
 
 
-    /// <summary>
-    /// Fills rectangular area with blocks of set id
-    /// Input is in Block coordinates
-    /// </summary>
     public static void BlockFill(int x, int y, int endx, int endy, ushort block_id) {
         if (world != null) {
             if (x > endx) {
@@ -1032,11 +1061,6 @@ public static class Util {
     }
 
 
-    /// <summary>
-    /// Fills rectangular area with blocks of set id
-    /// Input is in Block coordinates
-    /// No safety checks for better performance
-    /// </summary>
     public static void BlockFillUnsafe(int startX, int startY, int endX, int endY, ushort block_id) {
 
         var tiles = worldBlocks;
@@ -1062,10 +1086,6 @@ public static class Util {
 
 
 
-    /// <summary>
-    /// Adds a custom layer modifier to the pool of randomly selectable layer modifiers.
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
     public static void RegisterLayerModifier<T>() where T : LayerModifier {
         var inst = Activator.CreateInstance(typeof(T), LayerModifier.availableModifiers.Length) as LayerModifier;
 
@@ -1077,9 +1097,6 @@ public static class Util {
 
     #region KEYBINDS
 
-    /// <summary>
-    /// CALL THIS IN PLUGIN WAKE UP TO MAKE SURE THEY LOAD WITHOUT REQUIRING IT TO MANUALLY RESET
-    /// </summary>
     public static void RegisterKeybind(string key, KeyCode code) {
         Settings_DefaultSettings_Patch.custom_binds[key] = code;
     }
@@ -1116,22 +1133,32 @@ public static class Util {
         body = PlayerCamera.main.body;
         return body != null;
     }
-    public static bool IsBodyLocal( Body body) {
+    public static bool IsBodyLocal(Body body) {
         return PlayerCamera.main?.body == body;
     }
-    public static bool IsBodyLocal( Limb limb) {
+    public static bool IsBodyLocal(Limb limb) {
         return limb.body.IsBodyLocal();
     }
     #endregion
 
     public static bool IsUnchipped() {
+        if (Net.IsRunning && WorldMP.RunUnchippedLock.Locked && !Multiplayer.rules.UnchippedIsIndividual) {
+            return WorldMP.RunUnchippedLock.GlobalUnchipped;
+        }
         if (Util.IsInWorld()) {
             return WorldGeneration.unchipped;
-        } else {
-            return (bool)WorldMP.runSettings.GetValueOrDefault("unchipped", false);
         }
+        // main menu: PreRunScript.runSettings is often still null during Plugin.Awake
+        var settings = WorldMP.runSettings;
+        if (settings == null) {
+            return false;
+        }
+        return (bool)settings.GetValueOrDefault("unchipped", false);
     }
     public static void SetUnchipped(bool unchipped) {
+        if (WorldMP.RunUnchippedLock.BlocksLocalChange(unchipped)) {
+            return;
+        }
         if (IsInWorld()) {
             WorldGeneration.world.SetUnchipped(unchipped);
         } else {
@@ -1143,6 +1170,15 @@ public static class Util {
 
     #region UI_UTILS
 
+
+
+    public static string UnitsDistance(float meters) {
+#if FULLGAME
+        return $"{Mathf.RoundToInt((float)Units.ConvertDistance(meters))}{Units.DistanceUnit()}";
+#else
+        return $"{Mathf.RoundToInt(meters)}m";
+#endif
+    }
 
 
 
@@ -1301,7 +1337,7 @@ public static class Util {
         return false;
     }
     public static bool TryGetBodyFromObject(GameObject gameObject, out Body body) {
-        if (gameObject != null && Utils.GetBody(gameObject,out body)) {
+        if (gameObject != null && Utils.GetBody(gameObject, out body)) {
             return true;
         }
         body = null;
@@ -1341,49 +1377,123 @@ public static class Util {
 
 
 
-    public static Vector2 PlaceBody_FindSpawnLocation(float x, Body b) {
-        var origColSize = new Vector2(1.6f, 5.0f);
-        if (b != null) {
-            origColSize = b.origColSize;
+    // heatedrock=36, mantle=39, magma liquid=6 - layer 9 top-row landings were cooking players mid-load.
+    public static bool PlaceBody_SpawnSurfaceIsUnsafe(Vector2 groundPos) {
+        if (WorldGeneration.world == null) {
+            return false;
         }
-        var p = new Vector2(0,0);
+        Vector2Int blockPos = WorldGeneration.world.WorldToBlockPos(groundPos);
+        ushort block = WorldGeneration.world.GetBlock(blockPos);
+        if (block == 36 || block == 39) {
+            return true;
+        }
+        if (FluidManager.main != null && FluidManager.main.GetLiquid(groundPos) == 6) {
+            return true;
+        }
+        // also reject standing in magma a step above the ground tile
+        if (FluidManager.main != null && FluidManager.main.GetLiquid(groundPos + Vector2.up) == 6) {
+            return true;
+        }
+        return false;
+    }
+
+    public static Vector2 PlaceBody_FindSpawnLocation(float x, Body b) {
+        WorldGeneration world = WorldGeneration.world;
+        Vector2 p = Vector2.zero;
         try {
-            p = new Vector2(x, WorldGeneration.world.halfHeight * 0.75f);
-            //OG: Body.PlaceBody Fullgame 09.11.2026 with modified X
-            if (WorldGeneration.world.biomeOverride == WorldGeneration.OverrideSceneType.Tutorial) {
+            if (world == null) {
+                return p;
+            }
+            if (world.biomeOverride == WorldGeneration.OverrideSceneType.Tutorial) {
                 return GameObject.Find("TUTORIALSPAWN").transform.position;
             }
-            if (WorldGeneration.world.biomeDepth == 11) {
+            if (world.biomeDepth == 11) {
                 return GameObject.Find("ENDLABSPAWN").transform.position;
             }
-            bool flag = false;
-            if (WorldGeneration.world.biomeDepth != 10) {
-                for (int i = 0; i < WorldGeneration.world.height; i++) {
-                    var pos = new Vector2(x, WorldGeneration.world.halfHeight - i);
-                    if (!Physics2D.OverlapBox(pos, origColSize, 0f, LayerMask.GetMask("Ground"))) {
-                        flag = true;
-                    } else if (flag) {
-                        return pos;
-                    }
-                }
-            } else {
-                for (int j = 0; j < WorldGeneration.world.height; j++) {
-                    var pos = Vector2.down * (WorldGeneration.world.halfHeight - j);
-                    pos.x = x;
-                    if (!Physics2D.OverlapBox(pos, origColSize, 0f, LayerMask.GetMask("Ground"))) {
-                        p = pos;
-                        flag = true;
-                        break;
-                    }
-                }
+            // ascent: the drill pod is built on this spot, then the body is lifted.
+            // one point for the whole group, read from blocks so a missing collider cannot drop us into the floor.
+            if (world.biomeDepth == 10) {
+                return AscentSpawn(world);
             }
-            if (!flag) {
-                log.warn($"No valid player spawnpoint for {DebugHelp.GetPlayerFullDebugString(b)}!");
-            }
+            // every other layer stays in the top chunk row. a physics walk kept going
+            // through unbuilt chunks and stopped inside the mantle on where we must reach.
+            p = TopRowSpawn(world, x);
         } catch (Exception e) {
             log.error(e);
         }
         return p;
+    }
+
+    static Vector2 TopRowSpawn(WorldGeneration world, float x) {
+        int size = ChunkSize();
+        int height = (int)world.height;
+        int width = (int)world.width;
+        int top = height - 1;
+        int row = top - (top % size);
+        int bx = BlockX(world, x, width);
+        bool air = false;
+        for (int y = top; y >= row; y--) {
+            ushort block = world.GetBlock(new Vector2Int(bx, y));
+            if (block == 0) {
+                air = true;
+                continue;
+            }
+            if (!air) {
+                continue;
+            }
+            PaintSpawnChunk(world, bx, y + 1, size);
+            return world.BlockToWorldPos(new Vector2Int(bx, y + 1));
+        }
+        int hang = top - 2;
+        if (hang < row) {
+            hang = row;
+        }
+        PaintSpawnChunk(world, bx, hang, size);
+        return world.BlockToWorldPos(new Vector2Int(bx, hang));
+    }
+
+    static Vector2 AscentSpawn(WorldGeneration world) {
+        int size = ChunkSize();
+        int height = (int)world.height;
+        int width = (int)world.width;
+        int bx = BlockX(world, 0f, width);
+        for (int y = 0; y < height; y++) {
+            if (world.GetBlock(new Vector2Int(bx, y)) != 0) {
+                continue;
+            }
+            PaintSpawnChunk(world, bx, y, size);
+            return world.BlockToWorldPos(new Vector2Int(bx, y));
+        }
+        PaintSpawnChunk(world, bx, 1, size);
+        return world.BlockToWorldPos(new Vector2Int(bx, 1));
+    }
+
+    static int BlockX(WorldGeneration world, float x, int width) {
+        int bx = world.WorldToBlockPos(new Vector2(x, 0f)).x;
+        if (bx < 0) {
+            return 0;
+        }
+        if (bx >= width) {
+            return width - 1;
+        }
+        return bx;
+    }
+
+    static int ChunkSize() {
+        int size = WorldGeneration.CHUNKSIZE;
+        if (size < 1) {
+            return 64;
+        }
+        return size;
+    }
+
+    static void PaintSpawnChunk(WorldGeneration world, int bx, int by, int size) {
+        int cx = bx / size;
+        int cy = by / size;
+        if (cx < 0 || cy < 0) {
+            return;
+        }
+        world.UpdateChunk(new Vector2Int(cx, cy));
     }
 
 
@@ -1428,12 +1538,6 @@ public static class Util {
         return ClampWorldPositionToCameraView(pos, Vector2.zero);
     }
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="pos"></param>
-    /// <param name="bounds">is basically half size of the obj</param>
-    /// <returns></returns>
     public static Vector2 ClampWorldPositionToCameraView(Vector2 pos, Vector2 bounds) {
 
         var cam = Camera.main;
@@ -1456,6 +1560,11 @@ public static class Util {
 
 
 
+    public static void SwitchDirLookAt(this Body body, Vector2 targetLookAt) {
+        if ((body.isRight && body.targetLookPos.x < body.transform.position.x) || (!body.isRight && body.targetLookPos.x > body.transform.position.x)) {
+            body.SwitchDir();
+        }
+    }
 
 
     public static void ForceSwitchDir(this Body body, bool isRight) {
@@ -1483,7 +1592,7 @@ public static class Util {
         }
     }
 
-    
+
     public static bool IsDeadOrCriticallyDying(this Body body) {
         return !body.alive || body.isCriticallyDying;
     }
@@ -1497,7 +1606,7 @@ public static class Util {
 
 
 
-    // I don't know how this works, or if it works
+    // i don't know how this works, or if it works
     public static void RegrowAllLimbs(this Body body) {
         if (body.IsAnyLimbMissing()) {
 
@@ -1563,10 +1672,10 @@ public static class Util {
 
 
     public static void Body_DropAllItems(this Body body) {
-        for (int i = 0; i < body.slots.Length; i++) 
-            if ((bool)body.GetItem(i)) 
+        for (int i = 0; i < body.slots.Length; i++)
+            if ((bool)body.GetItem(i))
                 body.DropItem(i);
-        foreach (var item in body.GetAllWearables()) 
+        foreach (var item in body.GetAllWearables())
             body.DropWearable(item);
     }
     public static void Body_ResetSkills(this Body body) {
@@ -1586,13 +1695,13 @@ public static class Util {
 
 
     public static byte GetLimbIndex(Limb limb) => limb.GetIndex();
-    
+
 
     public static Limb GetClosestLimb(this Body body, Vector2 pos, out float dist_sqr) {
         dist_sqr = 999999f;
         Limb result = body.limbs[0]; //head
         foreach (Limb limb in body.limbs) {
-            if (!limb.dismembered && KM.DistanceCheck_PreSqr(pos, limb.transform.position, dist_sqr, out var newdist) ) {
+            if (!limb.dismembered && KM.DistanceCheck_PreSqr(pos, limb.transform.position, dist_sqr, out var newdist)) {
                 result = limb;
                 dist_sqr = newdist;
             }
@@ -1615,6 +1724,12 @@ public static class Util {
 
 
 
+
+
+    public static bool CanTalk(this Body talker) {
+        //OG: Talker.Talk V7.0.1
+        return talker != null && (talker.conscious && talker.brainHealth > 50f && !talker.IsMindwiped());
+    }
 
 
 
@@ -1659,17 +1774,10 @@ public static class Util {
     }
 
 
-    /// <summary>
-    /// DISTANCE IS SQUARED BTW !!!!!!
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="all_instances"></param>
-    /// <param name="pos"></param>
-    /// <returns></returns>
-    public static (T, float) GetNearestComponent<T>(in List<T> all_instances, Vector2 pos) where T : MonoBehaviour  {
+    public static (T, float) GetNearestComponent<T>(in List<T> all_instances, Vector2 pos) where T : MonoBehaviour {
         float dist = float.PositiveInfinity;
         T nearest = null;
-        foreach (var c in all_instances  ) {
+        foreach (var c in all_instances) {
             var cdist = KM.DistanceSqr(c.transform.position, pos);
             if (cdist < dist) {
                 dist = cdist;
@@ -1678,7 +1786,7 @@ public static class Util {
         }
         return (nearest, (dist));
     }
-    
+
 
 
     public static Sprite CreateSprite(Texture2D texture, float pixelsPerUnit = 100f) {
@@ -1700,7 +1808,7 @@ public static class Util {
         return method.Invoke(null, parameters);
     }
 
-    // Get field, with backup names
+    // get field, with backup names
     public static FieldInfo GetField(Type type, params string[] fieldNames) {
         foreach (var f in fieldNames) {
             var field = AccessTools.Field(type, f);
@@ -1717,7 +1825,7 @@ public static class Util {
     public static MethodInfo GetMethod(Type typ, params string[] methodNames) {
         foreach (var m in methodNames) {
             var method = typ.GetMethod(m, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
-            if (method != null) 
+            if (method != null)
                 return method;
         }
         return null;
@@ -1820,25 +1928,3 @@ public static class Util {
 
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

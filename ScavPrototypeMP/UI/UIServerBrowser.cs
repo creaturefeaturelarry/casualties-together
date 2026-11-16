@@ -1,4 +1,5 @@
 using CasualtiesTogetherUtils;
+using KrokV5Optimization;
 using Newtonsoft.Json.Linq;
 using Steamworks;
 using System;
@@ -11,7 +12,6 @@ using UnityEngine;
 using UnityEngine.TextCore;
 using static Together.KSteam;
 using static Together.UIMainMenu;
-using KrokV5Optimization;
 
 namespace Together;
 
@@ -22,9 +22,15 @@ public static class UIServerBrowser {
     public static MenuTab menutab_serverbrowser = new MenuTab {
         name = "mmtb_serverbrowser",
         on_open = () => {
+            if (KSteam.Loaded) {
+                SteamNetworkingUtils.InitRelayNetworkAccess();
+                BrowserSteamPing.EnsureCallbacks();
+            }
             if (CurServerList.Count == 0) {
                 ReloadList();
             }
+            ResetPingSamplerFast();
+            _manualSortActive = false;
         },
         gui_func = _GUI_RenderServerBrowser,
     };
@@ -33,17 +39,98 @@ public static class UIServerBrowser {
     static Vector2 _SERVERBROWSERMENUSCROLL = Vector2.zero;
 
     public static bool SortHideIncompatible = false;
-    public static bool SortHidePasswordProtected = false;
+    public static bool SortHidePasswordProtected = true; // hide locked by default
     public static bool HideDescriptions = false;
     static bool SORT_FLIPBOOL_alpha = false;
     static bool SORT_FLIPBOOL_count = false;
     static bool SORT_FLIPBOOL_layer = false;
+    static bool SORT_FLIPBOOL_ping = false;
+    static bool _manualSortActive = false;
+
+    const float PingSampleIntervalFast = 0.2f; // 5 real probes / second until first pass done
+    const float PingSampleIntervalSlow = 1f;   // then 1 probe / second
+    static float _pingSampleAccum;
+    static int _pingSampleIndex;
+    static bool _pingFirstPassDone;
+    static int _pingSortFingerprint = int.MinValue;
+
+    static void ResetPingSamplerFast() {
+        _pingSampleIndex = 0;
+        _pingSampleAccum = 0f;
+        _pingFirstPassDone = false;
+        _pingSortFingerprint = int.MinValue;
+        BrowserSteamPing.CancelAll();
+    }
+
+    static int ComputePingSortFingerprint() {
+        int known = 0;
+        int sum = 0;
+        for (int i = 0; i < CurFilteredServerList.Count; i++) {
+            NetPublicServerInfo info = CurFilteredServerList[i];
+            if (info == null || !info.HasPing) {
+                continue;
+            }
+            known++;
+            sum += info.pingMs;
+        }
+        return (known * 397) ^ sum;
+    }
+
+    static void TickPingSampler() {
+        if (!KSteam.Loaded) {
+            return;
+        }
+
+        BrowserSteamPing.Tick();
+
+        int fingerprint = ComputePingSortFingerprint();
+        if (fingerprint != _pingSortFingerprint) {
+            _pingSortFingerprint = fingerprint;
+            if (!_manualSortActive) {
+                SortServerListByJoinability();
+            }
+        }
+
+        float interval = _pingFirstPassDone ? PingSampleIntervalSlow : PingSampleIntervalFast;
+        _pingSampleAccum += Time.unscaledDeltaTime;
+        if (_pingSampleAccum < interval) {
+            return;
+        }
+        _pingSampleAccum = 0f;
+
+        int count = CurFilteredServerList.Count;
+        if (count <= 0) {
+            _pingSampleIndex = 0;
+            return;
+        }
+
+        // one new ConnectP2P probe per tick; walk the filtered list in order
+        for (int attempt = 0; attempt < count; attempt++) {
+            if (_pingSampleIndex >= count) {
+                _pingSampleIndex = 0;
+                if (!_pingFirstPassDone) {
+                    _pingFirstPassDone = true;
+                    return; // first pass finished - next probes use the slow interval
+                }
+            }
+
+            NetPublicServerInfo info = CurFilteredServerList[_pingSampleIndex++];
+            if (BrowserSteamPing.TryBeginProbe(info)) {
+                return;
+            }
+            if (BrowserSteamPing.InFlightCount >= BrowserSteamPing.MaxConcurrent) {
+                // back up so we retry this slot once a probe frees
+                _pingSampleIndex = Math.Max(0, _pingSampleIndex - 1);
+                return;
+            }
+        }
+    }
 
     static void _GUI_RenderServerBrowser(Rect r) {
-        // Canvas/RunSettings/Presets/RunSettings 
+        TickPingSampler();
 
         GUI.skin.label.alignment = TextAnchor.UpperCenter;
-        //UIBullshit._GUI_BiggerLabel(Lang.Get("mmtb_serverbrowser"), 1.4f);
+        //uIBullshit._GUI_BiggerLabel(Lang.Get("mmtb_serverbrowser"), 1.4f);
         GUI.skin.label.alignment = TextAnchor.UpperLeft;
 #if RELEASE
         if( !KSteam.Loaded ) {
@@ -71,12 +158,19 @@ public static class UIServerBrowser {
 
                     GUI.skin.label.alignment = TextAnchor.MiddleLeft;
 
+                    if (GUILayout.Button(Lang.Get("mmsb_sort_ping"))) {
+                        var mul = SORT_FLIPBOOL_ping ? -1 : 1;
+                        CurFilteredServerList.Sort((a, b) => ComparePing(a, b) * mul);
+                        SORT_FLIPBOOL_ping = !SORT_FLIPBOOL_ping;
+                        _manualSortActive = true;
+                    }
                     if (GUILayout.Button(Lang.Get("mmsb_sort_plrcount"))) {
                         var mul = SORT_FLIPBOOL_count ? 1 : -1;
                         CurFilteredServerList.Sort((a, b) => {
                             return a.plr_count.CompareTo(b.plr_count) * mul;
                         });
                         SORT_FLIPBOOL_count = !SORT_FLIPBOOL_count;
+                        _manualSortActive = true;
                     }
                     if (GUILayout.Button(Lang.Get("mmsb_sort_layer"))) {
                         var mul = SORT_FLIPBOOL_layer ? -1 : 1;
@@ -84,6 +178,7 @@ public static class UIServerBrowser {
                             return a.cur_layer.CompareTo(b.cur_layer) * mul;
                         });
                         SORT_FLIPBOOL_layer = !SORT_FLIPBOOL_layer;
+                        _manualSortActive = true;
                     }
                     if (GUILayout.Button(Lang.Get("mmsb_sort_name"))) {
                         var mul = SORT_FLIPBOOL_alpha ? -1 : 1;
@@ -91,6 +186,7 @@ public static class UIServerBrowser {
                             return a.name.CompareTo(b.name) * mul;
                         });
                         SORT_FLIPBOOL_alpha = !SORT_FLIPBOOL_alpha;
+                        _manualSortActive = true;
                     }
 
 
@@ -99,7 +195,7 @@ public static class UIServerBrowser {
                     GUILayout.FlexibleSpace();
 
                     GUILayout.Label(String.Format(Lang.Get("mmsb_lobbyfounds"), CurServerList.Count, CurFilteredServerList.Count, TotalPlayerCount));
-                    
+
 
                 }
                 GUILayout.EndHorizontal();
@@ -109,8 +205,8 @@ public static class UIServerBrowser {
 
 
 
-            _SERVERBROWSERMENUSCROLL = GUILayout.BeginScrollView(_SERVERBROWSERMENUSCROLL,false,true);
-            
+            _SERVERBROWSERMENUSCROLL = GUILayout.BeginScrollView(_SERVERBROWSERMENUSCROLL, false, true);
+
 
             var ogfontsize = GUI.skin.label.fontSize;
 
@@ -121,7 +217,7 @@ public static class UIServerBrowser {
 
 
             var i_am_privileged_user_idc_bout_passwords =
-#if DEBUG 
+#if DEBUG
             true;
 #else
             KSteam.Loaded && KnownPersons.IsSteamUserPrivileged(KSteam.GetLocalUserSteamID().m_SteamID);
@@ -167,7 +263,7 @@ public static class UIServerBrowser {
                                 GUI.skin.label.fontSize = (int)(GUI.skin.label.fontSize * 0.9f);
                                 GUILayout.Label(Lang.Get("mmsb_lobbybadver") + " - " + lobby.version);
                                 GUI.enabled = og_enabled;
-                            } else 
+                            } else
 #endif
                             {
                                 var clayer1 = lobby.cur_layer + 1;
@@ -180,7 +276,7 @@ public static class UIServerBrowser {
                                 bool isCustomGamemode = false;
                                 {
                                     if (
-                                        !Locale.currentLang.other.TryGetValue("layertitle" + clayer1, out var lobby_layer_localed) //OG: WorldGeneration.Start V6.0DEMO 
+                                        !Locale.currentLang.other.TryGetValue("layertitle" + clayer1, out var lobby_layer_localed) //OG: WorldGeneration.Start V6.0DEMO
                                         || lobby.cur_layer == -1
                                     ) {
                                         gameStateContent = FixGuiContent.Content(Lang.Get("mmsb_lobby_inmenu"), 27);
@@ -239,6 +335,7 @@ public static class UIServerBrowser {
 
                                     GUI.skin.label.alignment = TextAnchor.UpperCenter;
                                     GUILayout.Label(lobby.plr_count + "/" + lobby.plr_max);
+                                    GUILayout.Label(FormatPing(lobby), GUILayout.Width(70 * GetMenuUIScale()));
 
                                     GUILayout.FlexibleSpace();
 
@@ -283,11 +380,11 @@ public static class UIServerBrowser {
                                         GUI.skin.label.fontSize = (int)(gggogfontsize * 0.8f);
 
                                         var content = FixGuiContent.Content(lobby.description, 34);
-                                        
+
                                         var realwidth = 800 * GetMenuUIScale();
                                         var calculatedheight = GUI.skin.label.CalcHeight(content, realwidth);
 
-                                        GUILayout.Label(content, GUILayout.Width(realwidth),GUILayout.Height(calculatedheight));
+                                        GUILayout.Label(content, GUILayout.Width(realwidth), GUILayout.Height(calculatedheight));
 
                                         GUI.skin.label.fontSize = gggogfontsize;
                                         GUI.color = col;
@@ -322,15 +419,15 @@ public static class UIServerBrowser {
                                             } else {
                                                 log.error("TODO: JOIN TO IP");
 
-                                                //TODO
-                                                //TODO
-                                                //TODO
-                                                //TODO
-                                                //TODO
-                                                //TODO
-                                                //TODO
-                                                //TODO
-                                                //TODO
+                                                //tODO
+                                                //tODO
+                                                //tODO
+                                                //tODO
+                                                //tODO
+                                                //tODO
+                                                //tODO
+                                                //tODO
+                                                //tODO
                                             }
                                         }
                                         if (Net.IsRunning) {
@@ -345,7 +442,7 @@ public static class UIServerBrowser {
 
                                     var uiscale = 10 * GetMenuUIScale();
 
-                                    // Draw cur layer info
+                                    // draw cur layer info
                                     {
                                         GUI.skin.label.alignment = TextAnchor.UpperLeft;
                                         GUILayout.Space(uiscale);
@@ -418,8 +515,7 @@ public static class UIServerBrowser {
 
             GUILayout.BeginHorizontal();
             {
-                if (KSteam.Loaded) 
-                {
+                if (KSteam.Loaded) {
                     GUILayout.Label(Lang.Get("mmsb_steam_distfilter"));
                     UIBullshit._GUI_SetButtonSkinTexture(GUI.skin.button, false);
                     KSteam.userselected_lobbyDistanceFilter = (ELobbyDistanceFilter)GUILayout_DropdownMenu.Dropdown((int)KSteam.userselected_lobbyDistanceFilter, new string[] {
@@ -453,7 +549,7 @@ public static class UIServerBrowser {
 
 
             UIMainMenu._GUI___DirectConnect_DoPasswordField(r, fieldheight, fieldnameswidth * 0.9f, fieldswidth * 0.5f);
-            
+
 
             {
                 var oldPass = SortHidePasswordProtected;
@@ -532,12 +628,13 @@ public static class UIServerBrowser {
     static int TotalPlayerCount = 0;
 
     public static void AddServerToTheList(NetPublicServerInfo info) {
-
+        ulong id = info.steam_lobby_info != null ? info.steam_lobby_info.lobby_steamID.m_SteamID : 0;
 
         if (info.steam_lobby_info != null) {
 
             if (CurServerList_ButOnlySteamLobbies.TryGetValue(info.steam_lobby_info.lobby_steamID.m_SteamID, out var l)) {
-                return; //  lobby already exists 
+                Together.log.warn($"[LobbyBrowser] DROP-DUP id={id} name=\"{info.name}\"");
+                return; //  lobby already exists
             } else {
                 CurServerList_ButOnlySteamLobbies[info.steam_lobby_info.lobby_steamID.m_SteamID] = info;
             }
@@ -557,33 +654,55 @@ public static class UIServerBrowser {
         TotalPlayerCount += info.plr_count;
         CurServerList.Add(info);
 
-
-        if (TestLobbySearchFilters(info)) {
+        string filterDrop;
+        if (TestLobbySearchFilters(info, out filterDrop)) {
             var is_joinable = info.IsJoinable();
             if (is_joinable) {
                 CurFilteredServerList.Insert(0, info);
             } else {
                 CurFilteredServerList.Add(info);
             }
+            Together.log.warn($"[LobbyBrowser] UI-SHOW id={id} name=\"{info.name}\" ver=\"{info.version}\" joinable={is_joinable} filtered={CurFilteredServerList.Count}/{CurServerList.Count}");
+        } else {
+            Together.log.warn($"[LobbyBrowser] DROP-FILTER id={id} name=\"{info.name}\" ver=\"{info.version}\" reason={filterDrop}");
         }
     }
     public static bool TestLobbySearchFilters(NetPublicServerInfo info) {
+        return TestLobbySearchFilters(info, out _);
+    }
+    // crimson ascent (10) and end lab (11). keep out of the public browser when a run is there.
+    public const int AscentLayerDepth = 10;
+    public const int LabLayerDepth = 11;
+
+    public static bool TestLobbySearchFilters(NetPublicServerInfo info, out string dropReason) {
+        dropReason = null;
+        if (info != null && info.cur_layer >= AscentLayerDepth) {
+            dropReason = $"ascent-lab-layer-blacklist layer={info.cur_layer}";
+            return false;
+        }
+        if (NsfwContentFilter.IsListingBlocked(info.name, info.description)) {
+            dropReason = "nsfw-filter";
+            return false;
+        }
         if (!String.IsNullOrEmpty(_LOBBY_SEARCH_FILTER)) {
             if (info.name.ContainsInsensitive(_LOBBY_SEARCH_FILTER)
                 || (SearchPatternIsLobbyId && info.steam_lobby_info != null && info.steam_lobby_info.lobby_steamID.m_SteamID == SearchPatternLobbyId)
             ) {
-                // Passes the test
+                // passes the test
             } else {
+                dropReason = $"search-filter \"{_LOBBY_SEARCH_FILTER}\"";
                 return false;
             }
         }
         if (SortHidePasswordProtected) {
             if (info.haspassword) {
+                dropReason = "hide-password";
                 return false;
             }
         }
         if (SortHideIncompatible) {
             if (info.version != Multiplayer.FULL_VERSION_TAG) {
+                dropReason = $"hide-incompatible lobbyVer=\"{info.version}\" myVer=\"{Multiplayer.FULL_VERSION_TAG}\"";
                 return false;
             }
         }
@@ -604,16 +723,37 @@ public static class UIServerBrowser {
             AddServerToTheList(item);
         }
 
+        _pingSampleIndex = 0;
+        _manualSortActive = false;
+        _pingSortFingerprint = int.MinValue;
         SortServerListByJoinability();
     }
+    static int ComparePing(NetPublicServerInfo a, NetPublicServerInfo b) {
+        int ap = a != null && a.HasPing ? a.pingMs : int.MaxValue;
+        int bp = b != null && b.HasPing ? b.pingMs : int.MaxValue;
+        return ap.CompareTo(bp);
+    }
+
+    static string FormatPing(NetPublicServerInfo lobby) {
+        if (lobby == null || !lobby.HasPing) {
+            return "— ms";
+        }
+        return lobby.pingMs + " ms";
+    }
+
     public static void SortServerListByJoinability() {
         CurFilteredServerList.Sort((a, b) => {
             {
                 var afriend = (a.friends_tooltip != null);
                 var bfriend = (b.friends_tooltip != null);
 
-                var comp = afriend.CompareTo(bfriend);
+                var comp = bfriend.CompareTo(afriend); // friends first
 
+                if (comp != 0) return comp;
+            }
+            {
+                // fastest ping first; unknown ping sorts last
+                var comp = ComparePing(a, b);
                 if (comp != 0) return comp;
             }
             {
@@ -663,18 +803,24 @@ public static class UIServerBrowser {
     public static void ReloadList() {
         SORT_FLIPBOOL_alpha = false;
         SORT_FLIPBOOL_count = false;
+        SORT_FLIPBOOL_layer = false;
+        SORT_FLIPBOOL_ping = false;
+        _manualSortActive = false;
+        ResetPingSamplerFast();
 
         ClearLists();
+        KSteam.ClearPendingBrowserLobbyData();
 
         if (KSteam.Loaded) {
+            SteamNetworkingUtils.InitRelayNetworkAccess();
             KSteam.SearchLobbies(false);
         }
 
-        //TODO litenetlib LAN scan
+        //tODO litenetlib LAN scan
 
 
 
-#if !RELEASE 
+#if !RELEASE
         AddServerToTheList(new NetPublicServerInfo {
             name = "TEST DONT CLICK",
             description = "TEST DESCRIPTION ",
@@ -704,7 +850,7 @@ public static class UIServerBrowser {
             version = Multiplayer.FULL_VERSION_TAG,
             steam_lobby_info = new Lobby { lobby_steamID = (CSteamID)3 }
         });
-#endif 
+#endif
 
     }
 
@@ -715,4 +861,3 @@ public static class UIServerBrowser {
 
 
 }
-

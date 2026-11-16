@@ -1,6 +1,5 @@
+﻿using CasualtiesTogetherUtils;
 using HarmonyLib;
-using Together;
-using CasualtiesTogetherUtils;
 using LiteEntitySystem;
 using LiteNetLib;
 using System;
@@ -8,6 +7,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using Together;
 using Unity.VisualScripting;
 using UnityEngine;
 
@@ -29,7 +29,7 @@ namespace Together;
 public class BodyDamageEvent {
     public override string ToString() {
         if (this == null) return "";
-        return $"BodyDamageEvent({type}, {attackerBody.ToSafeString()} {attackerBuilding.ToSafeString()} {victim.ToSafeString()})"; 
+        return $"BodyDamageEvent({type}, {attackerBody.ToSafeString()} {attackerBuilding.ToSafeString()} {victim.ToSafeString()})";
     }
 
     public enum DamageEventType {
@@ -49,7 +49,7 @@ public class BodyDamageEvent {
     public bool IsBuildingAttack(out SyncInfoGameObjectTracker tracker) {
         tracker = null;
         var b = (
-                type == DamageEventType.PlayerAttack // Was this a misinput?
+                type == DamageEventType.PlayerAttack // was this a misinput?
                 || type == DamageEventType.BuildingAttack
             ) && attackerBuilding != null && attackerBuilding.TryGetTracker(out tracker);
         return b;
@@ -58,7 +58,7 @@ public class BodyDamageEvent {
         return type == DamageEventType.PlayerAttack && attackerBody == victim;
     }
 
-    public Dictionary<string,object> data;
+    public Dictionary<string, object> data;
 
     public NetBody attackerBody;
     public BuildingEntity attackerBuilding;
@@ -106,7 +106,7 @@ public class BodyDamageEvent {
         victimPos = target.position;
         victim = target;
         attackerBody = evil;
-        this.weapon = weapon; 
+        this.weapon = weapon;
         if (weapon != null) {
             weaponItemId = weapon.id;
         }
@@ -229,9 +229,6 @@ public class NetBody : MonoBehaviour {
 
 
 
-    /// <summary>
-    /// DISTANCE IS SQUARED BTW !!!!!!
-    /// </summary>
     public static (NetBody, float) GetNearestBody(Vector2 pos, bool must_be_alive = true, bool must_be_conscious = false) {
         float nearest = float.PositiveInfinity;
         NetBody nearestnpc = null;
@@ -312,7 +309,8 @@ public class NetBody : MonoBehaviour {
 
     public double _lasttime_nobraindamage_from_circulation = 100000000;
     public SyncBody syncBody { get; internal set; }
-    public knetid netId { get { 
+    public knetid netId {
+        get {
             if (Net.IsRunning) {
                 if (syncBody == null) {
                     throw new Exception("NetBody has no SyncBody!");
@@ -323,7 +321,8 @@ public class NetBody : MonoBehaviour {
                 }
             }
             return syncBody.Id;
-        } }
+        }
+    }
 
 
 
@@ -347,17 +346,17 @@ public class NetBody : MonoBehaviour {
         RecipesHasCrafterBefore.Clear();
     }
 
-    // Server only!
+    // server only!
     readonly MaxCapacityQueue<BodyDamageEvent> DamageHistory = new(100);
     public BodyDamageEvent GetLastDamageEvent() {
-        
+
         List<BodyDamageEvent> events;
-        { // Forget everything before last revive
+        { // forget everything before last revive
             events = plr.netBody.DamageHistory.JustGiveTheQueue().ToList();
             var foundRevive = events.FindIndex(x => x.type == BodyDamageEvent.DamageEventType.Revive);
             if (foundRevive != -1) {
                 events = events.Skip(foundRevive).ToList();
-            } 
+            }
         }
 
         var unexpired = events.Where(x => x.expirationTime > DateTime.UtcNow).Reverse().ToList();
@@ -388,10 +387,12 @@ public class NetBody : MonoBehaviour {
     public bool IsLocal => Util.IsBodyLocal(body);
 
 
-    public string playerName { get {
+    public string playerName {
+        get {
             if (IsPlayer) return plr.playerName;
             return bodyName;
-        } }
+        }
+    }
 
     public override string ToString() {
         if (this == null) {
@@ -408,6 +409,9 @@ public class NetBody : MonoBehaviour {
     public double lastTimeCprPress;
     public int cpr_cur_perfect_press_count;
     public bool chip_punishment_protocol = false;
+    // scatter penalty: mood offset 0..-30, -1 / 5s out of range, +2 / 5s when back
+    public float scatterMoodOffset = 0f;
+    float scatterMoodTick;
 
     void Awake() {
 
@@ -438,11 +442,11 @@ public class NetBody : MonoBehaviour {
 
 
     public void BackupLocalPlayerInit() {
-        
+
         if (plr == null && Net.IsRunning && ScavPlayer.LocalPlayer != null) {
             plr = ScavPlayer.LocalPlayer;
-             
-#if !RELEASE 
+
+#if !RELEASE
             Plugin.log.LogWarning("BackupLocalSCIInit ACTUALLY WORKED YAY!!!!!!!");
 #endif
 
@@ -571,6 +575,8 @@ public class NetBody : MonoBehaviour {
 
 
     void Update() {
+        HugSession.TickVelocity();
+        HeadpatSession.Tick();
 
         {//OG: PlayerCamera.HandleRadiationOverlay
             if (timeSinceRadUpdate > 0.05f) {
@@ -585,19 +591,13 @@ public class NetBody : MonoBehaviour {
         }
 
         {
-            if (!idle_anim_allowed || carrying_person != null) {
+            // carriers and anyone being carried stay out of the idle sit. the carried body ragdolls.
+            bool suppressIdleSit = !idle_anim_allowed || carrying_person != null || piggybacking_on != null;
+            if (suppressIdleSit) {
                 if (body.idleTime + Time.deltaTime > 11f) {
                     body.idleTime = 11f;
                 }
-
-                //OG: Body.Update V5t5  the idleTime part
-                if (body.bodyAnimator.GetCurrentAnimatorClipInfo(0).Length != 0 && body.bodyAnimator.GetCurrentAnimatorClipInfo(0)[0].clip.name == "ExperimentSit") {
-                    body.bodyAnimator.Play("Grounded");
-                    body.standLerpTime = 0f;
-                }
-                if (body.armsAnimator.GetCurrentAnimatorClipInfo(0).Length != 0 && body.armsAnimator.GetCurrentAnimatorClipInfo(0)[0].clip.name == "ArmsSit") {
-                    body.armsAnimator.Play("Grounded");
-                }
+                ClearSitAnims(body);
             }
 
             if (!Util.IsBodyLocal(body) && body.conscious) {
@@ -622,24 +622,77 @@ public class NetBody : MonoBehaviour {
 
 
         if (body.alive) {
-           
+
         } else {
             body.halfMinuteCheckTime = 0; // specifically to not trigger brain damage problems, it shouldnt cause any other problems
         }
 
         if (Net.IsServer) {
-            if (chip_punishment_protocol) {
-                body.eyePanicTime = 1f;
-                body.radiationSickness += Time.deltaTime; // * 2 ;
-            }
-
+            TickScatterMoodPenalty();
         }
 
 
     }
 
-    protected void LateUpdate() {
+    void TickScatterMoodPenalty() {
+        if (body == null || !IsPlayer) {
+            return;
+        }
+        if (!body.alive || !SharedMain.CheckIfDispersionPunishmentProtocolRuleIsActive()) {
+            if (scatterMoodOffset != 0f || scatterMoodTick != 0f) {
+                if (body.alive) {
+                    ApplyScatterMoodOffset(0f);
+                } else {
+                    scatterMoodOffset = 0f;
+                }
+                scatterMoodTick = 0f;
+            }
+            return;
+        }
 
+        if (chip_punishment_protocol) {
+            body.eyePanicTime = 1f;
+            // old radiation tick (replaced by mood offset):
+            // body.radiationSickness += Time.deltaTime;
+            scatterMoodTick += Time.deltaTime;
+            while (scatterMoodTick >= 5f) {
+                scatterMoodTick -= 5f;
+                ApplyScatterMoodOffset(Mathf.Max(scatterMoodOffset - 1f, -30f));
+            }
+            return;
+        }
+
+        // back in range - clear the offset at +2 per 5 seconds
+        if (scatterMoodOffset >= 0f) {
+            scatterMoodOffset = 0f;
+            scatterMoodTick = 0f;
+            return;
+        }
+        scatterMoodTick += Time.deltaTime;
+        while (scatterMoodTick >= 5f && scatterMoodOffset < 0f) {
+            scatterMoodTick -= 5f;
+            ApplyScatterMoodOffset(Mathf.Min(scatterMoodOffset + 2f, 0f));
+        }
+    }
+
+    void ApplyScatterMoodOffset(float nextOffset) {
+        float delta = nextOffset - scatterMoodOffset;
+        scatterMoodOffset = nextOffset;
+        if (delta == 0f || body == null) {
+            return;
+        }
+        body.happiness = Mathf.Clamp(body.happiness + delta, -100f, 100f);
+        last_mood = body.happiness;
+        MedicalSync.Server_QueueSendCharacterHealth(this, false);
+    }
+
+    protected void LateUpdate() {
+        HugSession.TickArms();
+
+        // consoleScript noclip writes carrier transform in Update - after FixedUpdate pin.
+        if (piggybacking_on != null && body != null) {
+            HandlePiggybackUpdate();
+        }
 
         if (!last_alive && !body.alive) { // because body is not losing its temperature when dead for some reason
             body.temperature = Mathf.Lerp(36.6f, WorldGeneration.world.ambientTemperature, Mathf.Clamp01((float)((Time.timeAsDouble - timeOfDeath) / 30.0)));
@@ -660,7 +713,7 @@ public class NetBody : MonoBehaviour {
             }
 
             last_mood = body.happiness;
-        
+
 
 
 
@@ -684,7 +737,7 @@ public class NetBody : MonoBehaviour {
                 if (cprPacient.body.IsRagdolling() || cprPacient.body.crouching) {
                     body.crouching = true;
                 }
-                
+
             } else {
                 if (lastCpr) {
                     cprPress = 0;
@@ -824,7 +877,7 @@ public class NetBody : MonoBehaviour {
             tooltipDescription_text += "piggyback: " + (this.piggybacking_on) + "\n";
             tooltipDescription_text += "piggyback stack: " + (CountPiggybackStackDown()) + "\n";
 
-            
+
 
             tooltipDescription_text += "temperature: " + Math.Round(this.body.temperature, 2) + "\n";
 
@@ -842,10 +895,10 @@ public class NetBody : MonoBehaviour {
                 }
             }
 
-            
+
             if (syncBody != null) {
                 tooltipDescription_text += "ReadingRagdollData: " + syncBody.readingRagdollData.ToString() + "\n";
-                if ( syncBody.TryGetOwnerTick(out var tick) ) {
+                if (syncBody.TryGetOwnerTick(out var tick)) {
                     tooltipDescription_text += "SyncBody Tick: " + tick.ToString() + "\n";
                 }
             }
@@ -859,7 +912,7 @@ public class NetBody : MonoBehaviour {
                             tooltipDescription_text += (item.ToString()) + ("\n");
                         }
                     }
-                } 
+                }
             }
 
         } else {
@@ -881,17 +934,28 @@ public class NetBody : MonoBehaviour {
 
 
     void OnDestroy() {
-
-        NetBody._PRIV_NetIdToNetBody.Remove(netId);
-        ScavPlayer.BodyToPlayerDict.Remove(body);
+        // deferred Destroy can run after a species-swap replacement already owns the same
+        // syncBody id - only unregister / tear down LES if this instance still owns it.
+        SyncBody sb = syncBody;
+        if (sb != null) {
+            knetid id = sb.Id;
+            if (_PRIV_NetIdToNetBody.TryGetValue(id, out var mapped) && ReferenceEquals(mapped, this)) {
+                _PRIV_NetIdToNetBody.Remove(id);
+            }
+        }
+        if (body != null) {
+            ScavPlayer.BodyToPlayerDict.Remove(body);
+        }
 
         if (MoodleManager.main != null && MoodleManager.main.body == body && Util.TryGetLocalBody(out var locbody)) { // fix nullreference if player disconnects
             MoodleManager.main.body = locbody;
         }
 
-        if (Net.IsServer) {
-            if (syncBody != null) {
-                syncBody.Destroy();
+        if (Net.IsServer && sb != null) {
+            // species mesh rebuild nulls syncBody first so the entity stays alive
+            if (sb.nb == null || ReferenceEquals(sb.nb, this)) {
+                syncBody = null;
+                sb.Destroy();
             }
         }
 
@@ -981,7 +1045,7 @@ public class NetBody : MonoBehaviour {
             if (IsPlayer) {
                 return plr.playerColor;
             }
-            
+
             return _color;
         }
         set {
@@ -1025,7 +1089,7 @@ public class NetBody : MonoBehaviour {
 
         _Internal_RegisterLiteNetLib(null, null, ref sb);
 
-        var nb = _Internal_CreateNetBody(sb, pos, name);
+        var nb = _Internal_CreateNetBody(sb, pos, name, null);
         var chara = nb.chara;
 
         chara.name = $"NPC_ID_{sb.Id}_NAME_{name}";
@@ -1040,7 +1104,7 @@ public class NetBody : MonoBehaviour {
             _Internal_RegisterLiteNetLib(null, plr, ref sb);
 
             if (sb.nb == null) {
-                sb.nb = _Internal_CreateNetBody(sb, Body_PlaceBody_MultiplayerPatch.SpawnLocation, plr.playerName);
+                sb.nb = _Internal_CreateNetBody(sb, Body_PlaceBody_MultiplayerPatch.SpawnLocation, plr.playerName, plr);
             }
             var nb = sb.nb;
 
@@ -1052,34 +1116,41 @@ public class NetBody : MonoBehaviour {
                 bool hasSavedPlrState = ServerMain.Server_LastPlayerStates.TryGetValue(pid, out var val);
                 // a practice world ignores the file, so the body matches a player who has no save.
                 bool hasPlayerFile = !SavesystemPatch.PreserveSave && !hasSavedPlrState && PlayerCheckpoint.HasPlayerFile(plr);
+                bool hasSuitcase = hasSavedPlrState || hasPlayerFile;
                 if (plr.LateJoin) {
-                    if (Multiplayer.rules.LateJoinSpectate) {
+                    bool endLab = WorldGeneration.world != null && WorldGeneration.world.biomeDepth == 11;
+                    // endLab: brand-new late joiners spectate. Rejoiners with a suitcase keep playing.
+                    // also honor the global LateJoinSpectate rule on any layer.
+                    bool forceSpectate = (!hasSuitcase && Multiplayer.rules.LateJoinSpectate)
+                        || (endLab && !hasSuitcase);
 
-                        if (hasSavedPlrState || hasPlayerFile) {
+                    if (forceSpectate) {
+                        string why = endLab && !hasSuitcase
+                            ? "late-joined EndLab without suitcase"
+                            : "late-joined and LateJoinSpectate is on";
+                        if (log.verbose) log.l($"Killing {plr} cuz {why}.");
 
-                        } else { // there is no save, a brand new player, so kill them
-                            if (log.verbose) log.l($"Killing {plr} cuz he late-joined and LateJoinSpectate is on.");
-                            
-                            plr.body.GetHead().Dismember();
-                            plr.body.GetLowerTorso().Dismember();
-                            plr.body.brainHealth = 0;
-                            plr.body.heartRate = 0;
-                            plr.body.bloodOxygen = 0;
-                            plr.body.bloodPressure = 0;
-                            MedicalSync.Server_QueueSendCharacterHealth(nb, true);
-                            Util.CallLambdaWhen(() => {
-                                if (!Util.IsInWorld()) {
-                                    return true; // break out if not in world
-                                }
-                                return plr.ServerPlayerState.is_loaded_in; // trigger only when fully loaded in
-                            }, () => {
-                                Util.DelayCallLambda(1, () => {
-                                    Multiplayer.Server_SendSimpleMessageToOneClient(NetmsgId.CLIENT_forcespectator, plr.playerId);
-                                    plr.Server_DoAlertSingle("Late join, server put you in spectator mode.",true,true);
-                                });
+                        plr.body.GetHead().Dismember();
+                        plr.body.GetLowerTorso().Dismember();
+                        plr.body.brainHealth = 0;
+                        plr.body.heartRate = 0;
+                        plr.body.bloodOxygen = 0;
+                        plr.body.bloodPressure = 0;
+                        MedicalSync.Server_QueueSendCharacterHealth(nb, true);
+                        Util.CallLambdaWhen(() => {
+                            if (!Util.IsInWorld()) {
+                                return true; // break out if not in world
+                            }
+                            return plr.ServerPlayerState.is_loaded_in; // trigger only when fully loaded in
+                        }, () => {
+                            Util.DelayCallLambda(1, () => {
+                                Multiplayer.Server_SendSimpleMessageToOneClient(NetmsgId.CLIENT_forcespectator, plr.playerId);
+                                string alert = endLab && !hasSuitcase
+                                    ? "Late join into Ending Lab — spectator only (no suitcase)."
+                                    : "Late join, server put you in spectator mode.";
+                                plr.Server_DoAlertSingle(alert, true, true);
                             });
-                        }
-
+                        });
                     }
                 }
 
@@ -1104,14 +1175,22 @@ public class NetBody : MonoBehaviour {
                     e.nb = nb;
                     if (plr != null) {
                         e.SetParent(plr.BasePlayer);
+#if FULLGAME
+                        CharacterSpawn.ApplySelectedToSyncBody(e, plr);
+#endif
                     }
                 });
             } else {
                 throw new Exception("Server Only.");
             }
         }
+#if FULLGAME
+        else if (Net.IsServer && plr != null) {
+            CharacterSpawn.ApplySelectedToSyncBody(sb, plr);
+        }
+#endif
         if (nb != null) {
-            if (sb != null) { 
+            if (sb != null) {
                 nb.syncBody = sb;
                 NetBody._PRIV_NetIdToNetBody[sb.Id] = nb;
             }
@@ -1121,7 +1200,7 @@ public class NetBody : MonoBehaviour {
 #endif  
     }
 
-    internal static NetBody _Internal_CreateNetBody(SyncBody sb, Vector2 pos, string name = null) {
+    internal static NetBody _Internal_CreateNetBody(SyncBody sb, Vector2 pos, string name = null, ScavPlayer plr = null) {
 #if !RELEASE
         log.l($"Creating Netbody: {sb} - {name}  stack: {new StackTrace()}");
 #endif  
@@ -1130,28 +1209,64 @@ public class NetBody : MonoBehaviour {
             name = "bot_" + sb.Id.ToString();
         }
 
-        //TODO sb.characterSelected
+#if FULLGAME
+        int chr = CharacterSpawn.ResolveCharForPlayer(plr, sb);
+        var chara = CharacterSpawn.InstantiateCharacter(chr, name);
+#else
         var chara = UnityEngine.Object.Instantiate(ServerMain.CHARACTER_PREFAB, Vector3.zero, Quaternion.identity);
         chara.name = "Character_" + name;
         chara.SetActive(true);
+#endif
 
         var body = chara.GetComponentInChildren<Body>();
         body.name = "Body_" + name;
         body.targetLookPos = new Vector2(1000, 460);
 
         body.transform.position = pos;
+#if FULLGAME
+        body.charType = CharacterSpawn.ClampChar(chr);
+        body.skills.Setup(body.charType);
+        if (plr != null) {
+            plr.selectedCharacter = (byte)body.charType;
+        }
+#endif
 
         var nb = body.GetOrAddComponent<NetBody>();
         sb.nb = nb;
         //nb.netId = sb.Id;
         if (sb != null) {
             nb.syncBody = sb;
+#if FULLGAME
+            if (Net.IsServer) {
+                sb.characterSelected.Value = (byte)CharacterSpawn.ClampChar(chr);
+            }
+#endif
         }
         NetBody._PRIV_NetIdToNetBody[sb.Id] = nb;
 
 
 
         return nb;
+    }
+
+    // species swap rebuilds the mesh but must keep the SyncBody entity.
+    // clears ownership so deferred OnDestroy cannot Destroy() SyncBody or wipe the
+    // replacement's NetId map entry.
+    internal static void DetachForMeshRebuild(NetBody npc) {
+        if (npc == null) {
+            return;
+        }
+        SyncBody sb = npc.syncBody;
+        if (sb != null) {
+            if (_PRIV_NetIdToNetBody.TryGetValue(sb.Id, out var mapped) && ReferenceEquals(mapped, npc)) {
+                _PRIV_NetIdToNetBody.Remove(sb.Id);
+            }
+            if (ReferenceEquals(sb.nb, npc)) {
+                sb.nb = null;
+            }
+        }
+        npc.syncBody = null;
+        npc.plr = null;
     }
 
     public static void DestroyNPC(NetBody npc) {
@@ -1191,12 +1306,14 @@ public class NetBody : MonoBehaviour {
     public Limb head => body.limbs[(int)Body.LimbNum.Head];
 
     private bool _unchipped = false;
-    public bool unchipped { get {
+    public bool unchipped {
+        get {
             if (syncBody == null) {
                 return _unchipped;
             }
             return syncBody.Unchipped.Value;
-        } private set {
+        }
+        private set {
             _unchipped = value;
             if (syncBody != null) {
                 syncBody.Unchipped.Value = value;
@@ -1204,7 +1321,8 @@ public class NetBody : MonoBehaviour {
             if (plr != null) {
                 _unchipped = value;
             }
-        } }
+        }
+    }
 
 
     public void SetUnchipped(bool unchipped) {
@@ -1253,14 +1371,23 @@ public class NetBody : MonoBehaviour {
         return body.limbs[(int)Body.LimbNum.Head].transform.position;
     }
 
-    
+
 
     public static float DistanceForNearBodies = 40;
     public List<NetBody> NearBodies = new(); // only living btw
     public bool NearBodiesDistanceIs5 = false;
     protected bool last_alive = true;
     protected bool last_sleep = false;
+    // realtimeSinceStartup when this body entered solo-sleep bonus; -1 when awake / together-sleep
+    internal float soloSleepBonusStart = -1f;
     void SlowerUpdate() {
+#if FULLGAME
+        // body.Update / WakeUp / HandleBody all read charType continuously (milky sleep,
+        // dune immunity, insulation, …) - keep it pinned to Ready/synced species, not just eats.
+        if (IsPlayer && body != null) {
+            CharacterSpawn.EnsureBodySpecies(body);
+        }
+#endif
 
         //OG: PlayerCamera.HandleLimbInfectionShows  V5t5 
         for (int i = 0; i < localoverride_showInfection.Length; i++) {
@@ -1316,7 +1443,10 @@ public class NetBody : MonoBehaviour {
             } else {
                 // воскрес
                 if (Util.IsBodyLocal(body)) {
-                    UIInGame.StopSpectatorMode();
+#if FULLGAME
+                    if (!ConcurrentEndings.KeepSpectating)
+#endif
+                        UIInGame.StopSpectatorMode();
                 }
                 body.GetCoUtilsInstance()?.CancelAll();
 
@@ -1330,10 +1460,16 @@ public class NetBody : MonoBehaviour {
         if (!Multiplayer.rules.DisableSleep) {
             if (body.sleeping && !last_sleep) {
                 OnSleep();
+                // solo-sleep energy bonus ramps from this timestamp (skipped while everyone sleeps)
+                soloSleepBonusStart = Time.realtimeSinceStartup;
+            } else if (!body.sleeping) {
+                soloSleepBonusStart = -1f;
             }
+        } else {
+            soloSleepBonusStart = -1f;
         }
 
-        if (IsBodyLocal()) {
+        if (IsBodyLocal() && !(Net.IsRunning && WorldMP.RunUnchippedLock.Locked)) {
             unchipped = Util.IsUnchipped();
         }
 
@@ -1341,30 +1477,25 @@ public class NetBody : MonoBehaviour {
         last_alive = body.alive;
     }
 
-    
+
 
     void UpdateBodySleepShare() {
-        if (Multiplayer.rules.DisableSleep) return;
-        if (!body.alive) return;
-        if (!body.sleeping) return;
-        if (NearBodies.Count == 0) return;
-
+        // energy now trends via median sleepCycleSpeed mult; only track nearby sleepers for later sleep-quality hooks
         NearBodiesDistanceIs5 = false;
-
-        var c = 1f / (float)NearBodies.Count;
-        foreach (var onb in NearBodies) {
-            if ((onb.body.energy - 5f > body.energy) ) {
-                body.energy = Mathf.MoveTowards(body.energy, onb.body.energy, 0.5f * c);
-
-                if (KM.DistanceCheck_PreSqr(this.transform.position, onb.transform.position, 30)) {
-                    NearBodiesDistanceIs5 = true;
-                }
+        if (Multiplayer.rules.DisableSleep || !body.alive || !body.sleeping || NearBodies.Count == 0) {
+            return;
+        }
+        foreach (NetBody onb in NearBodies) {
+            if (onb != null && KM.DistanceCheck_PreSqr(this.transform.position, onb.transform.position, 30)) {
+                NearBodiesDistanceIs5 = true;
+                return;
             }
         }
-
     }
     void UpdateBodyTempShare() {
         if (!body.alive) return;
+        // temperature is medical / host-authoritative
+        if (Net.IsRunning && !Net.IsServer) return;
 
         const float body_temperature_share_speed = 0.12f * 0.1f;
 
@@ -1375,7 +1506,7 @@ public class NetBody : MonoBehaviour {
             Body otherbody = null;
             if (item2.TryGetComponent<Limb>(out var limb)) {
                 otherbody = limb.body;
-            } 
+            }
 
             if (otherbody != null && otherbody != body && otherbody.alive && otherbody.temperature > 20) {
 
@@ -1440,7 +1571,7 @@ public class NetBody : MonoBehaviour {
 
 
     private bool prev_useiteminhand = false;
-    
+
 
     void FixedUpdate() {
 
@@ -1560,8 +1691,8 @@ public class NetBody : MonoBehaviour {
         return ggg;
     }
     public List<NetBody> GetPiggybackStackAll() {
-        var aaaaa = new List<NetBody> { this };
-        var ggg = this ;
+        List<NetBody> aaaaa = new List<NetBody> { this };
+        var ggg = this;
         int i;
         for (i = 0; i < 1000; i++) {
             if (ggg.piggybacking_on != null) {
@@ -1620,8 +1751,114 @@ public class NetBody : MonoBehaviour {
 
     public NetBody piggybacking_on = null;
     public NetBody carrying_person = null;
+    // stale client sync still has the ground position until the pickup packet lands
+    public float piggybackStartedUnscaled;
+    bool carryPoseAligned;
 
-    // called from fixeddeltatime
+    // charType: 0 experiment, 1 milky, 2 dune - milky sits lower half while carried
+    public bool WantsMilkyCarrySit() {
+        return body != null && body.charType == 1 && piggybacking_on != null;
+    }
+
+    // milky is smaller - sit closer / slightly lower on the carrier than Experiment/Dune
+    const float MilkyCarrySideSep = 0.55f;
+    const float MilkyCarryDownNudge = 0.25f;
+
+    public static void ClearSitAnims(Body b) {
+        if (b == null) {
+            return;
+        }
+        if (b.bodyAnimator != null) {
+            var bodyClips = b.bodyAnimator.GetCurrentAnimatorClipInfo(0);
+            if (bodyClips.Length != 0 && bodyClips[0].clip != null && bodyClips[0].clip.name == "ExperimentSit") {
+                b.bodyAnimator.Play("Grounded");
+                b.standLerpTime = 0f;
+            }
+        }
+        if (b.armsAnimator != null) {
+            var armClips = b.armsAnimator.GetCurrentAnimatorClipInfo(0);
+            if (armClips.Length != 0 && armClips[0].clip != null && armClips[0].clip.name == "ArmsSit") {
+                b.armsAnimator.Play("Grounded");
+            }
+        }
+    }
+
+    public static void ForceSitAnims(Body b) {
+        if (b == null) {
+            return;
+        }
+        if (b.bodyAnimator != null) {
+            b.bodyAnimator.Play("ExperimentSit");
+        }
+        if (b.armsAnimator != null) {
+            b.armsAnimator.Play("ArmsSit");
+        }
+    }
+
+    // body sit only - arms/head stay free so physics can still react while carried
+    public static void ForceMilkyCarrySitBodyAnim(Body b) {
+        if (b == null) {
+            return;
+        }
+        if (b.bodyAnimator != null) {
+            b.bodyAnimator.Play("ExperimentSit");
+        }
+        if (b.armsAnimator != null) {
+            var armClips = b.armsAnimator.GetCurrentAnimatorClipInfo(0);
+            if (armClips.Length != 0 && armClips[0].clip != null && armClips[0].clip.name == "ArmsSit") {
+                b.armsAnimator.Play("Grounded");
+            }
+        }
+    }
+
+    static bool IsMilkyCarrySitLockedLimb(Body b, Limb limb) {
+        if (b == null || limb == null) {
+            return false;
+        }
+        if (limb.isLegLimb) {
+            return true;
+        }
+        return ReferenceEquals(limb, b.GetLowerTorso());
+    }
+
+    // standing HandleVisuals copies animLimb -> limb; ragdoll skips that. drive lower half from ExperimentSit.
+    public static void ApplyMilkyCarrySitLowerPose(Body b) {
+        if (b == null || b.bodyAnimator == null || b.limbs == null) {
+            return;
+        }
+        ForceMilkyCarrySitBodyAnim(b);
+        float facing = b.isRight ? 1f : -1f;
+        Limb down = b.GetLowerTorso();
+        Limb legF = b.limbs.Length > (int)Body.LimbNum.LegF ? b.limbs[(int)Body.LimbNum.LegF] : null;
+        Limb legB = b.limbs.Length > (int)Body.LimbNum.LegB ? b.limbs[(int)Body.LimbNum.LegB] : null;
+        ApplyAnimPoseToLockedLimb(b, down, facing);
+        ApplyAnimPoseToLockedLimb(b, legF, facing);
+        ApplyAnimPoseToLockedLimb(b, legB, facing);
+    }
+
+    static void ApplyAnimPoseToLockedLimb(Body b, Limb limb, float facing) {
+        if (limb == null || limb.animLimb == null || limb.rb == null) {
+            return;
+        }
+        Vector2 local = b.bodyAnimator.transform.InverseTransformPoint(limb.animLimb.position);
+        local *= b.heightMultiplier;
+        limb.transform.localPosition = local;
+        limb.transform.eulerAngles = new Vector3(0f, 0f, limb.animLimb.eulerAngles.z * facing);
+        limb.rb.position = limb.transform.position;
+        limb.rb.rotation = limb.transform.eulerAngles.z;
+        limb.rb.velocity = Vector2.zero;
+        limb.rb.angularVelocity = 0f;
+    }
+
+    // handleVisuals cancels sit when !standing (piggyback Ragdoll). drop a leftover sit clip, then leave the ragdoll alone.
+    public static void ApplyPiggybackCarryPose(Body b) {
+        if (b == null || !b.TryGetComponent(out NetBody nb) || nb.piggybacking_on == null) {
+            return;
+        }
+        ClearSitAnims(b);
+    }
+
+    // called from FixedUpdate; also LateUpdate so we follow noclip (moves carrier in Update).
     void HandlePiggybackUpdate() {
 
         if (carrying_person != null) {
@@ -1646,50 +1883,79 @@ public class NetBody : MonoBehaviour {
             }
 
             body.ForceSwitchDir(targetbody.isRight);
-            
 
             var targettorsorb = targetbody.limbs[(int)Body.LimbNum.UpTorso].rb;
             var torsorb = body.limbs[(int)Body.LimbNum.UpTorso].rb;
-            var targetdowntorsorb = targetbody.GetLowerTorso().rb;
-            var downtorsorb = body.GetUpperTorso().rb;
-
 
             float side = (body.isRight ? 1f : (-1f));
             var standupamount = Vector2.up * (1 - piggybacking_on.body.crouchAmount);
-            Vector2 target_uppertorso_pos = targettorsorb.position + (standupamount ) + (Vector2.left * side);
-            // check if its in a wall or something
-            if (Physics2D.OverlapCircle(target_uppertorso_pos,1, LayerMask.GetMask("Ground")) != null) {
-                target_uppertorso_pos = Vector2.LerpUnclamped(piggybacking_on.pos + standupamount, target_uppertorso_pos,0.1f) ;
+            Vector2 target_uppertorso_pos = targettorsorb.position + standupamount + (Vector2.left * side);
+            if (Physics2D.OverlapCircle(target_uppertorso_pos, 1, LayerMask.GetMask("Ground")) != null) {
+                target_uppertorso_pos = Vector2.LerpUnclamped(piggybacking_on.pos + standupamount, target_uppertorso_pos, 0.1f);
             }
             body.crouchAmount = piggybacking_on.body.crouchAmount;
 
-            SetBodyPosition(target_uppertorso_pos);
-
-            {
-                foreach (var item in body.limbs) {
-                    item.rb.velocity = Vector2.Lerp(item.rb.velocity, targetbody.rb.velocity,0.2f);
+            if (body.alive) {
+                // alive: shift the whole pose onto the back and lerp limb velocity toward the carrier.
+                // that is the old piggyback. only a dead body stays loose.
+                SetBodyPosition(target_uppertorso_pos);
+                Vector2 carrierVel = targetbody.rb.velocity;
+                foreach (Limb item in body.limbs) {
+                    if (item == null || item.rb == null) {
+                        continue;
+                    }
+                    item.rb.velocity = Vector2.Lerp(item.rb.velocity, carrierVel, 0.2f);
+                }
+                torsorb.velocity = carrierVel;
+                Limb upperLimb = body.GetUpperTorso();
+                Rigidbody2D upper = upperLimb != null && upperLimb.rb != null ? upperLimb.rb : torsorb;
+                upper.velocity = carrierVel;
+                Limb head = body.GetHead();
+                if (head != null && head.rb != null) {
+                    head.rb.velocity = carrierVel;
+                }
+                torsorb.rotation = targettorsorb.rotation;
+                torsorb.angularVelocity = targettorsorb.angularVelocity;
+                Limb carrierLower = targetbody.GetLowerTorso();
+                if (carrierLower != null && carrierLower.rb != null && Mathf.DeltaAngle(carrierLower.rb.rotation, upper.rotation) > 10f) {
+                    upper.rotation = Mathf.MoveTowardsAngle(upper.rotation, carrierLower.rb.rotation, Time.fixedDeltaTime * 100f);
+                }
+            } else {
+                // dead stays a loose pile. turn it upright once, then only the chest is driven.
+                Vector2 chestDelta = target_uppertorso_pos - torsorb.position;
+                float upright = Mathf.DeltaAngle(torsorb.rotation, targettorsorb.rotation);
+                bool turnUpright = !carryPoseAligned && Mathf.Abs(upright) > 8f;
+                Quaternion turn = Quaternion.Euler(0f, 0f, upright);
+                Vector2 pivot = torsorb.position;
+                foreach (Limb item in body.limbs) {
+                    if (item == null || item.rb == null) {
+                        continue;
+                    }
+                    Vector2 p = item.rb.position;
+                    if (turnUpright) {
+                        p = pivot + (Vector2)(turn * (p - pivot));
+                        item.rb.MoveRotation(item.rb.rotation + upright);
+                    }
+                    item.rb.position = p + chestDelta;
+                }
+                if (turnUpright) {
+                    carryPoseAligned = true;
                 }
                 torsorb.velocity = targetbody.rb.velocity;
-                downtorsorb.velocity = targetbody.rb.velocity;
-                body.GetHead().rb.velocity = targetbody.rb.velocity;
+                torsorb.angularVelocity = targettorsorb.angularVelocity;
+                torsorb.MoveRotation(targettorsorb.rotation);
             }
-
-            torsorb.rotation = targettorsorb.rotation;
-            torsorb.angularVelocity = targettorsorb.angularVelocity;
-
-            if (Mathf.DeltaAngle(targetdowntorsorb.rotation, downtorsorb.rotation) > 10) {
-                downtorsorb.rotation = Mathf.MoveTowardsAngle(downtorsorb.rotation,targetdowntorsorb.rotation,Time.fixedDeltaTime * 100f);
-            }
-
-
-            //TODO move the body parts as needed
 
         }
 
     }
 
 
+
     public bool CanBeCarriedBySomeone() {
+        if (ConcurrentEndings.ScientistDead && plr != null && !plr.IsUnchipped()) {
+            return false;
+        }
         if (Multiplayer.rules.AlwaysAllowCarry) {
             return true;
         }
@@ -1705,6 +1971,9 @@ public class NetBody : MonoBehaviour {
 
     public bool CanPiggyback(NetBody target, bool check_distance = false, bool force = false) {
         if (this == target) {
+            return false;
+        }
+        if (EndingCarry.Blocked(this, target)) {
             return false;
         }
         if (piggybacking_on == target || body == null || target.body == null) {
@@ -1726,7 +1995,7 @@ public class NetBody : MonoBehaviour {
 #if !RELEASE
                 log.warn("CanPiggyback: Piggyback stack max");
 #endif
-                return false ;
+                return false;
             }
         }
 
@@ -1748,12 +2017,12 @@ public class NetBody : MonoBehaviour {
             if (Util.QuickRaycastInteractionCheck(body.transform.position, target.body.transform.position, true)) {
                 // continue to the return true;  :)
             } else {
-                PlayerCamera.main.DoAlert(Lang.Get("interact_obstructed")); 
+                PlayerCamera.main.DoAlert(Lang.Get("interact_obstructed"));
             }
         }
 
         return true;
-        
+
     }
 
 
@@ -1767,6 +2036,7 @@ public class NetBody : MonoBehaviour {
 
             piggybacking_on = target;
             target.carrying_person = this;
+            piggybackStartedUnscaled = Time.unscaledTime;
 
             // play climbing sound effect, maybe backpack is good enough
             //OG: PlayerCamera.PlayBackpackSound (but only the sound id)
@@ -1803,6 +2073,7 @@ public class NetBody : MonoBehaviour {
 
 
             var carrier = piggybacking_on;
+            carryPoseAligned = false;
             piggybacking_on.carrying_person = null;
             piggybacking_on = null;
 
@@ -1822,7 +2093,7 @@ public class NetBody : MonoBehaviour {
                         if (!IsBodyLocal()) {
                             Server_RemindPlayersCurrentState(true);
                         }
-                    } 
+                    }
                     SetNetIgnoreTime(0.1f);
                 }
             }
@@ -1895,7 +2166,7 @@ public class NetBody : MonoBehaviour {
 
             ServerMain.Server_AnnounceSound(victim.body.rb.position, "landsmall1", IsPlayer ? ServerMain.GetListOfClientIdsExceptThis(this.plr.playerId) : ServerMain.AllClientIds);
 
-            if ( victim.IsPlayer ) {
+            if (victim.IsPlayer) {
                 var writer = Net.CreateWriter(NetmsgId.CLIENT_Knockback_thing);
                 writer.Put(new BodyKnockbackPacket {
                     Velocity = Vector2.zero,
@@ -1905,7 +2176,32 @@ public class NetBody : MonoBehaviour {
             }
 
         }
-            
+
+    }
+
+    public void Hug(NetBody other) {
+        HugSession.Request(this, other);
+    }
+
+    public void Pat(NetBody other) {
+        HeadpatSession.Request(this, other);
+    }
+
+    public void Bite(NetBody other) {
+        DuneBiteSession.Request(this, other);
+    }
+
+    public static void TryDuneKeybindBite() {
+        DuneBiteSession.TryKeybindBite();
+    }
+
+    public static void DuneBiteSessionTick() {
+        DuneBiteSession.ServerTickAuto();
+    }
+
+    // UIChoicePrompt auto-accepts dune bite when local body cannot consent
+    public static bool DuneBiteSessionCannotConsent(Body body) {
+        return DuneBiteSession.CannotConsent(body);
     }
 
 
@@ -1923,7 +2219,7 @@ public class NetBody : MonoBehaviour {
     }
 
 
-    public void Server_RemindPlayersCurrentState( bool reliable = true) {
+    public void Server_RemindPlayersCurrentState(bool reliable = true) {
         SetNetIgnoreTime();
 
         body.moveDir = Vector2.zero;
@@ -1945,24 +2241,584 @@ public class NetBody : MonoBehaviour {
 
     }
 
+    // hug sits with push. ask, they accept, then a short pull-together and a small mood bump.
+    static class HugSession {
+        const float AcceptDistance = 5f;
+        const float VisualDistance = 6f;
+        const float DurationSeconds = 3f;
+        const float RequestCooldown = 1f;
+        const double HardLockSeconds = 10.0;
+        const double MoodCooldownSeconds = 600.0;
+        const float MoodRampStart = 0.7f;
+        const float MoodRampFloor = 0.01f;
 
+        static readonly Dictionary<ushort, double> MoodReadyAt = new Dictionary<ushort, double>();
+        static readonly Dictionary<ushort, ushort> PendingFrom = new Dictionary<ushort, ushort>();
+        static readonly List<Pose> Poses = new List<Pose>();
+        static int _velocityFrame = -1;
+        static int _armFrame = -1;
 
+        sealed class Pose {
+            public Body A;
+            public Body B;
+            public double Ends;
+        }
 
+        [CTPostInit]
+        static void Init() {
+            ServerMain.ServerCustomCommandsDict["hug_ask"] = (plr, cmd, args) => {
+                if (args == null || args.Length < 2 || !ushort.TryParse(args[1], out ushort targetId)) {
+                    return;
+                }
+                if (!ScavPlayer.TryGetPlayerFromClientId(targetId, out ScavPlayer target)) {
+                    return;
+                }
+                Ask(plr, target);
+            };
+            ClientMain.ClientCustomCommandsDict["hug_go"] = (cmd, reader) => {
+                reader.Get(out ushort a);
+                reader.Get(out ushort b);
+                BeginLocal(a, b);
+            };
+        }
 
+        public static void Request(NetBody self, NetBody other) {
+            if (self == null || other == null || self.plr == null || other.plr == null || self == other) {
+                return;
+            }
+            if (!Huggable(self.body) || !Huggable(other.body) || Tied(self, other)) {
+                return;
+            }
+            if (!Near(self.body, other.body, AcceptDistance)) {
+                if (PlayerCamera.main != null) {
+                    PlayerCamera.main.DoAlert(Lang.Get("hug_far"));
+                }
+                return;
+            }
+            if (Net.IsServer) {
+                Ask(self.plr, other.plr);
+                return;
+            }
+            LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("CustomCommand");
+            writer.Put("hug_ask " + other.plr.playerId.id.ToString());
+            Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
+        }
 
+        static void Ask(ScavPlayer from, ScavPlayer target) {
+            if (!Net.IsServer || from == null || target == null || from == target) {
+                return;
+            }
+            if (from.netBody == null || target.netBody == null) {
+                return;
+            }
+            if (!from.ServerPlayerState.Cooldown("hug", RequestCooldown)) {
+                from.Server_DoAlertSingle("<key:hug_soon>");
+                return;
+            }
+            if (!Huggable(from.body) || !Huggable(target.body) || Tied(from.netBody, target.netBody)) {
+                return;
+            }
+            if (!Near(from.body, target.body, AcceptDistance)) {
+                from.Server_DoAlertSingle("<key:hug_far>");
+                return;
+            }
+            if (InPose(from.body) || InPose(target.body)) {
+                from.Server_DoAlertSingle("<key:hug_busy>");
+                return;
+            }
+            ushort targetId = target.playerId.id;
+            PendingFrom[targetId] = from.playerId.id;
+            ServerMain.PromptPlayer(target, "HUG", "<body:" + from.netBody.netId.ToString() + ">", "<key:plrint_hug_ask>", (answer) => {
+                if (!PendingFrom.TryGetValue(targetId, out ushort stillFrom) || stillFrom != from.playerId.id) {
+                    return;
+                }
+                PendingFrom.Remove(targetId);
+                if (answer != 0) {
+                    from.Server_DoAlertSingle("<bodyc:" + target.netBody.netId.ToString() + "> <key:declined>.");
+                    return;
+                }
+                Start(from, target);
+            });
+        }
 
+        static void Start(ScavPlayer a, ScavPlayer b) {
+            if (a == null || b == null || a.netBody == null || b.netBody == null) {
+                return;
+            }
+            if (!Huggable(a.body) || !Huggable(b.body) || !Near(a.body, b.body, AcceptDistance)) {
+                a.Server_DoAlertSingle("<key:hug_far>");
+                b.Server_DoAlertSingle("<key:hug_far>");
+                return;
+            }
+            if (InPose(a.body) || InPose(b.body)) {
+                a.Server_DoAlertSingle("<key:hug_busy>");
+                return;
+            }
+            ApplyMood(a, b);
+            BeginLocal(a.playerId.id, b.playerId.id);
+            LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("CustomCommand");
+            writer.Put("hug_go");
+            writer.Put(a.playerId.id);
+            writer.Put(b.playerId.id);
+            Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, ServerMain.AllClientIdsExceptHost);
+        }
 
+        static void BeginLocal(ushort aId, ushort bId) {
+            if (!ScavPlayer.TryGetPlayerFromClientId(aId, out ScavPlayer a) || a.body == null) {
+                return;
+            }
+            if (!ScavPlayer.TryGetPlayerFromClientId(bId, out ScavPlayer b) || b.body == null) {
+                return;
+            }
+            Pose pose = new Pose {
+                A = a.body,
+                B = b.body,
+                Ends = Time.realtimeSinceStartupAsDouble + DurationSeconds,
+            };
+            Poses.Add(pose);
+            // same species lines traders use on a successful hug
+            if (a.body.talker != null) {
+                List<string> lines = Locale.GetCharacter("traderhugsuccess", a.body.charType);
+                if (lines != null && lines.Count > 0) {
+                    Talker_Talk_MultiplayerPatch.Force(a.body.talker, lines, null, true, true);
+                }
+            }
+        }
 
+        public static void TickVelocity() {
+            if (_velocityFrame == Time.frameCount) {
+                return;
+            }
+            _velocityFrame = Time.frameCount;
+            double now = Time.realtimeSinceStartupAsDouble;
+            for (int i = Poses.Count - 1; i >= 0; i--) {
+                Pose pose = Poses[i];
+                if (pose.A == null || pose.B == null || now >= pose.Ends || !Near(pose.A, pose.B, VisualDistance)) {
+                    Poses.RemoveAt(i);
+                    continue;
+                }
+                ApplyPose(pose.A, pose.B);
+            }
+        }
 
+        public static void TickArms() {
+            if (_armFrame == Time.frameCount) {
+                return;
+            }
+            _armFrame = Time.frameCount;
+            for (int i = 0; i < Poses.Count; i++) {
+                Pose pose = Poses[i];
+                if (pose.A == null || pose.B == null) {
+                    continue;
+                }
+                ApplyArms(pose.A, pose.B);
+            }
+        }
 
+        static void ApplyMood(ScavPlayer a, ScavPlayer b) {
+            double now = Time.realtimeSinceStartupAsDouble;
+            Reward(a.body, MoodScale(a.playerId.id, now));
+            Reward(b.body, MoodScale(b.playerId.id, now));
+            MoodReadyAt[a.playerId.id] = now;
+            MoodReadyAt[b.playerId.id] = now;
+            if (a.netBody != null) {
+                MedicalSync.Server_QueueSendCharacterHealth(a.netBody, true);
+            }
+            if (b.netBody != null) {
+                MedicalSync.Server_QueueSendCharacterHealth(b.netBody, true);
+            }
+        }
+
+        static float MoodScale(ushort id, double now) {
+            if (!MoodReadyAt.TryGetValue(id, out double started)) {
+                return 1f;
+            }
+            double elapsed = Math.Max(0.0, now - started);
+            if (elapsed >= MoodCooldownSeconds) {
+                MoodReadyAt.Remove(id);
+                return 1f;
+            }
+            if (elapsed < HardLockSeconds) {
+                return 0f;
+            }
+            float progress = Mathf.Clamp01((float)(elapsed / MoodCooldownSeconds));
+            if (progress < MoodRampStart) {
+                return 0f;
+            }
+            if (progress >= 1f) {
+                return 1f;
+            }
+            float ramp = Mathf.Clamp01((progress - MoodRampStart) / (1f - MoodRampStart));
+            return Mathf.Lerp(MoodRampFloor, 1f, Mathf.Pow(ramp, 1.6f));
+        }
+
+        static void Reward(Body body, float scale) {
+            if (body == null || scale <= 0f) {
+                return;
+            }
+            float delta = UnityEngine.Random.Range(1, 6) * scale;
+            body.happiness = Mathf.Clamp(body.happiness + delta, -100f, 100f);
+        }
+
+        static bool Huggable(Body body) {
+            return body != null && body.alive && body.conscious;
+        }
+
+        static bool Tied(NetBody a, NetBody b) {
+            return a.piggybacking_on == b || b.piggybacking_on == a || a.carrying_person == b || b.carrying_person == a;
+        }
+
+        static bool Near(Body a, Body b, float max) {
+            if (a == null || b == null) {
+                return false;
+            }
+            Vector2 delta = (Vector2)a.transform.position - (Vector2)b.transform.position;
+            return delta.sqrMagnitude <= max * max;
+        }
+
+        static bool InPose(Body body) {
+            for (int i = 0; i < Poses.Count; i++) {
+                Pose pose = Poses[i];
+                if (pose.A == body || pose.B == body) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static void ApplyPose(Body a, Body b) {
+            Vector2 posA = a.transform.position;
+            Vector2 posB = b.transform.position;
+            Vector2 direction = posB - posA;
+            if (direction.sqrMagnitude < 0.001f) {
+                direction = Vector2.right;
+            }
+            Vector2 normal = direction.normalized;
+            Vector2 center = (posA + posB) * 0.5f;
+            Vector2 targetA = center - normal * 0.42f;
+            Vector2 targetB = center + normal * 0.42f;
+            targetA.y = posA.y;
+            targetB.y = posB.y;
+            a.SetVelocity((targetA - posA) * 7.5f);
+            b.SetVelocity((targetB - posB) * 7.5f);
+            a.eyeCloseTime = Mathf.Max(a.eyeCloseTime, 0.2f);
+            b.eyeCloseTime = Mathf.Max(b.eyeCloseTime, 0.2f);
+            a.targetLookPos = new Vector2(posB.x, posB.y + 1f);
+            b.targetLookPos = new Vector2(posA.x, posA.y + 1f);
+        }
+
+        static void ApplyArms(Body a, Body b) {
+            Vector2 direction = b.transform.position - a.transform.position;
+            if (direction.sqrMagnitude < 0.001f) {
+                direction = Vector2.right;
+            }
+
+            Vector2 normal = direction.normalized;
+            Vector2 side = new Vector2(-normal.y, normal.x);
+            Vector2 aTarget = (Vector2)b.transform.position - normal * 0.18f;
+            Vector2 bTarget = (Vector2)a.transform.position + normal * 0.18f;
+            ApplyArmPair(a, aTarget + side * 0.22f, aTarget - side * 0.22f);
+            ApplyArmPair(b, bTarget - side * 0.22f, bTarget + side * 0.22f);
+        }
+
+        static void ApplyArmPair(Body body, Vector2 upperTarget, Vector2 lowerTarget) {
+            if (body.limbs == null || body.limbs.Length == 0) {
+                return;
+            }
+            Limb leftForearm = LimbAt(body, 4);
+            Limb leftHand = LimbAt(body, 5);
+            Limb rightForearm = LimbAt(body, 7);
+            Limb rightHand = LimbAt(body, 8);
+            PullLimb(leftForearm, upperTarget);
+            Vector2 leftFrom = leftForearm != null ? (Vector2)leftForearm.transform.position : upperTarget;
+            PullLimb(leftHand, Vector2.Lerp(leftFrom, upperTarget, 0.8f));
+            PullLimb(rightForearm, lowerTarget);
+            Vector2 rightFrom = rightForearm != null ? (Vector2)rightForearm.transform.position : lowerTarget;
+            PullLimb(rightHand, Vector2.Lerp(rightFrom, lowerTarget, 0.8f));
+        }
+
+        static Limb LimbAt(Body body, int index) {
+            if (body.limbs == null || index < 0 || index >= body.limbs.Length) {
+                return null;
+            }
+            Limb limb = body.limbs[index];
+            if (limb == null || limb.dismembered) {
+                return null;
+            }
+            return limb;
+        }
+
+        static void PullLimb(Limb limb, Vector2 target) {
+            if (limb == null) {
+                return;
+            }
+            Vector2 next = Vector2.Lerp(limb.transform.position, target, 0.82f);
+            limb.transform.position = new Vector3(next.x, next.y, limb.transform.position.z);
+        }
+    }
+
+    // dune player "Feed on" / K / auto-hunger -> consent (skipped if uncon), traderbite damage + eatFlesh + +35 hunger
+    static class DuneBiteSession {
+        const float AskDistance = 5f;
+        const float HealthPanelRangeMult = 2f;
+        const float RequestCooldown = 0.1f;
+        const float AutoHungerMax = 10f;
+        const float AutoChance = 0.05f;
+        const float HungerGain = 35f;
+        const float UnconsciousAmpChance = 0.01f;
+
+        static readonly string[] BiteLines = {
+            "Mmmm.. m..",
+            "Th-ank...",
+            "Fri-end tas-ty....",
+        };
+
+        static readonly Dictionary<ushort, ushort> PendingFrom = new Dictionary<ushort, ushort>();
+
+        [CTPostInit]
+        static void Init() {
+            ServerMain.ServerCustomCommandsDict["dune_bite_ask"] = (plr, cmd, args) => {
+                if (args == null || args.Length < 2 || !ushort.TryParse(args[1], out ushort targetId)) {
+                    return;
+                }
+                if (!ScavPlayer.TryGetPlayerFromClientId(targetId, out ScavPlayer target)) {
+                    return;
+                }
+                bool seenUnconscious = args.Length >= 3 && args[2] == "1";
+                Ask(plr, target, seenUnconscious);
+            };
+            ClientMain.ClientCustomCommandsDict["dune_bite_go"] = (cmd, reader) => {
+                reader.Get(out ushort duneId);
+                reader.Get(out ushort victimId);
+                PlayLocalFx(duneId, victimId);
+            };
+        }
+
+        // local K / Feed on: bite whoever is under the cursor (or the interaction target)
+        public static void TryKeybindBite() {
+            if (!Net.IsRunning || !Util.IsWorldGenerated()) {
+                return;
+            }
+            ScavPlayer me = ScavPlayer.LocalPlayer;
+            if (me == null || me.netBody == null || !IsDune(me.body)) {
+                return;
+            }
+            if (Con.IsConsoleOpen() || (PlayerCamera.main != null && PlayerCamera.main.radialOpen)) {
+                return;
+            }
+            NetBody target = PlayerCamera_HandlePlayerHover_MultiplayerPatch.hoveredPlayerBody;
+            if (target == null && UIInGame.interaction_menu_target_body != null) {
+                target = UIInGame.interaction_menu_target_body;
+            }
+            if (target == null || target == me.netBody || !target.IsPlayer) {
+                return;
+            }
+            Request(me.netBody, target);
+        }
+
+        public static void Request(NetBody self, NetBody other) {
+            if (self == null || other == null || self.plr == null || other.plr == null || self == other) {
+                return;
+            }
+            if (!IsDune(self.body) || !Biteable(other.body)) {
+                return;
+            }
+            if (!Near(self.body, other.body, AskDistance)) {
+                if (PlayerCamera.main != null) {
+                    PlayerCamera.main.DoAlert(Lang.Get("interact_obstructed"));
+                }
+                return;
+            }
+            if (Net.IsServer) {
+                Ask(self.plr, other.plr, CannotConsent(other.body));
+                return;
+            }
+            LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("CustomCommand");
+            // the biter's copy is what everyone can see. the host body can still say "awake" and would otherwise pop the prompt.
+            string ko = CannotConsent(other.body) ? " 1" : " 0";
+            writer.Put("dune_bite_ask " + other.plr.playerId.id.ToString() + ko);
+            Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
+        }
+
+        static void Ask(ScavPlayer from, ScavPlayer target, bool seenUnconscious = false) {
+            if (!Net.IsServer || from == null || target == null || from == target) {
+                return;
+            }
+            if (from.netBody == null || target.netBody == null || from.ServerPlayerState == null) {
+                return;
+            }
+            if (!from.ServerPlayerState.Cooldown("dune_bite", RequestCooldown)) {
+                from.Server_DoAlertSingle("<key:hug_soon>");
+                return;
+            }
+            if (!IsDune(from.body) || !Biteable(target.body)) {
+                return;
+            }
+            if (!Near(from.body, target.body, AskDistance * 1.2f)) {
+                from.Server_DoAlertSingle("<key:interact_obstructed>");
+                return;
+            }
+            // asleep / KO / low consciousness cannot consent - feed immediately
+            if (seenUnconscious || CannotConsent(target.body)) {
+                ApplyBite(from.netBody, target.netBody);
+                return;
+            }
+            ushort targetId = target.playerId.id;
+            PendingFrom[targetId] = from.playerId.id;
+            // same prompt shell as give/hug; Yes/No via DUNE_BITE id
+            ServerMain.PromptPlayer(target, "DUNE_BITE",
+                "<body:" + from.netBody.netId.ToString() + ">",
+                "<key:plrint_bite_ask>",
+                (answer) => {
+                    if (!PendingFrom.TryGetValue(targetId, out ushort stillFrom) || stillFrom != from.playerId.id) {
+                        return;
+                    }
+                    PendingFrom.Remove(targetId);
+                    // victim may have gone KO after the prompt was sent
+                    if (CannotConsent(target.body)) {
+                        if (!IsDune(from.body) || !Biteable(target.body) || !Near(from.body, target.body, AskDistance * 1.4f)) {
+                            from.Server_DoAlertSingle("<key:interact_obstructed>");
+                            return;
+                        }
+                        ApplyBite(from.netBody, target.netBody);
+                        return;
+                    }
+                    if (answer != 0) {
+                        from.Server_DoAlertSingle("<bodyc:" + target.netBody.netId.ToString() + "> <key:declined>.");
+                        return;
+                    }
+                    if (!IsDune(from.body) || !Biteable(target.body) || !Near(from.body, target.body, AskDistance * 1.4f)) {
+                        from.Server_DoAlertSingle("<key:interact_obstructed>");
+                        return;
+                    }
+                    ApplyBite(from.netBody, target.netBody);
+                    from.Server_DoAlertSingle("<bodyc:" + target.netBody.netId.ToString() + "> <key:accepted>.");
+                });
+        }
+
+        // host: once/sec, hungry dunes (≤10) may auto-bite nearest player in health-panel range
+        public static void ServerTickAuto() {
+            if (!Net.IsServer || !Util.IsWorldGenerated()) {
+                return;
+            }
+            float range = SharedMain.max_player_interaction_distance * HealthPanelRangeMult;
+            float rangeSqr = range * range;
+            foreach (ScavPlayer dunePlr in ScavPlayer.AllLivingPlayers) {
+                if (dunePlr == null || dunePlr.netBody == null || dunePlr.body == null) {
+                    continue;
+                }
+                if (!IsDune(dunePlr.body) || dunePlr.body.hunger > AutoHungerMax) {
+                    continue;
+                }
+                if (UnityEngine.Random.value >= AutoChance) {
+                    continue;
+                }
+                NetBody nearest = null;
+                float nearestSqr = float.PositiveInfinity;
+                Vector2 dunePos = dunePlr.body.transform.position;
+                foreach (ScavPlayer other in ScavPlayer.AllLivingPlayers) {
+                    if (other == null || other == dunePlr || other.netBody == null || other.body == null) {
+                        continue;
+                    }
+                    if (!Biteable(other.body)) {
+                        continue;
+                    }
+                    float distSqr = ((Vector2)other.body.transform.position - dunePos).sqrMagnitude;
+                    if (distSqr <= rangeSqr && distSqr < nearestSqr) {
+                        nearestSqr = distSqr;
+                        nearest = other.netBody;
+                    }
+                }
+                if (nearest != null) {
+                    ApplyBite(dunePlr.netBody, nearest);
+                }
+            }
+        }
+
+        static void ApplyBite(NetBody dune, NetBody victim) {
+            if (dune == null || victim == null || dune.body == null || victim.body == null) {
+                return;
+            }
+            Body bitten = victim.body;
+            List<Limb> limbs = bitten.limbs.Skip(3).Where(x => x != null && !x.dismembered).ToList();
+            if (limbs.Count == 0) {
+                return;
+            }
+            Limb limb = limbs.PickRandom();
+            limb.muscleHealth -= UnityEngine.Random.Range(25f, 40f);
+            limb.skinHealth -= UnityEngine.Random.Range(12f, 20f);
+            limb.bleedAmount += UnityEngine.Random.Range(6f, 12f);
+            limb.pain += UnityEngine.Random.Range(37f, 55f);
+            bitten.adrenaline += 40f;
+
+            // 1% chance to rip off an extremity when feeding on the unconscious
+            if (!bitten.conscious && UnityEngine.Random.value < UnconsciousAmpChance) {
+                List<Limb> extremities = bitten.limbs
+                    .Where(x => x != null && !x.dismembered && !x.isAbdomen && !x.isHead && !x.isVital)
+                    .ToList();
+                if (extremities.Count > 0) {
+                    extremities.PickRandom().Dismember();
+                }
+            }
+
+            dune.body.hunger = Mathf.Clamp(dune.body.hunger + HungerGain, -50f, 125f);
+
+            victim.OnDamageEvent(new BodyDamageEvent(dune, victim, null, 30f));
+            MedicalSync.ForceHealth(victim);
+            MedicalSync.ForceHealth(dune);
+
+            PlayLocalFx(dune.plr != null ? dune.plr.playerId.id : (ushort)0, victim.plr != null ? victim.plr.playerId.id : (ushort)0);
+
+            LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("CustomCommand");
+            writer.Put("dune_bite_go");
+            writer.Put(dune.plr != null ? dune.plr.playerId.id : (ushort)0);
+            writer.Put(victim.plr != null ? victim.plr.playerId.id : (ushort)0);
+            Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, ServerMain.AllClientIdsExceptHost);
+        }
+
+        static void PlayLocalFx(ushort duneId, ushort victimId) {
+            if (!ScavPlayer.TryGetPlayerFromClientId(duneId, out ScavPlayer dunePlr) || dunePlr.body == null) {
+                return;
+            }
+            if (!ScavPlayer.TryGetPlayerFromClientId(victimId, out ScavPlayer victimPlr) || victimPlr.body == null) {
+                return;
+            }
+            Body duneBody = dunePlr.body;
+            Body victimBody = victimPlr.body;
+            victimBody.DoGoreSound();
+            Sound.Play("eatFlesh", victimBody.transform.position);
+            if (duneBody.talker != null) {
+                string line = BiteLines[UnityEngine.Random.Range(0, BiteLines.Length)];
+                Talker_Talk_MultiplayerPatch.Force(duneBody.talker, new List<string> { line }, null, true, true);
+            }
+        }
+
+        static bool IsDune(Body body) {
+            return body != null && body.alive && body.charType == 2;
+        }
+
+        // matches UI KO / asleep: conscious is consciousness>30; status "unconscious" uses <=20; sleeping can keep consciousness high
+        internal static bool CannotConsent(Body body) {
+            if (body == null || !body.alive) {
+                return true;
+            }
+            if (body.sleeping || !body.conscious || body.consciousness <= 30f) {
+                return true;
+            }
+            return false;
+        }
+
+        static bool Biteable(Body body) {
+            return body != null && body.alive && body.limbs != null && body.limbs.Skip(3).Any(x => x != null && !x.dismembered);
+        }
+
+        static bool Near(Body a, Body b, float max) {
+            if (a == null || b == null) {
+                return false;
+            }
+            Vector2 delta = (Vector2)a.transform.position - (Vector2)b.transform.position;
+            return delta.sqrMagnitude <= max * max;
+        }
+    }
 
 }
-
-
-
-
-
-
-
-
-

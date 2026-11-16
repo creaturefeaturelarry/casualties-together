@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 	
 	
 	
@@ -73,6 +73,8 @@
 		<EmbeddedResource Include="assets\locale\EN.json" />
 		<EmbeddedResource Include="assets\locale\es-ES.json" />
 		<EmbeddedResource Include="assets\locale\zh-CN.json" />
+		<EmbeddedResource Include="assets\locale\zh-TW.json" />
+		<EmbeddedResource Include="assets\nsfw-server-filter.json" />
 		<EmbeddedResource Include="assets\retrogaming.bundle" />
 		<EmbeddedResource Include="assets\textures\dune_stare.png" />
 		<EmbeddedResource Include="assets\textures\alertthing.png" />
@@ -86,12 +88,21 @@
 		<EmbeddedResource Include="assets\textures\crafting.png" />
 		<EmbeddedResource Include="assets\textures\d\krokosha666.png" />
 		<EmbeddedResource Include="assets\textures\excl.png" />
+		<EmbeddedResource Include="assets\textures\handcrank.png" />
+		<EmbeddedResource Include="assets\textures\headpat_arm1.png" />
+		<EmbeddedResource Include="assets\textures\headpat_arm2.png" />
+		<EmbeddedResource Include="assets\textures\headpat_arm3.png" />
+		<EmbeddedResource Include="assets\textures\headpat_head0.png" />
+		<EmbeddedResource Include="assets\textures\headpat_head1.png" />
+		<EmbeddedResource Include="assets\textures\headpat_head2.png" />
 		<EmbeddedResource Include="assets\textures\happy.png" />
 		<EmbeddedResource Include="assets\textures\healicon.png" />
 		<EmbeddedResource Include="assets\textures\inspectself.png" />
+		<EmbeddedResource Include="assets\textures\inventory.png" />
 		<EmbeddedResource Include="assets\textures\king.png" />
 		<EmbeddedResource Include="assets\textures\krokosha.jpg" />
 		<EmbeddedResource Include="assets\textures\lock.png" />
+		<EmbeddedResource Include="assets\textures\lockpick.png" />
 		<EmbeddedResource Include="assets\textures\logo_casualtiestogether.png" />
 		<EmbeddedResource Include="assets\textures\logo_casualtiestogether_horizontal.png" />
 		<EmbeddedResource Include="assets\textures\logo_casualtiestogether_nomiddle.png" />
@@ -145,6 +156,9 @@
 		</Reference>
 		<Reference Include="LiteEntitySystem">
 			<HintPath>$(LibsDir)\LiteEntitySystem.dll</HintPath>
+		</Reference>
+		<Reference Include="CUCoreLib">
+			<HintPath>$(LibsDir)\CUCoreLib\CUCoreLib.dll</HintPath>
 		</Reference>
 		<Reference Include="com.rlabrecque.steamworks.net" Condition="'$(GameType)' != 'Fullgame'">
 			<HintPath>$(LibsDir)\com.rlabrecque.steamworks.net.dll</HintPath>
@@ -468,6 +482,12 @@
 		<Compile Remove="Optimizinator\Evidence\archived\EvidenceBag.cs" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<EmbeddedResource Include="Skins\spritereplacer1.png">
+			<LogicalName>body_sprite_replacer.resources.spritereplacer1.png</LogicalName>
+		</EmbeddedResource>
+	</ItemGroup>
+
 	<Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile">
 		<WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.cs" Lines="namespace Together%3B public static class BuildInfo { public const string MOD_VERSION = &quot;$(FullModVersion)&quot;%3B }" Overwrite="true" />
 		<ItemGroup>
@@ -485,7 +505,7 @@
 		<Copy SourceFiles="@(BuildOutputFiles)" DestinationFolder="$(ModPluginOutputDir)" SkipUnchangedFiles="true" />
 
 		<ItemGroup>
-			<LibraryFiles Include="$(SlnRoot)\libs\dlls\*" />
+			<LibraryFiles Include="$(SlnRoot)\libs\dlls\*.dll" Exclude="$(SlnRoot)\libs\dlls\com.rlabrecque.steamworks.net.dll;$(SlnRoot)\libs\dlls\steam_api64.dll" />
 		</ItemGroup>
 
 		<Copy SourceFiles="@(LibraryFiles)" DestinationFolder="$(ModPluginOutputDir)" SkipUnchangedFiles="true" />

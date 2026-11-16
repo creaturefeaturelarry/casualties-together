@@ -119,7 +119,7 @@ public partial class KnownPersons : CasualtiesTogetherSingleton {
     static void AddStars(string encrypted) {
         ReadFile(encrypted);
 
-        foreach (var item in ScavPlayer.ClientIdToPlayerDict.Values) {
+        foreach (var item in ScavPlayer.AllPlayers) {
             if (item.body != null && KnownPersons.CanDoFancyNametagFor(item)) {
                 CharStatusVisuals.MakeNametagFancy(item.netBody.visual.nametag.GetComponent<TextMeshPro>(), item);
             }
