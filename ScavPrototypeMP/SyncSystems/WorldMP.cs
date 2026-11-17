@@ -7,6 +7,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -162,6 +163,28 @@ public class WorldMP : CasualtiesTogetherSingleton {
         }
     }
 
+    // SaveSystem.TupleListToDic throws when even a single setting is missing. This one just skips them
+    static Dictionary<string, object> SettingTupleListToDict(List<(string, string)> tupleList) {
+        if (tupleList == null)
+            throw new ArgumentNullException(nameof(tupleList));
+
+        Dictionary<string, object> dict = new();
+        foreach ((string settingKey, string valueStr) in tupleList) {
+            List<RunSetting> matches = RunSettings.settingTypes.Where(x => x.name == settingKey).ToList();
+            if (matches.Count == 0)
+                continue;
+
+            RunSetting first = matches[0];
+            if (first is RunSettingFloat)
+                dict.Add(settingKey, float.Parse(valueStr, CultureInfo.InvariantCulture));
+            else if (first is RunSettingBool)
+                dict.Add(settingKey, bool.Parse(valueStr));
+            else if (first is RunSettingDropdown)
+                dict.Add(settingKey, int.Parse(valueStr));
+        }
+        return dict;
+    }
+
     public static string CompileRunSettings() {
         string input = JsonConvert.SerializeObject(SaveSystem.DicToTupleList(runSettings), Formatting.None, new JsonSerializerSettings {
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
@@ -175,7 +198,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
             base64 = Encoding.UTF8.GetString(Util.Decompress(Convert.FromBase64String(base64)));
             JArray jArray = JArray.Parse(base64);
 
-            foreach (KeyValuePair<string, object> item2 in SaveSystem.TupleListToDic(jArray.ToObject<List<(string, string)>>())) {
+            foreach (KeyValuePair<string, object> item2 in SettingTupleListToDict(jArray.ToObject<List<(string, string)>>())) {
                 dict[item2.Key] = item2.Value;
             }
         } catch (Exception e) {
