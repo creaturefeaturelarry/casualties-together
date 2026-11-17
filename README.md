@@ -193,6 +193,7 @@ Credits are listed in "About" menu inside the mod.<br>
 ### Contributors:
 [Dune](https://github.com/Jyan-sei) - Sync, Optimizations<br>
 [VtLoader](https://github.com/vtloader) - Bug fixes, Locale<br>
+[Sharkmare](https://github.com/Sharkmare) - Skins, UI, Netcode, Bug fixes<br>
 [Gary the Cat](https://github.com/Garythecat89), [Dannad](https://github.com/danxnader), [Meow](https://github.com/SprightlyHawk8), [Jimmyking](https://github.com/jimmyking9999999), [Kidihh](https://github.com/Kidihh), [Dawn](https://github.com/hehdawn), [mayzmae](https://github.com/mayzmae), ItsVoidSK<br>
 ...And a bunch of playtesters
 
