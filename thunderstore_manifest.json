@@ -1,0 +1,10 @@
+{
+    "name": "CasualtiesTogether",
+    "author": "Creature",
+    "website_url": "https://buymeacoffee.com/casualtiestogether",
+    "description": "Multiplayer Co-op mod for Casualties: Unknown",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2305"
+    ]
+
+}
