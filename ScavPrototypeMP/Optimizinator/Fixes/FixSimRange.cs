@@ -77,6 +77,13 @@ internal static class FixSimRange {
         return Gate(instructions, "GrabberPlant.Update");
     }
 
+    // same renderer check for IK handles.
+    [HarmonyPatch(typeof(IKHandle), "Update")]
+    [HarmonyTranspiler]
+    static IEnumerable<CodeInstruction> IKHandle_Update(IEnumerable<CodeInstruction> instructions) {
+        return Gate(instructions, "IKHandle.Update");
+    }
+
     // CHUNKS_VISIBLE_TO_PLAYERS is the bool grid stock already consults.
     static bool[,] Table() {
         if (_table == null)
