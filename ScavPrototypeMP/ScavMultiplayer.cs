@@ -138,6 +138,7 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
     public bool Permadeath = false;         // DONE // disable all forms of non-cheat respawn
     public bool ReviveOnNextLevel = false;  // DONE // respawn all dead players when reaching next layer
     public bool ReviveFromTrader = true;    // DONE //  recruit trader as a form of respawn
+    public bool TraderReviveAsSpecies = false; // recruit revive becomes that trader's species
 
 
     public bool RespawnKeepInventory = false;
@@ -594,11 +595,11 @@ public class Multiplayer : MonoBehaviour {
 
     public static bool AdditionalApprovalCheck(ref NetDataReader reader, string plrname, ref string reject_reason) {
         if (reject_reason == null) {
-            reject_reason = "Connection rejected";
+            reject_reason = "<key:deny_connection_rejected>";
         }
 
         if (Util.IsInWorld() && !rules.LateJoinAllowed) {
-            reject_reason = "Game is already in progress.";
+            reject_reason = "<key:deny_game_in_progress>";
             return false;
         }
 
@@ -902,11 +903,11 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
 
             if (UIInGame.SpectatorModeActive) {
-                GUI.Label(new Rect(20, y, 400, elsize), "Spectator mode active ");
+                GUI.Label(new Rect(20, y, 400, elsize), Lang.Get("hud_spectator_mode"));
                 y += elsize;
             }
             if (UIInGame.interaction_menu_target_body != null) {
-                GUI.Label(new Rect(20, y, 400, elsize), "Player interaction menu active " + UIInGame.interaction_menu_target_body.ToString());
+                GUI.Label(new Rect(20, y, 400, elsize), string.Format(Lang.Get("hud_interaction_menu"), UIInGame.interaction_menu_target_body.ToString()));
                 y += elsize;
             }
 
@@ -1025,7 +1026,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
             var ogwordwrap = GUI.skin.label.wordWrap;
             GUI.skin.label.wordWrap = true;
 
-            var txt = "Last Status Message:\n" + multiplayerStatusMessage;
+            var txt = Lang.Get("netpanel_laststatus") + "\n" + multiplayerStatusMessage;
 
             var texthiehgt = GUI.skin.label.CalcHeight(KrokV5Optimization.FixGuiContent.Content(txt, 36), 400);
 
@@ -1041,10 +1042,10 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
         if (Voicechat.my_output_volume > 0) {
             if (UIBullshit.IsAnyMenuOpen()) {
-                GUI.Label(new Rect(20, y, 300, elsize), "Voicechat current volume level: " + Voicechat.my_output_volume.ToString("F2"));
+                GUI.Label(new Rect(20, y, 300, elsize), string.Format(Lang.Get("hud_vc_volume"), Voicechat.my_output_volume.ToString("F2")));
                 y += elsize;
             } else {
-                GUI.Label(new Rect(20, y, 200, elsize), "Voicechat active.");
+                GUI.Label(new Rect(20, y, 200, elsize), Lang.Get("hud_vc_active"));
                 y += elsize;
             }
         }
@@ -1208,12 +1209,12 @@ S_LerpFactor: {_entityManager.LerpFactor}";
     public static bool ValidateClientConnectIntroductionPacket(NetDataReader reader, ref IntroductionPlayerInfo userInfo, out string deny_reason, bool check_name = true, bool userHasMasterKey = false) {
         userInfo.userName = "EMPTY_STRING";
         userInfo.color = Color24.black;
-        deny_reason = $"Server broke or some shi ig.";
+        deny_reason = "Server error.";
 
         try {
 
             if (!Multiplayer.ReadClientConnectIntroductionPacket(reader, ref userInfo)) {
-                deny_reason = ($"Corrupt payload.");
+                deny_reason = "Corrupt payload.";
                 return false;
             }
 
@@ -1225,24 +1226,25 @@ S_LerpFactor: {_entityManager.LerpFactor}";
                     else
                         deny_reason = ($"Version mismatch.");
 #else
-                    deny_reason = ($"Version mismatch.");
+                    // A mismatched (possibly old) client may not understand localization tags.
+                    deny_reason = "Version mismatch.";
 #endif
                     return false;
                 }
                 if (Multiplayer.SERVER_TOGGLE_CHECK_GAME_HASH) {
                     if (Multiplayer.GAME_FILES_HASH != userInfo.fileHash) {
-                        deny_reason = ($"Game file Hashes mismatch.");
+                        deny_reason = ("<key:deny_hash_mismatch>");
                         return false;
                     }
                 }
             }
             if (check_name) {
                 if (userInfo.userName.Length <= 2) {
-                    deny_reason = ($"Name too short.");
+                    deny_reason = ( "<key:net_name_too_short>");
                     return false;
                 }
                 if (userInfo.userName != Multiplayer.SanitizeTextInput(userInfo.userName)) {
-                    deny_reason = ($"Corrupt payload.");
+                    deny_reason = ( "<key:deny_corrupt_payload>");
                     return false;
                 }
             }
@@ -1250,7 +1252,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
             if (!userHasMasterKey) {
                 if (Multiplayer.SERVER_TOGGLE_ENFORCE_MODLIST && !userHasMasterKey) {
                     if (!(new HashSet<string>(GetModGUIDs()).SetEquals(userInfo.modlist))) {
-                        deny_reason = ($"This server requires different set of mods.");
+                        deny_reason = ("<key:mmsb_lobbyjoin_wrongmods>");
                         return false;
                     }
                 }
@@ -1263,14 +1265,14 @@ S_LerpFactor: {_entityManager.LerpFactor}";
                     Multiplayer.SERVER_JOIN_SECRETS.Insert(0, userInfo.secret);
                 } else {
                     if (!String.IsNullOrEmpty(Multiplayer.INPUT_PASSWORD) && userInfo.password != Multiplayer.INPUT_PASSWORD) {
-                        deny_reason = ($"Wrong password.");
+                        deny_reason = ("<key:deny_wrong_password>");
                         return false;
                     }
                 }
 
                 if (ScavPlayer.CheckIfPlrColorIsValid(userInfo.color)) {
                 } else {
-                    deny_reason = ($"Invalid color.");
+                    deny_reason = ("<key:deny_invalid_color>");
                     return false;
                 }
             }
@@ -1280,7 +1282,7 @@ S_LerpFactor: {_entityManager.LerpFactor}";
             userInfo.password = null;
             return true;
         } catch {
-            deny_reason = $"Corrupt payload.";
+            deny_reason = "Corrupt payload.";
             return false;
         }
     }
@@ -1530,6 +1532,13 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
 
         Plugin.s.SendMessage("KrokoshaSingletonEvent_OnRulesUpdate", SendMessageOptions.DontRequireReceiver);
+
+        // late joiners are handed the packet captured at game start. keep its rules current.
+        if (Net.IsServer) {
+            ServerMain.StartGameAnnouncementPacket packet = ServerMain.LastStartGameAnnouncementPacket;
+            packet.rules = rules;
+            ServerMain.LastStartGameAnnouncementPacket = packet;
+        }
 
 
 
@@ -1892,8 +1901,10 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
         var is_world = a.name == "SampleScene";
         // leaving the practice scene. the next real run is allowed to use mp_save again.
-        if (!is_world)
+        if (!is_world) {
             SavesystemPatch.PreserveSave = false;
+            SavesystemPatch.DebugWorldUsesSave = false;
+        }
 
         if (Net.IsRunning) {
 

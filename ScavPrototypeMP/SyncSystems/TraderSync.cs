@@ -50,7 +50,7 @@ public class TrackerTrader : BaseComponentTracker<TraderScript> {
         public void Apply(TrackerTrader tracker) {
             var trader = tracker.og;
             trader.reputation = reputation;
-            trader.hostility = hostility;
+            TraderWindup.Note(trader, hostility);
             trader.freeDressing = freeDressing;
             trader.didHug = didHug;
             trader.freeAmount = freeAmount;
@@ -81,12 +81,30 @@ public class TrackerTrader : BaseComponentTracker<TraderScript> {
     public bool is_registered => (tracker != null);
     public SyncInfo si => tracker?.syncInfo;
 
+    // the body stock measures for the 12-unit anger ramp. nearest net body can miss a player whose tracker is off.
+    internal static Body ClosestLiving(Vector2 pos) {
+        Body best = null;
+        float bestSqr = float.PositiveInfinity;
+        foreach (ScavPlayer plr in ScavPlayer.AllLivingPlayers) {
+            if (plr == null || plr.body == null || !plr.body.alive) {
+                continue;
+            }
+            float d = ((Vector2)plr.body.transform.position - pos).sqrMagnitude;
+            if (d < bestSqr) {
+                bestSqr = d;
+                best = plr.body;
+            }
+        }
+        return best;
+    }
+
     public bool asked_for_inv { get; private set; }
     public bool received_their_inv;// { get; private set; }
 
-    protected bool net_didDeathMoodDebuff = false;
-
     public BuildingEntity build => GetComponent<BuildingEntity>();
+
+    // who is standing on the stall. overlap, not the camera body and not a distance guess.
+    readonly HashSet<Body> griefNear = new HashSet<Body>();
 
 
 
@@ -134,6 +152,8 @@ public class TrackerTrader : BaseComponentTracker<TraderScript> {
 
         var owro = this.GetOrAddComponent<OnWillRenderObject_ForceForMPComponent>();
         owro.target = og;
+        // few of these. sleeping the stall because the host camera left is what drops the swings.
+        ChunkSleep.Ignore(gameObject);
         HookTraderPin();
 
     }
@@ -173,6 +193,9 @@ public class TrackerTrader : BaseComponentTracker<TraderScript> {
         if (Net.IsRunning && Net.IsClient) {
             StartCoroutine(AskWhenReady());
         }
+        if (Net.IsRunning && Net.IsServer) {
+            StartCoroutine(HostRefresh());
+        }
 
 
         // fix the bug that makes traders teleport to world center (only if the traders is spawned through non-worldgen means aka command)
@@ -193,25 +216,16 @@ public class TrackerTrader : BaseComponentTracker<TraderScript> {
 
         if (og.hostile) {
             build.cantHit = false;
+            if (!gameObject.activeSelf) {
+                gameObject.SetActive(true);
+            }
+            ChunkSleep.Ignore(gameObject);
         }
 
+        // stock OnWillRender dumps the guilt on PlayerCamera.main.body, so the host ate it from anywhere.
+        ClaimDeathGuilt();
+
         if (Net.IsServer && is_registered) {
-
-            var field_didDeathMoodDebuff = Traverse.Create(og).Field("didDeathMoodDebuff");
-
-            var og_didDeathMoodDebuff = (bool)field_didDeathMoodDebuff.GetValue();
-
-            if (og_didDeathMoodDebuff && !net_didDeathMoodDebuff) {
-                net_didDeathMoodDebuff = true;
-
-                // traumatize everyone around except current body there
-                YOU_SHOULD_KILL_YOURSELF_NOOOW.DoMoodPenaltyInRadius(
-                    focused_body,
-                    5f // half of the original
-                    , 10
-                );
-
-            }
 
             if (doublesendRepState > 0) {
                 doublesendRepState -= Time.deltaTime;
@@ -224,6 +238,90 @@ public class TrackerTrader : BaseComponentTracker<TraderScript> {
 
         }
 
+    }
+
+    // stock guilt has no range and always lands on the camera body. only people at the stall take it.
+    const float TraderDeathGuiltRange = 16f;
+
+    internal void ClaimDeathGuilt() {
+        if (og == null || build == null || build.GetHealth() >= 200f) {
+            return;
+        }
+        Traverse flag = Traverse.Create(og).Field("didDeathMoodDebuff");
+        if ((bool)flag.GetValue()) {
+            return;
+        }
+        flag.SetValue(true);
+        build.description = Locale.GetBuilding("traderdscdead");
+        build.fullName = Locale.GetBuilding("corpseseen");
+        UsableObject use = GetComponent<UsableObject>();
+        if (use != null) {
+            Destroy(use);
+        }
+        if (!Net.IsServer) {
+            return;
+        }
+
+        og.DropInventory();
+        StampGrief();
+        Vector2 pos = transform.position;
+        NetBody nearest = null;
+        float nearestSqr = float.PositiveInfinity;
+        foreach (Body b in griefNear) {
+            if (b == null || !b.alive || !b.TryGetNetBody(out NetBody witness) || !witness.IsPlayer) {
+                continue;
+            }
+            float sqr = ((Vector2)b.transform.position - pos).sqrMagnitude;
+            if (sqr < nearestSqr) {
+                nearestSqr = sqr;
+                nearest = witness;
+            }
+            if (b.charType == 2) {
+                continue;
+            }
+            b.happiness -= 10f;
+            b.traumaAmount += 30f;
+            float sick = 30f;
+            if (b.mindWipe != null) {
+                sick *= 0.5f;
+            }
+            b.sicknessAmount += sick;
+            witness.last_mood = b.happiness;
+            b.StartCoroutine(b.Cry());
+            if (b.talker != null) {
+                b.talker.Talk(Locale.GetCharacter("murderregret"));
+            }
+            MedicalSync.Server_QueueSendCharacterHealth(witness);
+        }
+        if (nearest != null && nearest.body != null) {
+            nearest.body.skills.AddExp(1, 60f);
+        }
+        Body local = Util.GetLocalBody();
+        if (local != null && griefNear.Contains(local)) {
+            SteamManager.TryUnlockAchievement("MYSURVIVALOVERYOURS");
+        }
+    }
+
+    void StampGrief() {
+        griefNear.Clear();
+        Collider2D[] hits = Physics2D.OverlapCircleAll(transform.position, TraderDeathGuiltRange, LayerMask.GetMask("Body", "Limb"));
+        for (int i = 0; i < hits.Length; i++) {
+            Collider2D hit = hits[i];
+            if (hit == null) {
+                continue;
+            }
+            Body body = hit.GetComponent<Body>();
+            if (body == null) {
+                Limb limb = hit.GetComponent<Limb>();
+                if (limb != null) {
+                    body = limb.body;
+                }
+            }
+            if (body == null || !body.alive) {
+                continue;
+            }
+            griefNear.Add(body);
+        }
     }
 
     private IEnumerator ScanForNearestBody() {
@@ -239,13 +337,23 @@ public class TrackerTrader : BaseComponentTracker<TraderScript> {
     }
 
     private IEnumerator AskWhenReady() {
-        while (Net.IsClient && Net.IsRunning) {
+        while (Net.IsClient && Net.IsRunning && !received_their_inv) {
             SyncInfo si = this.si;
             if ((si != null) && (si.syncId != 0)) {
                 TraderCommit.Ask(this);
-                yield break;
             }
             yield return new WaitForSecondsRealtime(0.5f);
+        }
+    }
+
+    // the stall only exists while its chunk is loaded. push the host copy once a second so rep, stock, and hostility cannot drift.
+    private IEnumerator HostRefresh() {
+        yield return new WaitForSecondsRealtime(UnityEngine.Random.Range(0.05f, 1f));
+        while (this && og) {
+            if (Net.IsServer && Net.IsRunning && is_registered) {
+                TraderCommit.Publish(og);
+            }
+            yield return new WaitForSecondsRealtime(1f);
         }
     }
 
@@ -314,6 +422,17 @@ static class TraderScript_OnUse_MultiplayerPatch {
 [HarmonyPatch(typeof(TraderScript), "OnWillRenderObject")]
 static class TraderScript_OnWillRender_PinLog {
     static readonly Dictionary<int, int> HostilityStage = new();
+    static readonly Dictionary<int, int> RanFrame = new();
+    static int _stagePruneAt = StaleIds.FirstThreshold;
+    static int _framePruneAt = StaleIds.FirstThreshold;
+
+    // camera calls this during render. the off-screen tick waits until after that.
+    internal static bool RanThisFrame(TraderScript trader) {
+        if (trader == null) {
+            return false;
+        }
+        return RanFrame.TryGetValue(trader.GetInstanceID(), out int frame) && (frame == Time.frameCount);
+    }
 
     static int StageOf(float hostility, float reputation) {
         if (hostility >= 100f) {
@@ -331,19 +450,118 @@ static class TraderScript_OnWillRender_PinLog {
         return -1;
     }
 
-    private static void Prefix(TraderScript __instance, out (float rep, float host) __state) {
-        __state = (__instance == null) ? default : (__instance.reputation, __instance.hostility);
-        // host combat must track whoever is actually close, not the first body that stuck.
-        if (Net.IsRunning && Net.IsServer && (__instance != null) && (TraderCommit.Actor == null)) {
-            TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
-            tt.bgo.SetNearestBody();
+    static readonly Dictionary<int, int> ClimbedFrame = new();
+    static readonly Dictionary<int, float> ClimbedValue = new();
+
+    // rep under 30 climbs at 5 per second while someone is within 12. the camera tick misses a far stall.
+    internal static void EnsureClimb(TraderScript trader) {
+        if (!Net.IsServer || (trader == null)) {
+            return;
         }
+        BuildingEntity build = trader.GetComponent<BuildingEntity>();
+        if ((build == null) || (build.GetHealth() <= 200f)) {
+            return;
+        }
+        if (!trader.hostile && (trader.reputation >= 30f)) {
+            return;
+        }
+        Body near = TrackerTrader.ClosestLiving(trader.transform.position);
+        if ((near == null) || (Vector2.Distance(trader.transform.position, near.transform.position) >= 12f)) {
+            return;
+        }
+        int id = trader.GetInstanceID();
+        float stepped = Mathf.MoveTowards(trader.hostility, 100f, Time.deltaTime * 5f);
+        trader.hostility = stepped;
+        if ((stepped > 30f) && (trader.hostileLineTime < 1)) {
+            trader.hostileLineTime = 1;
+            trader.sitTime = Time.time;
+            trader.standTarget = 1f;
+            if (trader.talker != null) {
+                trader.talker.Talk(Locale.GetCharacter("traderwarning", trader.character));
+            }
+        }
+        if ((stepped > 55f) && (trader.hostileLineTime < 2)) {
+            trader.hostileLineTime = 2;
+            if (trader.talker != null) {
+                trader.talker.Talk(Locale.GetCharacter("traderwarning", trader.character));
+            }
+        }
+        if ((stepped >= 100f) && (trader.hostileLineTime < 3)) {
+            trader.hostileLineTime = 3;
+            if (trader.talker != null) {
+                trader.talker.Talk(Locale.GetCharacter("tradercombat", trader.character));
+            }
+        }
+        ClimbedFrame[id] = Time.frameCount;
+        ClimbedValue[id] = trader.hostility;
+        PublishStage(trader);
+    }
+
+    internal static void HoldClimb(TraderScript trader) {
+        if ((trader == null) || !ClimbedFrame.TryGetValue(trader.GetInstanceID(), out int frame) || (frame != Time.frameCount)) {
+            return;
+        }
+        if (ClimbedValue.TryGetValue(trader.GetInstanceID(), out float value)) {
+            trader.hostility = value;
+        }
+    }
+
+    internal static void PublishStage(TraderScript trader) {
+        if (!Net.IsServer || (trader == null)) {
+            return;
+        }
+        int key = trader.GetInstanceID();
+        StaleIds.Prune<TraderScript, int>(HostilityStage, ref _stagePruneAt);
+        int stage = StageOf(trader.hostility, trader.reputation);
+        bool had = HostilityStage.TryGetValue(key, out int prev);
+        if (!had || (prev != stage)) {
+            HostilityStage[key] = stage;
+            if ((stage >= 0) && (!had || (stage > prev))) {
+                TraderCommit.Publish(trader);
+            }
+        }
+    }
+
+    private static void Prefix(TraderScript __instance, out (float rep, float host) __state) {
+        if (Net.IsClient) {
+            TraderWindup.Before(__instance);
+        }
+        __state = (__instance == null) ? default : (__instance.reputation, __instance.hostility);
+        if (__instance != null) {
+            StaleIds.Prune<TraderScript, int>(RanFrame, ref _framePruneAt);
+            RanFrame[__instance.GetInstanceID()] = Time.frameCount;
+            // stock writes murderregret on body with no range. claim it here, before that block.
+            TrackerTrader guilt = __instance.GetComponent<TrackerTrader>();
+            if (guilt != null) {
+                guilt.ClaimDeathGuilt();
+            }
+        }
+        // stock body is the camera. a client at the stall was invisible to the host sim.
+        if (Net.IsRunning && (__instance != null) && (TraderCommit.Actor == null)) {
+            TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
+            if (Net.IsServer) {
+                Body near = TrackerTrader.ClosestLiving(__instance.transform.position);
+                if (near != null) {
+                    tt.bgo.body = near;
+                }
+            } else {
+                Body local = Util.GetLocalBody();
+                if (local != null) {
+                    tt.bgo.body = local;
+                }
+            }
+        }
+    }
+
+    // get_body is PlayerCamera.main.body. point it at the body the prefix just chose.
+    static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator, MethodBase __originalMethod) {
+        return BodyGetterOverrider.TranspileAll(instructions, generator, __originalMethod.DeclaringType);
     }
     private static void Postfix(TraderScript __instance, (float rep, float host) __state) {
         // stock ramps hostility on every machine. the host snapshot is the copy that counts.
         if (Net.IsRunning && Net.IsClient && (__instance != null)) {
             __instance.reputation = __state.rep;
-            __instance.hostility = __state.host;
+            TraderWindup.After(__instance);
         }
         if (Net.IsRunning && Net.IsServer && (__instance != null)) {
             // nearest-body retarget can point currentTrader at a remote. keep the host menu on the local body only.
@@ -353,16 +571,9 @@ static class TraderScript_OnWillRender_PinLog {
                     PlayerCamera.main.currentTrader = null;
                 }
             }
-            // push anger steps so clients see the stand-up / warnings before the first swing lands.
-            int key = __instance.GetInstanceID();
-            int stage = StageOf(__instance.hostility, __instance.reputation);
-            bool had = HostilityStage.TryGetValue(key, out int prev);
-            if (!had || (prev != stage)) {
-                HostilityStage[key] = stage;
-                if ((stage >= 0) && (!had || (stage > prev))) {
-                    TraderCommit.Publish(__instance);
-                }
-            }
+            // sim tick already stepped the meter. don't let this render add a second step.
+            HoldClimb(__instance);
+            PublishStage(__instance);
         }
         TraderPinLog.AfterWillRender(__instance);
         TraderPinLog.Hold(PlayerCamera.main);
@@ -503,25 +714,88 @@ static class TraderPinLog {
 
 [HarmonyPatch(typeof(TraderScript), nameof(TraderScript.Swing))]
 static class TraderScript_Swing_MultiplayerPatch {
-    // only the host applies Swing limb damage. clients get slash fx via CLIENT_TraderSwing.
+    static readonly float[] MuscleBefore = new float[16];
+
+    static void RememberLimbs(Body body) {
+        int n = 0;
+        while (n < MuscleBefore.Length) {
+            MuscleBefore[n] = -1f;
+            n++;
+        }
+        if (body == null || body.limbs == null) {
+            return;
+        }
+        n = 0;
+        foreach (Limb limb in body.limbs) {
+            if (n >= MuscleBefore.Length) {
+                break;
+            }
+            if (limb != null) {
+                MuscleBefore[n] = limb.muscleHealth;
+            }
+            n++;
+        }
+    }
+
+    static ushort FreshHurt(Body body) {
+        if (body == null || body.limbs == null) {
+            return 0;
+        }
+        int i = 0;
+        foreach (Limb limb in body.limbs) {
+            if (i >= MuscleBefore.Length) {
+                break;
+            }
+            if (limb != null && MuscleBefore[i] >= 0f && limb.muscleHealth < MuscleBefore[i] - 0.5f) {
+                return (ushort)(1 << i);
+            }
+            i++;
+        }
+        return 0;
+    }
+
+    // hostile stall: the player standing there runs the swing. host copies the limb they report.
     private static bool Prefix(TraderScript __instance, out bool __state) {
         __state = false;
         if (!Net.IsRunning) {
             __state = true;
             return true;
         }
-        // client get_body always pins the local body, so stock Swing would self-hit then get rolled back.
         if (Net.IsClient) {
-            return false;
+            if (__instance == null || !__instance.hostile) {
+                TraderProbe.Swing(__instance, false, "client-not-hostile");
+                return false;
+            }
+            Body local = Util.GetLocalBody();
+            if (local == null) {
+                TraderProbe.Swing(__instance, false, "client-no-body");
+                return false;
+            }
+            RememberLimbs(local);
+            TraderProbe.Swing(__instance, true, "client-local");
+            __state = true;
+            return true;
         }
         TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
-        tt.bgo.SetNearestBody();
-        // host damages the host copy of whoever is nearest, then ForceHealth.
+        Body victim = tt.focused_body;
+        if (victim != null && victim.TryGetNetBody(out NetBody nb) && nb.IsPlayer && !Util.IsBodyLocal(victim)) {
+            TraderProbe.Swing(__instance, false, "host-remote-victim");
+            return false;
+        }
+        TraderProbe.Swing(__instance, true, "host");
         __state = true;
         return true;
     }
     static void Postfix(TraderScript __instance, bool __state) {
-        if (!Net.IsRunning || !Net.IsServer || !__state) {
+        if (!Net.IsRunning || !__state) {
+            return;
+        }
+        if (Net.IsClient) {
+            Body local = Util.GetLocalBody();
+            ushort bit = FreshHurt(local);
+            if (bit != 0) {
+                TrapClaim.AfterLocalTrader(__instance, bit);
+            }
             return;
         }
         TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
@@ -870,8 +1144,7 @@ static class TraderScript_get_body_MultiplayerPatch {
         }
         TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
         BodyGetterOverrider bgo = tt.bgo;
-        // clients keep local body for menu / face / warning lines. host always retargets so
-        // hostility ramp and swings follow any nearby player, not the first body that stuck.
+        // clients keep the local body for the menu and the warning lines.
         if (Net.IsClient) {
             Body local = Util.GetLocalBody();
             if (local != null) {
@@ -880,8 +1153,10 @@ static class TraderScript_get_body_MultiplayerPatch {
                 return;
             }
         }
-        bgo.SetNearestBody();
-        if ((bgo.body == null) && (PlayerCamera.main != null)) {
+        Body near = TrackerTrader.ClosestLiving(__instance.transform.position);
+        if (near != null) {
+            bgo.body = near;
+        } else if (PlayerCamera.main != null) {
             bgo.body = PlayerCamera.main.body;
         }
         __result = bgo.body;
@@ -1101,6 +1376,8 @@ public static class TraderScript_MeetPlayer_MultiplayerPatch {
             __instance.startedConvo = true;
             __instance.eyes.sprite = __instance.eyeSprites[1];
             Traverse.Create(__instance).Field("sitTime").SetValue(Time.time);
+            // stock stand-up. skipping MeetPlayer left standTarget at 0, so they stayed in the seat.
+            __instance.standTarget = UnityEngine.Random.Range(0.9f, 1f);
             TraderCommit.Ask(__instance.GetOrAddComponent<TrackerTrader>());
             return false;
         }
@@ -1210,5 +1487,45 @@ public class TraderSync : CasualtiesTogetherSingleton {
 internal static class TraderScript_DoRest_MultiplayerPatch {
     private static bool Prefix(TraderScript __instance) {
         return TraderCommit.LetStock(__instance, TraderCommit.Op.Rest);
+    }
+}
+
+// client shows the host meter. the host is the one that climbs.
+static class TraderWindup {
+    static readonly Dictionary<int, float> Shown = new();
+    static readonly Dictionary<int, float> Target = new();
+
+    internal static void Note(TraderScript trader, float incoming) {
+        if (trader == null) {
+            return;
+        }
+        if (Net.IsClient) {
+            int id = trader.GetInstanceID();
+            Target[id] = incoming;
+            Shown[id] = incoming;
+        }
+        trader.hostility = incoming;
+    }
+
+    internal static void Before(TraderScript trader) {
+        if (!Net.IsClient || trader == null) {
+            return;
+        }
+        if (Shown.TryGetValue(trader.GetInstanceID(), out float shown)) {
+            trader.hostility = shown;
+        }
+    }
+
+    internal static void After(TraderScript trader) {
+        if (!Net.IsClient || trader == null) {
+            return;
+        }
+        int id = trader.GetInstanceID();
+        float shown = trader.hostility;
+        if (Target.TryGetValue(id, out float cap) && shown > cap) {
+            shown = cap;
+        }
+        Shown[id] = shown;
+        trader.hostility = shown;
     }
 }

@@ -38,6 +38,8 @@ internal static class SkinImporter {
         "experimentEyeHalfClosed",
         "experimentEyeHalfClosedBack",
         "experimentEyeHappy",
+        "experimentEyeLockedIn",
+        "experimentEyeLockedInBack",
         "experimentEyeLookBack",
         "experimentEyeOpen",
         "experimentEyePanic",
@@ -110,9 +112,32 @@ internal static class SkinImporter {
         "milkydisfigure2", "milkydisfigure2healed", "milkheadmiddle", "milkheadouter"
     };
 
+    // the live names of milky and dune are accepted in Body and Head, the editor exports them under those folders.
+    private static readonly HashSet<string> BodyAllowed =
+        new HashSet<string>(BodyNames.Concat(SpeciesLiveNames), StringComparer.Ordinal);
+    private static readonly HashSet<string> HeadAllowed =
+        new HashSet<string>(HeadNames.Concat(SpeciesLiveNames), StringComparer.Ordinal);
+
     internal static bool IsPackableSpriteName(string name) {
+        if (SkinJson.IsLeftName(name)) {
+            return IsBodyOrHeadName(SkinJson.RightNameOf(name));
+        }
+
         return !string.IsNullOrEmpty(name)
             && (KnownNames.Contains(name) || WoundViewNames.Contains(name) || SpeciesLiveNames.Contains(name));
+    }
+
+    private static bool IsBodyOrHeadName(string name) {
+        return !string.IsNullOrEmpty(name) && (KnownNames.Contains(name) || SpeciesLiveNames.Contains(name));
+    }
+
+    internal static bool IsAllowedInFolder(HashSet<string> allowed, string name) {
+        if (allowed.Contains(name)) {
+            return true;
+        }
+
+        return SkinJson.IsLeftName(name) && !ReferenceEquals(allowed, WoundViewNames)
+            && allowed.Contains(SkinJson.RightNameOf(name));
     }
 
     // which species folder the open menu tab is writing into. -1 is the live body.
@@ -138,8 +163,19 @@ internal static class SkinImporter {
             return result;
         }
 
-        if (!Directory.Exists(sourceDir)) {
-            result.Errors.Add("Folder not found: " + sourceDir);
+        if (!Directory.Exists(sourceDir) && !File.Exists(sourceDir)) {
+            result.Errors.Add("Folder or file not found: " + sourceDir);
+            return result;
+        }
+
+        if (File.Exists(sourceDir) && !SkinJsonFile.IsSkinFileName(sourceDir)) {
+            result.Errors.Add("Not a skin file (json, zip or casutogether): " + Path.GetFileName(sourceDir));
+            return result;
+        }
+
+        string jsonSource = SkinJsonFile.SourceOf(sourceDir);
+        if (jsonSource != null) {
+            CheckJson(jsonSource, sourceDir, slot, result);
             return result;
         }
 
@@ -203,7 +239,8 @@ internal static class SkinImporter {
         }
 
         int missing = KnownNames.Count - present;
-        if (missing > 0 && result.TotalCount > 0) {
+        bool liveNamedOnly = present == 0 && bodySet.Concat(headSet).Any(SpeciesLiveNames.Contains);
+        if (missing > 0 && result.TotalCount > 0 && !liveNamedOnly) {
             result.Warnings.Add("Partial skin: " + missing + " of " + KnownNames.Count +
                                 " names are missing. Missing parts keep the current sprite.");
         }
@@ -231,9 +268,19 @@ internal static class SkinImporter {
 
         string targetRoot = TargetSlot(slot);
 
+        string jsonSource = SkinJsonFile.SourceOf(sourceDir);
+        if (jsonSource != null) {
+            return ImportJson(jsonSource, targetRoot, slot, out backupPath, out error);
+        }
+
         try {
             if (HasAnyTargetFiles(targetRoot)) {
                 backupPath = CreateBackup(targetRoot, slot);
+            }
+
+            // a skin.json would win over the copied PNGs.
+            if (File.Exists(SkinJsonFile.SlotPath(targetRoot))) {
+                File.Delete(SkinJsonFile.SlotPath(targetRoot));
             }
 
             foreach (string subfolder in new[] { "Body", "Head", "WoundView" }) {
@@ -249,7 +296,7 @@ internal static class SkinImporter {
 
                 HashSet<string> allowed = AllowedNamesFor(subfolder);
                 string[] knownPngs = pngs
-                    .Where(png => allowed.Contains(Path.GetFileNameWithoutExtension(png)))
+                    .Where(png => IsAllowedInFolder(allowed, Path.GetFileNameWithoutExtension(png)))
                     .ToArray();
                 if (knownPngs.Length == 0) {
                     continue;
@@ -348,6 +395,89 @@ internal static class SkinImporter {
         return true;
     }
 
+    private static void CheckJson(string jsonSource, string sourceDir, string slot, SkinCheckResult result) {
+        string sourceFolder = File.Exists(sourceDir) ? Path.GetDirectoryName(sourceDir) : sourceDir;
+        if (SamePath(sourceFolder, TargetSlot(slot))) {
+            result.Errors.Add("The source folder is the target slot. Choose a different folder.");
+            return;
+        }
+
+        int species = _species < 0 ? SpriteReplacerPlugin.ActiveSpecies : _species;
+        if (!SkinJsonFile.TryReadText(jsonSource, out string text, out string error)
+            || !SkinJson.TryParse(text, species, out SkinJsonSet set, out error)) {
+            result.Errors.Add(error);
+            return;
+        }
+
+        foreach (string name in set.Right.Keys) {
+            if (!IsPackableSpriteName(name)) {
+                result.Warnings.Add("Unknown sprite skipped: " + name + ".");
+            } else if (WoundViewNames.Contains(name)) {
+                result.WoundViewCount++;
+            } else {
+                result.BodyCount++;
+            }
+        }
+
+        int leftCount = 0;
+        foreach (string name in set.Left.Keys) {
+            if (set.Right.ContainsKey(name) && !WoundViewNames.Contains(name)) {
+                leftCount++;
+            } else {
+                result.Warnings.Add("Left-facing sprite without a right-facing one skipped: " + name + ".");
+            }
+        }
+
+        if (leftCount > 0) {
+            result.Warnings.Add(leftCount + " left-facing sprites found. They are used while the body faces left.");
+        }
+
+        if (set.BadColors > 0) {
+            result.Warnings.Add(set.BadColors + " colors are not #rrggbb or #rrggbbaa and become transparent.");
+        }
+
+        if (result.TotalCount == 0) {
+            result.Errors.Add("No sprites with known names were found in " + Path.GetFileName(jsonSource) + ".");
+        }
+    }
+
+    // replaces the slot's PNG folders with skin.json, the backup keeps them.
+    private static bool ImportJson(string jsonSource, string targetRoot, string slot,
+        out string backupPath, out string error) {
+        backupPath = null;
+        if (!SkinJsonFile.TryReadText(jsonSource, out string text, out error)) {
+            return false;
+        }
+
+        try {
+            if (HasAnyTargetFiles(targetRoot)) {
+                backupPath = CreateBackup(targetRoot, slot);
+            }
+
+            foreach (string subfolder in new[] { "Body", "Head", "WoundView" }) {
+                string path = Path.Combine(targetRoot, subfolder);
+                if (Directory.Exists(path)) {
+                    Directory.Delete(path, true);
+                }
+            }
+
+            Directory.CreateDirectory(targetRoot);
+            File.WriteAllText(SkinJsonFile.SlotPath(targetRoot), text, new System.Text.UTF8Encoding(false));
+            return true;
+        } catch (Exception ex) {
+            error = ex.Message;
+            if (!string.IsNullOrEmpty(backupPath)) {
+                try {
+                    RestoreBackup(backupPath, targetRoot);
+                } catch (Exception restoreEx) {
+                    error += "\nBackup restore failed: " + restoreEx.Message;
+                }
+            }
+
+            return false;
+        }
+    }
+
     private static bool SamePath(string left, string right) {
         try {
             string a = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -374,7 +504,7 @@ internal static class SkinImporter {
             }
 
             string name = Path.GetFileNameWithoutExtension(file);
-            if (!allowed.Contains(name)) {
+            if (!IsAllowedInFolder(allowed, name)) {
                 result.Warnings.Add("Unknown " + subfolder + " PNG skipped: " + name + ".");
                 continue;
             }
@@ -389,11 +519,11 @@ internal static class SkinImporter {
 
     private static HashSet<string> AllowedNamesFor(string subfolder) {
         if (subfolder == "Body") {
-            return BodyNames;
+            return BodyAllowed;
         }
 
         if (subfolder == "Head") {
-            return HeadNames;
+            return HeadAllowed;
         }
 
         return WoundViewNames;
@@ -456,6 +586,10 @@ internal static class SkinImporter {
     }
 
     private static bool HasAnyTargetFiles(string targetRoot) {
+        if (SkinJsonFile.Exists(targetRoot)) {
+            return true;
+        }
+
         foreach (string subfolder in new[] { "Body", "Head", "WoundView" }) {
             string path = Path.Combine(targetRoot, subfolder);
             if (Directory.Exists(path) && Directory.GetFiles(path).Length > 0) {
@@ -495,6 +629,10 @@ internal static class SkinImporter {
             foreach (string file in Directory.GetFiles(source)) {
                 File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
             }
+        }
+
+        if (SkinJsonFile.Exists(targetRoot)) {
+            File.Copy(SkinJsonFile.SlotPath(targetRoot), SkinJsonFile.SlotPath(backup), true);
         }
 
         PruneBackups(slot, SpriteReplacerPlugin.BackupCount);
@@ -573,6 +711,15 @@ internal static class SkinImporter {
     }
 
     private static void RestoreBackup(string backup, string targetRoot) {
+        if (File.Exists(SkinJsonFile.SlotPath(targetRoot))) {
+            File.Delete(SkinJsonFile.SlotPath(targetRoot));
+        }
+
+        if (File.Exists(SkinJsonFile.SlotPath(backup))) {
+            Directory.CreateDirectory(targetRoot);
+            File.Copy(SkinJsonFile.SlotPath(backup), SkinJsonFile.SlotPath(targetRoot), true);
+        }
+
         foreach (string subfolder in new[] { "Body", "Head", "WoundView" }) {
             string source = Path.Combine(backup, subfolder);
             string destination = Path.Combine(targetRoot, subfolder);

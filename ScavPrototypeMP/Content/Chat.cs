@@ -946,14 +946,14 @@ public class Chat : CasualtiesTogetherSingleton {
 
                 var writer = Net.CreateWriter(NetmsgId.CLIENT_ChatMessage);
                 writer.Put((byte)MessageType.ServerAnnouncement);
-                writer.Put("You're muted by the server!");
+                writer.Put("<key:chat_muted_by_server>");
                 Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, yapper.playerId);
 
                 return;
             }
 
             if (!ValidateChatMessage(message)) {
-                yapper.Server_DoAlertSingle("SERVER: Invalid chat message.",false);
+                yapper.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey("chat_invalid_message"),false);
                 return;
             }
             if (  SHOULD_LOG_CHAT) Plugin.log.LogInfo($"SERVER: \"{yapper}\" CHAT MESSAGE: {message}");
@@ -998,7 +998,7 @@ public class Chat : CasualtiesTogetherSingleton {
             ScavPlayer whisperTargetPlr = null;
             if (whisper) {
                 if (!ScavPlayer.TryGetPlayerFromClientId(whisperTargetPlrId, out whisperTargetPlr)) {
-                    yapper.Server_DoAlertSingle("SERVER: Invalid chat message. (Whisper player not found?)", false);
+                    yapper.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey("chat_invalid_whisper_target"), false);
                     return;
                 }
                 targetlisteners = new List<ScavPlayer> { whisperTargetPlr, yapper };
@@ -1102,7 +1102,7 @@ public class Chat : CasualtiesTogetherSingleton {
     public static void Server_ChatAnnouncement(in string message) {
 
         if (Net.IsDedicatedServer) {
-            LogMessage(NAMELABEL_SERVER, message);
+            LogMessage(NAMELABEL_SERVER, Lang.ParseTaggedString(message));
         }
         if (SHOULD_LOG_CHAT) log.l($"SERVER: SENDING CHAT ANNOUNCEMENT: {message.Replace("\r","")}");
 
@@ -1118,7 +1118,7 @@ public class Chat : CasualtiesTogetherSingleton {
             targets = ServerMain.AllClientIds;
         }
         if (Net.IsDedicatedServer) {
-            LogMessage(TagName(name,tag), message);
+            LogMessage(TagName(name,tag), Lang.ParseTaggedString(message));
         }
         if (SHOULD_LOG_CHAT) log.l($"SERVER: SENDING NAMED CHAT ANNOUNCEMENT: NAME:\"{name}\" TAG:\"{tag}\": {message}");
 

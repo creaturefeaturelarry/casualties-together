@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Together;
 
-// client MP worldgen skips mid-gen UpdateWorld/Structures. After Finish, client must flush
+// client MP worldgen skips mid-gen UpdateWorld. After Finish, client must flush
 // its own worldBlocks into chunk tilemaps - TilemapSync only repairs hash mismatches, and
 // deterministic gen makes hashes match, so skipped UpdateWorld leaves permanent holes
 // (EndLab bake near scientist is the sharp case).
@@ -61,21 +61,6 @@ static class FrameBuckets {
         }
     }
 
-    [HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.WorldGenerateStructures))]
-    static class SkipStructuresOnClient {
-        // 201748: client WorldGenerateStructures worst MoveNext ~28s; wipe+host remint anyway.
-        [HarmonyPriority(Priority.First)]
-        static bool Prefix(ref IEnumerator __result) {
-            if (!Net.IsRunning || !Net.IsClient)
-                return true;
-            __result = SkipOnce();
-            return false;
-        }
-
-        static IEnumerator SkipOnce() {
-            yield break;
-        }
-    }
 }
 
 #if FULLGAME

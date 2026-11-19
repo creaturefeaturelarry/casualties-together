@@ -13,7 +13,7 @@ namespace Multiupdater
         {
             AutoupdaterGUI.ShowUpdateButton = false;
             FileOperations.InitTempDirectory();
-            Multiupdater.AutoUpdater.LogMessage("Downloading");
+            Multiupdater.AutoUpdater.LogMessage(UpdaterText.Get("au_downloading"));
             string zipFile;
             try
             {
@@ -21,20 +21,20 @@ namespace Multiupdater
             }
             catch
             {
-                Multiupdater.AutoUpdater.LogError("Github seems to be unreachable. Check your internet connection and github status.");
+                Multiupdater.AutoUpdater.LogError(UpdaterText.Get("au_github_unreachable_long"));
                 goto CleanUp;
             }
-            Multiupdater.AutoUpdater.LogMessage("Unpacking");
+            Multiupdater.AutoUpdater.LogMessage(UpdaterText.Get("au_unpacking"));
             try
             {
                 FileOperations.UnzipFiles(zipFile);
             }
             catch
             {
-                Multiupdater.AutoUpdater.LogError("Failed to unzip the update. Download might be corrupted. Retry.");
+                Multiupdater.AutoUpdater.LogError(UpdaterText.Get("au_unzip_failed"));
                 goto CleanUp;
             }
-            Multiupdater.AutoUpdater.LogMessage("Update staged! Restart the game to apply.");
+            Multiupdater.AutoUpdater.LogMessage(UpdaterText.Get("au_staged"));
             return true;
         CleanUp:
             FileOperations.ClearTempDirectory();

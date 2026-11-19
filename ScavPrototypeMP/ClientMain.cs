@@ -365,7 +365,8 @@ public class ClientMain : MonoBehaviour {
                 limb.rb.angularVelocity = Util_MPExtensions.UnquantizeFloatFromShort(limb_rb_angularVelocity, _RAGDOLL_ANGVEL_QUANTIZE);
             }
         }
-        if (body.IsRagdolling() && body.TryGetNetBody(out var nb)) {
+        // v4 left the limbs where the packet put them. pinning the torso here is what froze the picture on a client.
+        if (Net.IsServer && body.IsRagdolling() && body.TryGetNetBody(out var nb)) {
             nb.SetBodyPosition(center);
         }
     }
@@ -563,8 +564,9 @@ public class ClientMain : MonoBehaviour {
                 }
 
                 ServerMain.CHARACTER_PREFAB = GameObject.Instantiate(og_char);
-
                 ServerMain.CHARACTER_PREFAB.SetActive(false);
+                // scene Experiment is already wearing the local slot. strip the copy before anyone spawns from it.
+                MpBody.ResetBodyToStock(ServerMain.CHARACTER_PREFAB.GetComponentInChildren<Body>(true));
             } else {
                 // fullgame may spawn Milky/Dune as the local body instead of leaving Experiment in the scene
                 Body fallback_body = PlayerCamera.main != null ? PlayerCamera.main.body : null;
@@ -599,6 +601,7 @@ public class ClientMain : MonoBehaviour {
 
                     ServerMain.CHARACTER_PREFAB = GameObject.Instantiate(fallback_char);
                     ServerMain.CHARACTER_PREFAB.SetActive(false);
+                    MpBody.ResetBodyToStock(ServerMain.CHARACTER_PREFAB.GetComponentInChildren<Body>(true));
                 } else if (Net.IsRunning) {
                     Multiplayer.DoMultiplayerStatusMessageError("PLAYER CHARACTER NOT FOUND!!!!!!!!!!!!!!!! RESTART THE GAME! RESTART !!!!!!!!!!!!!!!!!!!!");
                 }
@@ -737,9 +740,9 @@ public class ClientMain : MonoBehaviour {
         reader.Get(out bool is_error);
 
         if (is_error) {
-            Multiplayer.DoMultiplayerStatusMessageError(msg);
+            Multiplayer.DoMultiplayerStatusMessageError(Lang.ParseTaggedString(msg));
         } else {
-            Multiplayer.DoMultiplayerStatusMessageLog(msg);
+            Multiplayer.DoMultiplayerStatusMessageLog(Lang.ParseTaggedString(msg));
         }
     }
 
@@ -1094,8 +1097,8 @@ public class ClientMain : MonoBehaviour {
         reader.Get(out knetid netbodyid);
         if (NetBody.TryGetNetBodyFromId(netbodyid, out var nb)) {
             reader = reader.DecompressReader();
-
-            //clientMain.ReadRagdollPacket(ref reader, nb.body);
+            if (nb.body != null)
+                ReadRagdollPacket(ref reader, nb.body);
         }
     }
 
@@ -1209,6 +1212,7 @@ public class ClientMain : MonoBehaviour {
             if (count > 0) {
                 Multiplayer.rules = new_rules;
                 Multiplayer.ApplyGameRules();
+                log.l("[rules] applied sv_cheats=" + Multiplayer.rules.sv_cheats + " clientcheats=" + Multiplayer.rules.AllowClientCheatCommands);
 
                 if (log.verbose && !String.IsNullOrWhiteSpace(msg) && count > 0)
                     Multiplayer.DoMultiplayerStatusMessageLog(msg);

@@ -320,8 +320,13 @@ internal static class FixInvSync
                     Done.Add(key);
                     continue;
                 }
-                if (info.go == null)
-                    info.CreateObject();
+                if (info.go == null) {
+                    try {
+                        info.CreateObject();
+                    } catch (Exception ex) {
+                        OptimizerMain.Log?.LogError("[join] create failed " + ex.Message);
+                    }
+                }
                 if (info.go == null)
                     continue;
                 if (info.item == null)
@@ -475,8 +480,13 @@ internal static class FixInvSync
             SyncInfo info = Batch[i];
             if (info.container_data1.Value == 0)
                 continue;
-            if (info.go == null)
-                info.CreateObject();
+            if (info.go == null) {
+                try {
+                    info.CreateObject();
+                } catch (Exception ex) {
+                    OptimizerMain.Log?.LogError("[join] create failed " + ex.Message);
+                }
+            }
             if (info.go == null || info.item == null || Placed(info))
                 continue;
             if (Enqueue(info))
@@ -683,7 +693,14 @@ internal static class FixInvSync
         {
             if (!ContainerLink.TryBody(info, out _))
                 return false;
-            _apply.Invoke(info, null);
+            if (info.go == null || info.item == null)
+                return false;
+            try {
+                _apply.Invoke(info, null);
+            } catch (Exception ex) {
+                OptimizerMain.Log?.LogError("[join] parent slot failed " + info.item.id + " net=" + net + " " + ex.Message);
+                return false;
+            }
             return Placed(info);
         }
         SyncInfo bag = FindBag(net, ver, out Container box);
@@ -697,7 +714,14 @@ internal static class FixInvSync
         // ForceLoad skips the "unload slot first" path that KeepHeld is avoiding.
         if (_force == null)
             return false;
-        _force.Invoke(null, new object[] { info.item, box });
+        if (info.item == null || box == null)
+            return false;
+        try {
+            _force.Invoke(null, new object[] { info.item, box });
+        } catch (Exception ex) {
+            OptimizerMain.Log?.LogError("[join] parent bag failed " + info.item.id + " net=" + net + " " + ex.Message);
+            return false;
+        }
         return Placed(info);
     }
 

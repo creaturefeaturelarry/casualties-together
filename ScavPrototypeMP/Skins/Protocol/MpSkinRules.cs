@@ -5,6 +5,8 @@ internal static class MpSkinRules {
     internal const int MaxZipBytes = 4 * 1024 * 1024;
     // body + Head + WoundView custom sets can land near ~55 known pngs.
     internal const int MaxEntries = 96;
+    // protocol 1.1: room for a _left twin per sprite.
+    internal const int MaxEntriesWithLeft = 160;
     internal const int MaxEntryBytes = 1024 * 1024;
     internal const int MaxUncompressedBytes = 16 * 1024 * 1024;
     internal const int MaxTextureSize = 2048;
@@ -18,8 +20,8 @@ internal static class MpSkinRules {
         return bytes > 0 && bytes <= MaxZipBytes;
     }
 
-    internal static bool EntryCountOk(int count) {
-        return count > 0 && count <= MaxEntries;
+    internal static bool EntryCountOk(int count, bool allowsLeft) {
+        return count > 0 && count <= (allowsLeft ? MaxEntriesWithLeft : MaxEntries);
     }
 
     internal static bool EntrySizeOk(long bytes) {

@@ -321,6 +321,7 @@ static class GuardHost {
     }
 
     static readonly Dictionary<int, Sent> Last = new Dictionary<int, Sent>();
+    static int _lastPruneAt = StaleIds.FirstThreshold;
 
     [CTPostInit]
     static void Init() {
@@ -386,6 +387,7 @@ static class GuardHost {
             return;
         }
         int key = guard.GetInstanceID();
+        StaleIds.Prune<GuardScript, Sent>(Last, ref _lastPruneAt);
         int ammo = Traverse.Create(guard).Field("ammo").GetValue<int>();
         bool melee = guard.doingMelee;
         bool dead = false;
@@ -972,12 +974,27 @@ static class BlueHeart_MultiplayerPatch {
     static Vector2 _clientHeartPos;
     static bool _clientHasHeartPos;
 
+    internal static string PulseClock() {
+        if (!_clientHasPulse) {
+            return "has=0";
+        }
+        return "has=1 t=" + _clientTime.ToString("0.00")
+            + " rate=" + _clientRate.ToString("0.00")
+            + " age=" + (Time.time - _clientRecvAt).ToString("0.00")
+            + " serial=" + _clientSerial
+            + " heart=" + (_clientHasHeartPos ? _clientHeartPos.x.ToString("0.0") + "," + _clientHeartPos.y.ToString("0.0") : "-");
+    }
+
     static void HostSendPulse(float timeSincePulsed, float rate, bool pulsed, Vector2 heartPos) {
         if (!Net.IsServer) {
             return;
         }
         if (pulsed) {
             _pulseSerial++;
+            FindTheBugReports.Say("pulse", "host-bang serial=" + _pulseSerial
+                + " t=" + timeSincePulsed.ToString("0.00")
+                + " rate=" + rate.ToString("0.00")
+                + " pos=" + heartPos.x.ToString("0.0") + "," + heartPos.y.ToString("0.0"));
         } else if (Time.time < _nextPulseSend) {
             return;
         }
@@ -1007,7 +1024,15 @@ static class BlueHeart_MultiplayerPatch {
             }
             if (serial != _clientSerial) {
                 _clientHeartbeat = true;
+                FindTheBugReports.Say("pulse", "client-bang serial=" + serial + " seq=" + seq
+                    + " t=" + timeSincePulsed.ToString("0.00")
+                    + " pos=" + heartX.ToString("0.0") + "," + heartY.ToString("0.0"));
             }
+        }
+        if (!_clientHasPulse) {
+            FindTheBugReports.Say("pulse", "client-first serial=" + serial + " seq=" + seq
+                + " t=" + timeSincePulsed.ToString("0.00")
+                + " pos=" + heartX.ToString("0.0") + "," + heartY.ToString("0.0"));
         }
         _clientHasPulse = true;
         _clientTime = timeSincePulsed;

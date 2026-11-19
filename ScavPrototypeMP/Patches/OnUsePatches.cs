@@ -153,6 +153,7 @@ public static class DrillPod_OnUse_MultiplayerPatch {
             return false;
         }
         si.SetIgnoreTimeForRoundTrip();
+        si.AwaitServerAck();
         Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_DrillPodRepairTypeShit, si.syncId, true);
         return false;
     }
@@ -163,6 +164,7 @@ public static class DrillPod_OnUse_MultiplayerPatch {
         log.l($"Server_DrillPodRepairTypeShit actually works lol {clientId} ");
 #endif
         reader.Get(out knetid bioterminal_syncid);
+        using (UseAck.Scope ack = UseAck.After(clientId, bioterminal_syncid)) {
 
         ScavPlayer user = null;
         Body body = null;
@@ -198,6 +200,7 @@ public static class DrillPod_OnUse_MultiplayerPatch {
 #if DEBUG
         Plugin.log.LogWarning($" Server_DrillPodRepairTypeShit DENIED !!!!!!!!!!!!!!!!!!!!!!  {user}  dril:  {drel}  si: {si} ");
 #endif
+        }
     }
 
 
@@ -445,6 +448,7 @@ public static class Openable_OnUse_MultiplayerPatch {
                 //success
 
                 si.SetIgnoreTimeForRoundTrip();
+                si.AwaitServerAck();
 
                 Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_OpenableOpenTypeShit, si.syncId, true);
             }
@@ -455,6 +459,7 @@ public static class Openable_OnUse_MultiplayerPatch {
     static void Server_OpenableOpenTypeShit(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
 
         reader.Get(out knetid bioterminal_syncid);
+        using (UseAck.Scope ack = UseAck.After(clientId, bioterminal_syncid)) {
 
         ScavPlayer user;
         Body body;
@@ -493,6 +498,7 @@ public static class Openable_OnUse_MultiplayerPatch {
 #if DEBUG
         Plugin.log.LogWarning($" Server_OpenableOpenTypeShit DENIED !!!!!!!!!!!!!!!!!!!!!!  {user}  openebleeh:  {openalbe}  si: {si} ");
 #endif
+        }
     }
 
 
@@ -526,6 +532,7 @@ public static class ScrapEaterScript_OnUse_MultiplayerPatch {
 #endif
 
                 si.SetIgnoreTimeForRoundTrip();
+                si.AwaitServerAck();
 
                 Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_ScrapEaterScriptUse, si.syncId, true);
             }
@@ -539,6 +546,7 @@ public static class ScrapEaterScript_OnUse_MultiplayerPatch {
         log.l($"Server_ScrapEaterScriptUse actually works lol {clientId} ");
 #endif
         reader.Get(out knetid bioterminal_syncid);
+        using (UseAck.Scope ack = UseAck.After(clientId, bioterminal_syncid)) {
 
         ScavPlayer user;
         Body body;
@@ -590,6 +598,7 @@ public static class ScrapEaterScript_OnUse_MultiplayerPatch {
 #if DEBUG
         Plugin.log.LogWarning($" Server_ScrapEaterScriptUse DENIED !!!!!!!!!!!!!!!!!!!!!!  {user}  ses:{ses}  si: {si} ");
 #endif
+        }
     }
 
 

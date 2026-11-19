@@ -1443,6 +1443,10 @@ public static class CraftCommit {
             Gates.Remove(_drop[i]);
     }
 
+    internal static void Forget(knetid player) {
+        ServerCrafts.Remove(player);
+    }
+
     static void ClearAll() {
         _session = 0;
         _next = 1;
@@ -1467,14 +1471,14 @@ public static class CraftCommit {
 
     static string ReasonText(CraftReason reason) {
         switch (reason) {
-            case CraftReason.Missing: return "Can't craft: missing ingredients";
-            case CraftReason.Unreachable: return "Can't craft: out of reach";
-            case CraftReason.Taken: return "Can't craft: that item was just used";
-            case CraftReason.Unconscious: return "Can't craft: unconscious";
-            case CraftReason.BadRecipe: return "Can't craft: unknown recipe";
-            case CraftReason.SpawnFailed: return "Can't craft: the result could not be made";
-            case CraftReason.StillSyncing: return "Can't craft: ingredient still syncing";
-            default: return "Can't craft";
+            case CraftReason.Missing: return Lang.Get("craft_deny_missing");
+            case CraftReason.Unreachable: return Lang.Get("craft_deny_unreachable");
+            case CraftReason.Taken: return Lang.Get("craft_deny_taken");
+            case CraftReason.Unconscious: return Lang.Get("craft_deny_unconscious");
+            case CraftReason.BadRecipe: return Lang.Get("craft_deny_badrecipe");
+            case CraftReason.SpawnFailed: return Lang.Get("craft_deny_spawnfailed");
+            case CraftReason.StillSyncing: return Lang.Get("craft_deny_stillsyncing");
+            default: return Lang.Get("craft_deny_default");
         }
     }
 }

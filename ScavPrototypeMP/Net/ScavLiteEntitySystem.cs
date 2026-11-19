@@ -145,6 +145,7 @@ namespace Together {
         private SyncVar<Vector2> _targetLookPos;
         private SyncVar<bool> _isRight;
         private SyncVar<bool> _crouching;
+        private SyncVar<bool> _offHand;
 
         internal SyncVar<bool> _standing;
         internal SyncVar<bool> _isPiggyback;
@@ -299,6 +300,7 @@ namespace Together {
         static float _RAGDOLL_DIST_MARGIN = 0.05f * 0.05f;
         static float _RAGDOLL_ANGVEL_QUANTIZE = 100;
         internal void WriteRagdollData() {
+            RagdollProbe.MarkWrite(nb != null ? nb.body : null);
             Limb[] limbs = nb.body.limbs;
             Limb limb;
 
@@ -411,27 +413,47 @@ namespace Together {
 
         }
         bool _RagdollReadIndividualLimb(Limb limb, ref SyncVar<Vector2_4byte_512> syncpos, ref SyncVar<FloatAngle> syncrot, ref SyncVar<Vector2_4byte_200> syncvel, ref SyncVar<short> syncangvel) {
-            Vector2_4byte_512 limb_rb_position = syncpos.InterpolatedValue;
-            if (!limb.dismembered) {
-                if (Net.IsServer) {
-                    if ((Vector2.SqrMagnitude(limb_rb_position - nb.GetPosition()) < 100)) {
-                    } else {
-#if !RELEASE
-                        log.sus($"{DebugHelp.GetPlayerFullDebugString(nb.body)} something is sus about {DebugHelp.GetGameObjectFullDebugString(limb)} ");
-#endif
-                        return false;
-                    }
-                }
-                limb.transform.position = limb_rb_position;
-                limb.rb.rotation = syncrot.InterpolatedValue;
-                limb.rb.velocity = syncvel.InterpolatedValue;
-                limb.rb.angularVelocity = Util_MPExtensions.UnquantizeFloatFromShort(syncangvel.InterpolatedValue, _RAGDOLL_ANGVEL_QUANTIZE);
+            if (limb == null || limb.dismembered || limb.rb == null) {
+                return true;
             }
+            // the interpolator starts at 0 when the group turns on. a short fall ends before that lerp gets near the body, so the pose never landed.
+            Vector2 at = syncpos.Value;
+            Vector2 root = nb.body.transform.position;
+            if ((at - root).sqrMagnitude > 400f)
+                return true;
+            // client copy is a picture. a dynamic limb here gets pasted and the solver fights it.
+            Rigidbody2D rb = limb.rb;
+            if (rb.interpolation != RigidbodyInterpolation2D.None) {
+                rb.interpolation = RigidbodyInterpolation2D.None;
+            }
+            if (!rb.isKinematic) {
+                rb.velocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+                rb.isKinematic = true;
+            }
+            rb.position = at;
+            rb.rotation = syncrot.Value;
             return true;
         }
 
-        internal void ReadRagdollData() {
+        static void ReleaseRemoteLimbs(Body body) {
+            if (body == null || body.limbs == null) {
+                return;
+            }
+            Limb[] limbs = body.limbs;
+            for (int i = 0; i < limbs.Length; i++) {
+                Limb limb = limbs[i];
+                if (limb != null && limb.rb != null && limb.rb.isKinematic) {
+                    limb.rb.isKinematic = false;
+                }
+            }
+            if (body.rb != null && body.rb.isKinematic) {
+                body.rb.isKinematic = false;
+            }
+        }
 
+        internal void ReadRagdollData() {
+            RagdollProbe.MarkPaste(nb != null ? nb.body : null);
 
             if (!_RagdollReadIndividualLimb(nb.body.limbs[0], ref _ragdoll_limb0_pos, ref _ragdoll_limb0_rot, ref _ragdoll_limb0_vel, ref _ragdoll_limb0_angvel)) {
                 return;
@@ -723,6 +745,7 @@ namespace Together {
             _targetLookPos.Value = nb.body.targetLookPos;
             _isRight.Value = nb.body.isRight;
             _crouching.Value = nb.body.crouching;
+            _offHand.Value = nb.body.handSlot != 0;
             _standing.Value = nb.body.standing;
             // ragdoll syncgroup is handled in Player.SlowButFastUpdate
             // a carry still has the pose from the ground. writing it here is what gets pasted back over the hang.
@@ -748,6 +771,7 @@ namespace Together {
             body.targetLookPos = _targetLookPos.InterpolatedValue;
             body.moveDir = (Vector2)_moveDir.Value;
             body.crouching = _crouching.Value;
+            body.handSlot = _offHand.Value ? 1 : 0;
 
 
             if (_isPiggyback.Value) {
@@ -794,8 +818,11 @@ namespace Together {
                         }
                         if (body.standing != _standing.Value) {
                             if (_standing.Value) {
+                                ReleaseRemoteLimbs(body);
+                                RagdollProbe.Event(body, "snap-stand");
                                 body.ForceStand(); // force Stand
                             } else {
+                                RagdollProbe.Event(body, "snap-ragdoll");
                                 body.Ragdoll(); // ragdoll is guranteed to work
                             }
                         }
@@ -823,6 +850,8 @@ namespace Together {
 
                 } else {
                     Vector2 raw = _position.Value;
+                    ReleaseRemoteLimbs(nb.body);
+                    RagdollProbe.Event(nb.body, "simout-stand");
                     nb.body.ForceStand();
                     nb.SetBodyPosition(raw);
                     EnemyMoveProbe.Note(this, EnemyMoveProbe.SimOut, raw);
@@ -830,11 +859,26 @@ namespace Together {
 
             }
 
-            // the ground-pose snapshot would paste the knocked-down shape back over the local hang
-            readingRagdollData = IsSyncGroupEnabled(SyncGroup.SyncGroup3) && !nb.body.standing && !nb.IsPiggybacking();
+            // the ground-pose snapshot would paste the knocked-down shape back over the local hang.
+            // the host already simulates this body. pasting it again is what makes a nearby client stall.
+            readingRagdollData = !Net.IsServer && IsSyncGroupEnabled(SyncGroup.SyncGroup3) && !nb.body.standing && !nb.IsPiggybacking();
             if (readingRagdollData) {
+                // root stays dynamic otherwise and drags the posed limbs around between pastes.
+                Rigidbody2D rootRb = body.rb;
+                if (rootRb != null && !rootRb.isKinematic) {
+                    rootRb.velocity = Vector2.zero;
+                    rootRb.angularVelocity = 0f;
+                    rootRb.interpolation = RigidbodyInterpolation2D.None;
+                    rootRb.isKinematic = true;
+                }
                 ReadRagdollData();
             }
+            // the idle clip was still writing the bones, so the pasted flop never showed.
+            bool animate = !readingRagdollData;
+            if (body.bodyAnimator != null && body.bodyAnimator.enabled != animate)
+                body.bodyAnimator.enabled = animate;
+            if (body.armsAnimator != null && body.armsAnimator.enabled != animate)
+                body.armsAnimator.enabled = animate;
 
 
             if (!body.IsBodyLocal() && body.sleeping && body.moveDir != Vector2.zero) { // if theyre sleeping and moving, they probably woke up
@@ -917,6 +961,7 @@ namespace Together {
         float _poseToAng;
         float _poseStart;
         float _poseDur;
+        float _poseSample;
 
 
         public readonly SyncString resourceId = new();
@@ -1068,6 +1113,10 @@ namespace Together {
             }
 
             if (go == null) {
+                // this shard was already stepped on. building it again was another full hit.
+                if (!Net.IsServer && TrapClaim.GlassBlocked(Id)) {
+                    return false;
+                }
                 if (!Util.IsWorldInstantiated() || String.IsNullOrEmpty(resourceId.Value)) {
                     return false;
                 }
@@ -1854,7 +1903,7 @@ namespace Together {
                 } else if (go.TryGetComponent(out GrabberPlant grabber)) {
                     // tip and the bone scale, only while a player is in this chunk. the next write after they walk in carries the host tip.
                     if (GrabberPlant_Update_MultiplayerPatch.Live(go.transform.position)) {
-                        grabberplant_tipPos.Value = grabber.tipPos;
+                        grabberplant_tipPos.Value = GrabberPlant_Update_MultiplayerPatch.Aim(grabber);
                         GrabberPlant_Update_MultiplayerPatch.WriteScale(grabber, this);
                     }
                 } else if (go.TryGetComponent(out TraderScript trader)) {
@@ -1870,11 +1919,15 @@ namespace Together {
                 } else if (b.TryGetComponent(out PistonScript piston)) {
                     specialdata1.Value = Traverse.Create(piston).Field("up").GetValue<bool>().ToByte();
                 } else if (b.TryGetComponent(out CrystalEnemy manifestation)) {
-                    // bit0 stuck - clients use host pose; lunge hits are victim-claimed
-                    specialdata1.Value = Traverse.Create(manifestation).Field("stuck").GetValue<bool>().ToByte();
+                    // bit0 stuck. specialdata2 is the windup timer so the client hum matches.
+                    Traverse manifest = Traverse.Create(manifestation);
+                    specialdata1.Value = manifest.Field("stuck").GetValue<bool>().ToByte();
+                    specialdata2.Value = manifest.Field("timeBeforeAttack").GetValue<float>();
 #if FULLGAME
                 } else if (b.TryGetComponent(out LaserDroneScript cryoDrone)) {
                     specialdata1.Value = cryoDrone.open.ToByte();
+                } else if (b.TryGetComponent(out FanTrap fan)) {
+                    FanTrap_OnWillRenderObject_HostSim_MultiplayerPatch.Write(fan, this);
 #endif
                 } else {
                     if (go.transform.childCount == 1 && go.transform.GetChild(0) is var e && e != null && e.TryGetComponent(out GeyserScript geyser)) {
@@ -1996,9 +2049,15 @@ namespace Together {
                     CraftCommit.SeeLiquid(_liquidStack[n].LiquidId, LiquidStackPart.Pack(_liquidStack[n].LiquidMl));
                 }
                 if (CraftCommit.SkipSeenLiquids(syncId)) {
+                    FindTheBugReports.NoteLiquidHold(wci, _liquidStack.Count);
                     return;
                 }
 
+                float syncedMl = 0f;
+                for (int s = 0; s < _liquidStack.Count; s++) {
+                    syncedMl += _liquidStack[s].LiquidMl;
+                }
+                FindTheBugReports.NoteLiquidApply(wci, syncedMl, _liquidStack.Count);
                 wci.stack.Clear();
                 for (int i = 0; i < _liquidStack.Count; i++) {
                     LiquidStackPart liquid = _liquidStack[i];
@@ -2112,7 +2171,83 @@ namespace Together {
             return false;
         }
 
+        static int _groundMask = int.MinValue;
+
+        // host paste of a idle pose was resetting velocity every step, so a fall never got past one gravity tick.
+        bool LocalOwnsLoose(bool isRigid, Rigidbody2D rb) {
+            if (!Net.IsClient || !isRigid || rb == null)
+                return false;
+            if (rb.bodyType != RigidbodyType2D.Dynamic || !rb.simulated)
+                return false;
+            if (go.transform.parent != null)
+                return false;
+            if (!SharedMain.WorldInSimRange(rb.position))
+                return false;
+            Vector2 hostVel = _velocity.Value;
+            // a real host fall, or a shove, still wins.
+            if (hostVel.y < -0.5f || hostVel.sqrMagnitude > 4f)
+                return false;
+            Vector2 host = _position.Value;
+            Vector2 here = rb.position;
+            if (Mathf.Abs(host.x - here.x) > 0.5f)
+                return false;
+            if (host.y > here.y + 0.15f)
+                return true;
+            if (_groundMask == int.MinValue)
+                _groundMask = LayerMask.GetMask("Ground");
+            return Physics2D.Raycast(here, Vector2.down, 0.8f, _groundMask).collider == null;
+        }
+
+        // packets land at 30 Hz. the mesh has to walk the gap, or a fast crystal steps.
+        internal void ClientCrystalPose() {
+            if (go == null || Net.IsServer)
+                return;
+            Vector2 raw = _position.Value;
+            float rawAng = _rotation.Value.Degrees;
+            float now = Time.time;
+            bool moved = _poseGlide
+                && ((raw - _poseTo).sqrMagnitude > 0.0004f || Mathf.Abs(Mathf.DeltaAngle(_poseToAng, rawAng)) > 0.5f);
+            if (!_poseGlide) {
+                _poseGlide = true;
+                _poseFrom = _poseTo = raw;
+                _poseFromAng = _poseToAng = rawAng;
+                _poseStart = now;
+                _poseDur = 0f;
+                _poseSample = now;
+            } else if (moved) {
+                float prevT = _poseDur > 0f ? Mathf.Clamp01((now - _poseStart) / _poseDur) : 1f;
+                _poseFrom = Vector2.Lerp(_poseFrom, _poseTo, prevT);
+                _poseFromAng = Mathf.LerpAngle(_poseFromAng, _poseToAng, prevT);
+                _poseTo = raw;
+                _poseToAng = rawAng;
+                float gap = now - _poseSample;
+                _poseSample = now;
+                if (gap < Time.deltaTime)
+                    gap = Time.deltaTime;
+                if (gap > 0.2f)
+                    gap = 0.2f;
+                if ((_poseTo - _poseFrom).sqrMagnitude > 48f * 48f) {
+                    _poseFrom = _poseTo;
+                    _poseFromAng = _poseToAng;
+                    gap = 0f;
+                }
+                _poseStart = now;
+                _poseDur = gap;
+            }
+            float t = _poseDur > 0f ? Mathf.Clamp01((now - _poseStart) / _poseDur) : 1f;
+            if (go.TryGetComponent(out Rigidbody2D rb) && rb != null) {
+                rb.interpolation = RigidbodyInterpolation2D.None;
+                rb.velocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+            }
+            go.transform.SetPositionAndRotation(Vector2.Lerp(_poseFrom, _poseTo, t), Quaternion.Euler(0f, 0f, Mathf.LerpAngle(_poseFromAng, _poseToAng, t)));
+        }
+
         void ApplyTransform() {
+            if (!Net.IsServer && go != null && go.TryGetComponent(out CrystalEnemy _)) {
+                ClientCrystalPose();
+                return;
+            }
 
             Transform trans = go.transform;
             Vector2 currentPos = trans.position;
@@ -2123,6 +2258,13 @@ namespace Together {
             if (scale.x != trans.localScale.x || scale.y != trans.localScale.y) {
                 Vector3 newscale = new Vector3(scale.x, scale.y, trans.localScale.z);
                 trans.localScale = newscale;
+            }
+
+            // host sample for a distant loose body is often still 0. pasting it every step
+            // wipes the fall down to a single gravity tick. the player standing there keeps the local one.
+            if (LocalOwnsLoose(isRigid, rb)) {
+                HostPhysProbe.NoteClient(this, currentPos, currentPos, rb, true, false);
+                return;
             }
 
             Vector2 pos;
@@ -2202,14 +2344,21 @@ namespace Together {
                 }
 
             }
+            bool pasted = false;
             if (relaxed_combat_sync || prevRelax) {
                 pos = Vector2.Lerp(currentPos, pos, 0.2f);
                 angle = Mathf.LerpAngle(currentAngle, angle, 0.2f);
             } else if (isRigid && rb.bodyType == RigidbodyType2D.Dynamic && rb.simulated) {
+                pasted = true;
                 rb.velocity = _velocity.Value;
                 rb.angularVelocity = angvel;
             }
 
+            HostPhysProbe.NoteClient(this, currentPos, pos, rb, false, pasted);
+            if (_item != null && (_item.id == "flashlight" || _item.id == "emergencylight")
+                && (_item.condition <= 0.05f || (_item.battery != null && !_item.battery.hasCharge))) {
+                FindTheBugReports.NoteFlash(_item, "sync-apply");
+            }
             EnemyMoveProbe.NoteObject(this, pos, currentPos, poseSnap);
             {
                 if (shouldApplyPos) {
@@ -2560,10 +2709,14 @@ namespace Together {
             } else if (b.TryGetComponent(out PistonScript piston)) {
                 // clientPistonFollowHost reads specialdata1 each Update; nothing else to apply here.
             } else if (b.TryGetComponent(out CrystalEnemy manifestation)) {
-                Traverse.Create(manifestation).Field("stuck").SetValue(specialdata1.Value != 0);
+                Traverse manifest = Traverse.Create(manifestation);
+                manifest.Field("stuck").SetValue(specialdata1.Value != 0);
+                manifest.Field("timeBeforeAttack").SetValue(specialdata2.Value);
 #if FULLGAME
             } else if (b.TryGetComponent(out LaserDroneScript cryoDrone)) {
                 TrapClaim.ClientCryoFollowHost(cryoDrone);
+            } else if (b.TryGetComponent(out FanTrap fan)) {
+                FanTrap_OnWillRenderObject_HostSim_MultiplayerPatch.Apply(fan, specialdata1.Value, specialdata2.Value);
 #endif
             } else {
                 if (go.transform.childCount == 1 && go.transform.GetChild(0) is var e && e != null && e.TryGetComponent(out GeyserScript geyser)) {
@@ -2704,11 +2857,55 @@ namespace Together {
 
         // one predicted use. the postfix also runs when stamina no-ops, so a repeat must not slide the deadline.
         public void ArmPredictedUse() {
+            // a second bite still needs its own ack, even when the tick deadline is already armed.
+            AwaitServerAck();
             if (useIgnoreArmed) {
                 return;
             }
             useIgnoreArmed = true;
             SetIgnoreTimeForRoundTrip();
+        }
+
+        // client only. hold the local prediction until the host says this request was handled.
+        int pendingAcks;
+        double pendingAckDeadline;
+        public void AwaitServerAck() {
+            if (!Net.IsClient) {
+                return;
+            }
+            float rtt = ClientMain.RTT_IN_SECONDS_with_margin;
+            if (rtt < 0f) {
+                rtt = 0f;
+            }
+            // a lost ack, or an old host that never sends one, must not freeze the item.
+            double wait = 1.5 + Math.Min(rtt * 2f, 6f);
+            pendingAcks++;
+            double deadline = Time.realtimeSinceStartupAsDouble + wait;
+            if (deadline > pendingAckDeadline) {
+                pendingAckDeadline = deadline;
+            }
+        }
+
+        internal void OnServerAck() {
+            if (pendingAcks <= 0) {
+                return;
+            }
+            pendingAcks--;
+            if (pendingAcks > 0) {
+                return;
+            }
+            // the snapshot that carries the result can trail the reliable ack by a send and a bit of interpolation.
+            int span = (int)(0.25f * Net.ServerEntitySendRate);
+            if (span < 2) {
+                span = 2;
+            }
+            if (span > MaxIgnoreLead) {
+                span = MaxIgnoreLead;
+            }
+            ushort newTick = (ushort)(Net.ServerTick + span);
+            if (LiteEntitySystem.Utils.SequenceDiff(newTick, lastUpdateTick) > 0) {
+                lastUpdateTick = newTick;
+            }
         }
         public void SetIgnoreTimeForRoundTrip(float additional_time_seconds = 0.3f) {
             float extra = ClientMain.RTT_IN_SECONDS_with_margin;
@@ -2737,6 +2934,13 @@ namespace Together {
             }
         }
         public bool IsIgnored() {
+            // a predicted use is still waiting on the host. the fixed window used to run out first.
+            if (pendingAcks > 0) {
+                if (Time.realtimeSinceStartupAsDouble < pendingAckDeadline) {
+                    return true;
+                }
+                pendingAcks = 0;
+            }
             // positive lead means the deadline is still ahead of the server, wrap included.
             // equal is still this tick, so it stays stale until the server moves past it.
             int lead = LiteEntitySystem.Utils.SequenceDiff(lastUpdateTick, Net.ServerTick);

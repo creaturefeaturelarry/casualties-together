@@ -43,6 +43,7 @@ namespace Together {
         }
 
         internal static void Tick() {
+            FindTheBugReports.Tick();
         }
 
         // 10s frame timers. each line is one part of the mod. the last line is the rest of the frame, the game.

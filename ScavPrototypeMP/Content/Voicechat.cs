@@ -1234,7 +1234,7 @@ public class Voicechat :  CasualtiesTogetherSingleton {
         if (!IS_RECORDING) {
             START_FAILURE_COUNT++;
             if (START_FAILURE_COUNT > MAX_FAILURES_UNTIL_DISABLE_VC) {
-                Multiplayer.DoMultiplayerStatusMessageError($"Failed to initialize microphone {START_FAILURE_COUNT} times. Microphone is now disabled.");
+                Multiplayer.DoMultiplayerStatusMessageError(string.Format(Lang.Get("voicechat_mic_init_failed"), START_FAILURE_COUNT));
                 START_FAILURE_COUNT = 0;
                 current_microphone_mode = 0;
             }

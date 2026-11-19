@@ -192,6 +192,7 @@ static class GlobalDark_Update_DontEatClicks {
 public static class PlayerCamera_LateUpdate_TraderHold {
     private static void Postfix(PlayerCamera __instance) {
         TraderPinLog.Hold(__instance);
+        PlayerCamera_SwitchHands_MultiplayerPatch.RefreshHandIcon(__instance);
 
         // keep the vanilla body-based reading for living players. Once the
         // local player is dead, make the reading follow the spectator camera.
@@ -263,7 +264,7 @@ public static class PlayerCamera_Update_MultiplayerPatch {
             var body = pc.body;
 
             if (!prev_radialOpen && pc.radialOpen) {
-
+                PlayerCamera_SwitchHands_MultiplayerPatch.RefreshHandIcon(pc);
                 UIInGame.StopPlayerInteractionMenu();
 
             } else {
@@ -502,12 +503,12 @@ static class PlayerCamera_ToMainMenu_MultiplayerPatch {
                 ) {
 
                 } else {
-                    Multiplayer.DoMultiplayerStatusMessageLog("Disconnecting because im going to main menu on my own!");
+                    Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("gotomainmenu_local"));
                     Multiplayer._JustDisconnect();
-                    Chat.LogMessage(Chat.NAMELABEL_LOCALSYSTEM, "Left the server.");
+                    Chat.LogMessage(Chat.NAMELABEL_LOCALSYSTEM, Lang.Get("left_server_local"));
                 }
             } else {
-                Multiplayer.DoMultiplayerStatusMessageLog("Announcing GoBackToMainMenu.");
+                Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("gotomainmenu_announce"));
 
                 var writer = Net.CreateWriter(NetmsgId.CLIENT_GoBackToMainMenu);
                 writer.Put(0);
@@ -898,11 +899,14 @@ public static class PlayerCamera_HandleInput_MultiplayerPatch {
 public static class PlayerCamera_SwitchHands_MultiplayerPatch {
 
     public static void Postfix() {
-        if (Net.IsRunning) {
+        if (!Net.IsRunning || PlayerCamera.main == null || PlayerCamera.main.body == null)
+            return;
 
-            Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_PlayerCamera_SwitchHands, (ushort)(PlayerCamera.main.body.handSlot), true);
-
-        }
+        RefreshHandIcon(PlayerCamera.main);
+        Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_PlayerCamera_SwitchHands, (ushort)(PlayerCamera.main.body.handSlot), true);
+        // the toggle does not count as movement, so the hand never left in a sync packet.
+        if (!Net.IsServer)
+            ClientMain.Client_SendCharacterSyncPacket();
     }
 
     [ServerReceiver((byte)NetmsgId.SERVER_PlayerCamera_SwitchHands)]
@@ -920,6 +924,13 @@ public static class PlayerCamera_SwitchHands_MultiplayerPatch {
 
         if (ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr) && plr.IsAlive()) {
             plr.body.handSlot = (int)handslot;
+            NetBody nb = plr.netBody;
+            if (nb != null) {
+                nb.handSwitched = true;
+                nb.handSwitchTick = Net.ServerTick;
+                if (nb.syncBody != null)
+                    nb.syncBody.WriteBodyData();
+            }
 
             if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(plr.body.transform.position, $"S: PlayerCamera_SwitchHands {handslot}");
 
@@ -946,10 +957,26 @@ public static class PlayerCamera_SwitchHands_MultiplayerPatch {
         reader.Get(out byte handslot);
 
         if (ScavPlayer.TryGetPlayerFromClientId(who, out var plr) && plr.body && !plr.IsLocal) {
-            plr.body.handSlot = (int)handslot;
-
+            // snapshot apply owns this. setting it here snaps back until that value arrives.
             if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(plr.body.transform.position, $"C: PlayerCamera_SwitchHandsRelay {handslot}");
         }
+    }
+
+    // opening the inventory puts the prefab sprite back, which is the right hand.
+    internal static void RefreshHandIcon(PlayerCamera pc) {
+        if (!Net.IsRunning || pc == null || pc.body == null || pc.handSwapImage == null || pc.handSwapSprites == null)
+            return;
+        int slot = pc.body.handSlot;
+        if (slot < 0 || slot >= pc.handSwapSprites.Length)
+            return;
+        Sprite want = pc.handSwapSprites[slot];
+        if (want == null)
+            return;
+        if (pc.handSwapImage.sprite != want)
+            pc.handSwapImage.sprite = want;
+        int other = slot == 0 ? 1 : 0;
+        if (other < pc.handSwapSprites.Length && pc.handSwapImage.overrideSprite == pc.handSwapSprites[other])
+            pc.handSwapImage.overrideSprite = null;
     }
 }
 
@@ -1079,6 +1106,28 @@ static class PlayerCamera_ToggleTradeMenu_MultiplayerPatch {
         log.l($"Recruiting {trader_si} -> to respawn {available_plr}");
 
         available_plr.Server_RespawnCharacter(trader_si.transformPosition + Vector2.up * 1.5f, true);
+#if FULLGAME
+        // species command path. wipe matches RespawnKeepSkills: off means the new species' base skills.
+        if (Multiplayer.rules.TraderReviveAsSpecies && trader_tracker.og != null) {
+            int species = CharacterSpawn.ClampChar(trader_tracker.og.character);
+            if (available_plr.body == null || available_plr.body.charType != species) {
+                List<Item> kept = null;
+                if (Multiplayer.rules.RespawnKeepInventory && available_plr.body != null) {
+                    kept = available_plr.body.GetAllItemsThorough();
+                    available_plr.body.Body_DropAllItems();
+                }
+                CharacterSpawn.ServerForceSwapSpecies(available_plr, species, !Multiplayer.rules.RespawnKeepSkills, false);
+                if (kept != null && available_plr.body != null) {
+                    for (int k = 0; k < kept.Count; k++) {
+                        Item keptItem = kept[k];
+                        if (keptItem != null) {
+                            available_plr.body.AutoPickUpItem(keptItem);
+                        }
+                    }
+                }
+            }
+        }
+#endif
         for (int i = 0; i < Math.Min(trader_tracker.og.items.Count, RANDOM_ITEMS_TO_GIVE_AFTER_RESPAWN); i++) {
             int randindex = UnityEngine.Random.Range(0, trader_tracker.og.items.Count);
             TraderItem item = trader_tracker.og.items[randindex];

@@ -846,6 +846,10 @@ public static class MoveCommit {
         return receipt;
     }
 
+    internal static void Forget(knetid player) {
+        Books.Remove(player);
+    }
+
     static void Clear() {
         Attempts.Clear();
         Exclusive.Clear();

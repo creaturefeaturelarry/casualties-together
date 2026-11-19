@@ -230,7 +230,7 @@ internal static class TraderCommit {
         trader.MoveRange.max = moveMax;
         trader.didMove = didMove;
         trader.reputation = reputation;
-        trader.hostility = hostility;
+        TraderWindup.Note(trader, hostility);
         trader.haggleAmount = haggleAmount;
         trader.freeDressing = freeDressing;
         trader.didHug = didHug;
@@ -243,6 +243,7 @@ internal static class TraderCommit {
             trader.items.Clear();
         }
         trader.items.AddRange(items);
+        trader.GetOrAddComponent<TrackerTrader>().received_their_inv = true;
         RefreshOpen(trader);
     }
 
@@ -455,6 +456,9 @@ internal static class TraderCommit {
             }
         } finally {
             Pumping.Remove(id);
+            if (Queues.TryGetValue(id, out Queue<Job> drained) && drained.Count == 0) {
+                Queues.Remove(id);
+            }
         }
     }
 
@@ -495,9 +499,7 @@ internal static class TraderCommit {
                 }
                 break;
                 case Op.Threaten:
-                if (trader.reputation >= 30f) {
-                    trader.Threaten();
-                }
+                trader.Threaten();
                 break;
                 case Op.Hug:
                 if (!trader.didHug) {
@@ -646,11 +648,15 @@ internal static class TraderCommit {
             }
         }
         if (live != null) {
+            //dogshit fking game breaks every time i breathe
+            if (live.items == null) {
+                return;
+            }
             Body body = null;
             ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out _, out body);
-            // client walked up first. roll first impression on the host copy before they paint the ui
-            if (TraderScript_MeetPlayer_MultiplayerPatch.EnsureFirstMeet(live, body))
-                PublishTo(live, clientId);
+            // make sure items are rolled ^^
+            TraderScript_MeetPlayer_MultiplayerPatch.EnsureFirstMeet(live, body);
+            PublishTo(live, clientId);
         }
     }
 

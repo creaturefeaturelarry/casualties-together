@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <SolutionDir>$(MSBuildThisFileDirectory)../../</SolutionDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" /><Compile Include="Stubs.cs" />
+    <Compile Include="../../ScavPrototypeMP/HostTransfer/TransferArchive.cs" Link="TransferArchive.cs" />
+    <Compile Include="../../ScavPrototypeMP/HostTransfer/LobbyHostTransfer.cs" Link="LobbyHostTransfer.cs" />
+    <Compile Include="../../ScavPrototypeMP/SyncSystems/RunSettingsCodec.cs" Link="RunSettingsCodec.cs" />
+    <Reference Include="Newtonsoft.Json"><HintPath>$(GameManagedDir)/Newtonsoft.Json.dll</HintPath></Reference>
+    <Reference Include="LiteNetLib"><HintPath>$(MSBuildThisFileDirectory)../../libs/dlls/LiteNetLib.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

@@ -1299,7 +1299,7 @@ static class PlayerCamera_CloseItemCustomizer_MultiplayerPatch {
             return;
         }
         ItemSync.PushCosmetics(watched);
-        // favourite star is local-only - do not push SyncVar / SERVER_ItemFavourited
+        ItemSync.PushFavourite(watched);
     }
 }
 
@@ -1341,23 +1341,94 @@ static class ItemCosmetics_NetReceivers {
 }
 #endif
 
-// favourite star is local UI only. RecipeItem skips favourited ingredients, so syncing the star
-// made one peer's favorite hide the item from craft matching on the host/other peers.
+// stock favourite key. the snapshot used to put the host star back on the same frame.
 [HarmonyPatch(typeof(PlayerCamera), nameof(PlayerCamera.HandleWhileDragging))]
 static class PlayerCamera_Favourite_MultiplayerPatch {
-    // intentionally empty - stock toggle stays local; no SERVER_ItemFavourited traffic.
+    static Item favWatch;
+    static bool favBefore;
+#if FULLGAME
+    static byte swatchBefore;
+#endif
+
+    static void Prefix(List<RaycastResult> uiCasts) {
+        favWatch = null;
+        if (!Net.IsRunning || uiCasts == null) {
+            return;
+        }
+        if (ConsoleScript.instance != null && ConsoleScript.instance.active) {
+            return;
+        }
+#if FULLGAME
+        PlayerCamera cam = PlayerCamera.main;
+        if (cam != null && cam.itemCustomizer != null && cam.itemCustomizer.activeSelf) {
+            return;
+        }
+#endif
+        if (!Input.GetKeyDown(KeyBinds.GetBind("favourite"))) {
+            return;
+        }
+        for (int i = 0; i < uiCasts.Count; i++) {
+            InvButton button;
+            if (!uiCasts[i].gameObject.TryGetComponent(out button) || !button.Overlaps(uiCasts)) {
+                continue;
+            }
+            Item item = button.GetItem();
+            if (item == null) {
+                return;
+            }
+            favWatch = item;
+            favBefore = item.favourited;
+#if FULLGAME
+            swatchBefore = (byte)Mathf.Clamp(item.colorSwatch, 0, 255);
+#endif
+            return;
+        }
+    }
+
+    static void Postfix() {
+        Item item = favWatch;
+        favWatch = null;
+        if (item == null) {
+            return;
+        }
+        if (item.favourited != favBefore) {
+            ItemSync.PushFavourite(item);
+        }
+#if FULLGAME
+        byte swatch = (byte)Mathf.Clamp(item.colorSwatch, 0, 255);
+        if (swatch != swatchBefore) {
+            ItemSync.PushCosmetics(item);
+        }
+#endif
+    }
 
     [ServerReceiver((byte)NetmsgId.SERVER_ItemFavourited)]
     static void Server_ItemFavourited(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
-        // old peers may still send this; ignore so their star never lands on the host item
-        reader.Get(out knetid _);
-        reader.Get(out bool _);
+        reader.Get(out knetid id);
+        reader.Get(out bool want);
+        if (!ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out ScavPlayer plr, out Body body)) {
+            return;
+        }
+        if (!ItemSync.TryGetItemSyncInfo(id, out SyncInfo si) || si == null || si.item == null) {
+            return;
+        }
+        bool ok = body != null && ItemSync.CheckIfBodyReachThisItem(si, body);
+        if (ok) {
+            si.item.favourited = want;
+            si.favourited.Value = want;
+        } else if (plr != null && !plr.IsLocal) {
+            ItemSync.EchoFavourite(plr, si);
+        }
     }
 
     [ClientReceiver((byte)NetmsgId.CLIENT_ItemFavourited, false)]
     static void Client_ItemFavourited(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-        reader.Get(out knetid _);
-        reader.Get(out bool _);
+        reader.Get(out knetid id);
+        reader.Get(out bool want);
+        ItemSync.ClearFavouritePending(id);
+        if (ItemSync.TryGetItemSyncInfo(id, out SyncInfo si) && si != null && si.item != null) {
+            si.item.favourited = want;
+        }
     }
 }
 
@@ -1375,7 +1446,8 @@ public static class Body_CombineItems_MultiplayerPatch {
             return true;
         }
         if ((bool)it1.GetComponent<GunScript>() && (bool)it2.GetComponent<AmmoScript>()) {
-            it1.GetComponent<GunScript>().LoadMag(it2.GetComponent<AmmoScript>());
+            // vanilla LoadMag asks the camera body if it is milky. on the host that is the host, so a milky client never fed a shotgun from the box.
+            LoadMag(combinerguy, it1.GetComponent<GunScript>(), it2.GetComponent<AmmoScript>());
             return true;
         }
         if ((bool)it1.GetComponent<AmmoScript>() && (bool)it2.GetComponent<AmmoScript>()) {
@@ -1399,6 +1471,37 @@ public static class Body_CombineItems_MultiplayerPatch {
             cont.UnloadItem(it1);
         }
         return true;
+    }
+
+    // same branches as GunScript.LoadMag. the milky box feed uses the combiner, not the camera.
+    static void LoadMag(Body who, GunScript gun, AmmoScript ammo) {
+        if (gun == null || ammo == null || ammo.ammoType != gun.ammoType) {
+            return;
+        }
+        if (gun.racked && gun.roundInChamber == GunScript.RoundInChamber.None && ammo.itemType == AmmoScript.AmmoItemType.Round) {
+            gun.roundInChamber = GunScript.RoundInChamber.Round;
+            Sound.Play("gunloadshell", gun.transform.position);
+            UnityEngine.Object.Destroy(ammo.gameObject);
+        } else if (!gun.hasMag && gun.feedType == GunScript.FeedType.Mag && ammo.itemType == AmmoScript.AmmoItemType.Magazine) {
+            gun.hasMag = true;
+            gun.roundsInMag = ammo.rounds;
+            Sound.Play("gunloadmag", gun.transform.position);
+            UnityEngine.Object.Destroy(ammo.gameObject);
+        } else if (gun.feedType == GunScript.FeedType.Direct && ammo.itemType == AmmoScript.AmmoItemType.Round && gun.roundsInMag < gun.magCapacity) {
+            gun.roundsInMag++;
+            Sound.Play("gunloadshell", gun.transform.position);
+            UnityEngine.Object.Destroy(ammo.gameObject);
+        } else if (gun.feedType == GunScript.FeedType.Direct && ammo.itemType == AmmoScript.AmmoItemType.Magazine && who != null && who.charType == 1 && ammo.rounds > 0) {
+            if (gun.racked && gun.roundInChamber == GunScript.RoundInChamber.None) {
+                gun.roundInChamber = GunScript.RoundInChamber.Round;
+                ammo.rounds--;
+                Sound.Play("gunloadshell", gun.transform.position);
+            } else if (gun.roundsInMag < gun.magCapacity) {
+                gun.roundsInMag++;
+                ammo.rounds--;
+                Sound.Play("gunloadshell", gun.transform.position);
+            }
+        }
     }
 
 
@@ -1432,6 +1535,9 @@ public static class Body_CombineItems_MultiplayerPatch {
                 }
 
                 Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
+                if (isfluid) {
+                    FindTheBugReports.NotePourSend(it1, it2, ml);
+                }
                 if (log.verbose) Plugin.log.LogInfo($"BODY_COMBINE_OVERRIDE sending {msgname} {isi} x {isi2}  ");
 
                 // WRITER END;
@@ -1439,6 +1545,7 @@ public static class Body_CombineItems_MultiplayerPatch {
 
         } else {
             Plugin.log.LogWarning($"Attempted to combine unregistered items {it1.id} and {it2.id}, aborting.");
+            FindTheBugReports.Say("liquid", "unregistered " + it1.id + " + " + it2.id + " side=" + (Net.IsServer ? "host" : "client"));
 
             // the thing wasnt registered yet
             NetObjectRegistry.AlertObjectNotRegistered();
@@ -2246,7 +2353,8 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     }
 
     internal static void SpentDestroy(Item item) {
-        if (!Net.IsServer || item == null || item.condition > 0f)
+        // disconnect used to leave Type as Host, and this ran on the old world with nobody hosting.
+        if (!Net.IsRunning || !Net.IsServer || item == null || item.condition > 0f)
             return;
         if (item.Stats == null || !item.Stats.destroyAtZeroCondition)
             return;
@@ -2254,18 +2362,26 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         if (GravBagBoom.Armed(item, item.condition))
             return;
         if (item.TryGetComponent(out Container box)) {
-            ParentTestChest("chest spill host", item, item.gameObject);
-            box.ContainerBroke();
-            if (NetObjectRegistry.TryGetSyncInfo(item.gameObject, out SyncInfo bag) && bag != null && !bag.IsDestroyed) {
-                // spilled items still store this id. clearing it is what stops the next spawn inheriting the bag.
-                ReleaseNamedContents(bag);
-                bag.Destroy();
-            } else {
-                UnityEngine.Object.Destroy(item.gameObject, 0.05f);
+            try {
+                ParentTestChest("chest spill host", item, item.gameObject);
+                box.ContainerBroke();
+                if (NetObjectRegistry.TryGetSyncInfo(item.gameObject, out SyncInfo bag) && bag != null && !bag.IsDestroyed) {
+                    // spilled items still store this id. clearing it is what stops the next spawn inheriting the bag.
+                    ReleaseNamedContents(bag);
+                    bag.Destroy();
+                } else {
+                    UnityEngine.Object.Destroy(item.gameObject, 0.05f);
+                }
+            } catch (Exception ex) {
+                log.error("[join] spent bag " + item.id + " " + ex.Message);
             }
             return;
         }
-        UnityEngine.Object.Destroy(item.gameObject);
+        try {
+            UnityEngine.Object.Destroy(item.gameObject);
+        } catch (Exception ex) {
+            log.error("[join] spent item " + item.id + " " + ex.Message);
+        }
     }
 
     internal static void ReleaseNamedContents(SyncInfo bag) {
@@ -2469,6 +2585,11 @@ internal class ItemSync : CasualtiesTogetherSingleton {
                     sound_name = "gunloadmag";
                 } else if (gun.feedType == GunScript.FeedType.Direct && ammo.itemType == AmmoScript.AmmoItemType.Round && gun.roundsInMag < gun.magCapacity) {
                     sound_name = "gunloadshell";
+                } else if (gun.feedType == GunScript.FeedType.Direct && ammo.itemType == AmmoScript.AmmoItemType.Magazine && ammo.rounds > 0) {
+                    bool room = gun.roundsInMag < gun.magCapacity || (gun.racked && gun.roundInChamber == GunScript.RoundInChamber.None);
+                    if (room && ScavPlayer.TryGetPlayerAndBodyFromClientId(combinerguyguy, out _, out Body combiner) && combiner != null && combiner.charType == 1) {
+                        sound_name = "gunloadshell";
+                    }
                 }
             }
         } else if ((bool)ammo1 && (bool)ammo2) {
@@ -2511,9 +2632,24 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         FavPendingMap.Remove(id);
     }
 
+#if FULLGAME
+    // the open customizer is writing this item. the host snapshot must not wipe the box.
+    internal static bool LocalCustomizing(Item item) {
+        if (item == null || !Net.IsClient) {
+            return false;
+        }
+        PlayerCamera cam = PlayerCamera.main;
+        return cam != null && cam.customizedItem == item;
+    }
+#endif
+
     internal static void ApplyFavourite(Item item, knetid id, bool value) {
         if (item == null)
             return;
+#if FULLGAME
+        if (LocalCustomizing(item))
+            return;
+#endif
         if (FavPendingMap.TryGetValue(id, out FavPending pending)) {
             if (pending.want == value || Time.realtimeSinceStartupAsDouble >= pending.until)
                 FavPendingMap.Remove(id);
@@ -2530,6 +2666,24 @@ internal class ItemSync : CasualtiesTogetherSingleton {
         writer.Put(si.syncId);
         writer.Put(si.item.favourited);
         Net.Server_SendTo(DeliveryMethod.ReliableOrdered, writer, plr.playerId);
+    }
+
+    internal static void PushFavourite(Item item) {
+        if (!Net.IsRunning || item == null) {
+            return;
+        }
+        if (!TryGetSyncInfo(item, out SyncInfo si) || si == null) {
+            return;
+        }
+        if (Net.IsServer) {
+            si.favourited.Value = item.favourited;
+            return;
+        }
+        LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.SERVER_ItemFavourited);
+        writer.Put(si.syncId);
+        writer.Put(item.favourited);
+        Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
+        PredictFavourite(si.syncId, item.favourited);
     }
 
 #if FULLGAME
@@ -2555,6 +2709,9 @@ internal class ItemSync : CasualtiesTogetherSingleton {
     // keep the local customizer edit until the host copy catches up.
     internal static void ApplyCosmetics(Item item, knetid id, string label, byte swatch) {
         if (item == null) {
+            return;
+        }
+        if (LocalCustomizing(item)) {
             return;
         }
         if (CosmeticsPendingMap.TryGetValue(id, out CosmeticsPending pending)) {
@@ -2989,9 +3146,16 @@ internal class ItemSync : CasualtiesTogetherSingleton {
                         if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(body.transform.position, $"S: CombineLiquidItems {cancombine} {clientId} {isi1} x {isi2} ");
 
                         if (cancombine) {
+                            float toBefore = isi1.liquidcontainer.CurrentTotal;
+                            float fromBefore = isi2.liquidcontainer.CurrentTotal;
                             ServerMain.Server_AnnounceSound(isi1.go.transform.position, "waterpour", ServerMain.GetListOfClientIdsExceptThisAndHost(clientId));
                             body.CombineLiquids(isi1.liquidcontainer, isi2.liquidcontainer, amt);
+                            FindTheBugReports.NoteCombine("combined", amt, isi1, isi2, toBefore, fromBefore);
+                        } else {
+                            FindTheBugReports.NoteCombine("cannot", amt, isi1, isi2, isi1.liquidcontainer.CurrentTotal, isi2.liquidcontainer.CurrentTotal);
                         }
+                    } else {
+                        FindTheBugReports.NoteCombine("host-local-skip", amt, isi1, isi2, isi1.liquidcontainer.CurrentTotal, isi2.liquidcontainer.CurrentTotal);
                     }
 
                     // i will not send double cuz idk how to check for destroyed things properly 
@@ -3000,6 +3164,7 @@ internal class ItemSync : CasualtiesTogetherSingleton {
 
                 } else {
                     if (verbose) Plugin.log.LogWarning($"SERVER CombineLiquidItems: {isi1} {isi2} , but client was too far!");
+                    FindTheBugReports.NoteCombine("far", amt, isi1, isi2, isi1.liquidcontainer.CurrentTotal, isi2.liquidcontainer.CurrentTotal);
                 }
             }
         }

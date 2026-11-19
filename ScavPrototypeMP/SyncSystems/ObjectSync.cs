@@ -190,6 +190,14 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
     Transform _heldParent;
     bool _held;
     bool _wasLoose;
+    int _crystal = -1;
+
+    internal bool IsCrystal() {
+        if (_crystal < 0) {
+            _crystal = GetComponent<CrystalEnemy>() != null ? 1 : 0;
+        }
+        return _crystal == 1;
+    }
 
     // parent walk is only when the parent changes. a ground item stays on the chunk stamp.
     bool HeldByBody() {
@@ -241,11 +249,26 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
 
         // clients still ease off-screen copies. the chunk stamp is the host's write.
         if (!Net.IsServer) {
+            // a manifestation is posed every step. the 15-step skip left the lunge a chunk behind.
+            if (IsCrystal()) {
+                visualUpdateTimer = 0;
+                syncInfo.ClientFixedUpdate();
+                KrokV5Optimization.EvidenceCrystal.Client(syncInfo);
+                return;
+            }
             visualUpdateTimer++;
             if (!isVisible && visualUpdateTimer < VisualUpdateSlowerWhenNotVisible)
                 return;
             visualUpdateTimer = 0;
             syncInfo.ClientFixedUpdate();
+            return;
+        }
+
+        // host physics writes this every step. the entity tick then ships that sample, not the chunk sweep.
+        if (IsCrystal()) {
+            visualUpdateTimer = 0;
+            syncInfo.WriteObjectIntoPacket();
+            KrokV5Optimization.EvidenceCrystal.Host(syncInfo);
             return;
         }
 
@@ -310,6 +333,12 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
 
 
     float distanceCheckTime = 0;
+    void LateUpdate() {
+        if (Net.IsServer || syncInfo == null || !IsCrystal())
+            return;
+        // fixed step only lands on the sample. this is the frames between packets.
+        syncInfo.ClientCrystalPose();
+    }
     void Update() {
         if (syncInfo == null) return;
 
@@ -687,6 +716,9 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
     internal static bool ShouldKeepRegistered(GameObject obj) {
         if (obj == null)
             return false;
+        // the cargo heart is part of the layer. joiners get it with the baseline, not when they walk up.
+        if (obj.GetComponent<KeepForJoiners>() != null)
+            return true;
         var simulationTransform = obj.transform;
         while (simulationTransform.parent != null &&
             simulationTransform.parent.TryGetComponent<Container>(out _)) {
@@ -783,6 +815,9 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
             // the rare pass still drops far trackers, then queues dead players or the
             // living-player downward circle. SlowStamp runs one of those circles every 0.1s.
             if (do_slow_mode) {
+#if FULLGAME
+                LayerBuildingStream.HostRegister();
+#endif
 
                 { // do unregistering
                     int autounregistercount = 0;
@@ -974,9 +1009,6 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
         // baked into the end lab prefab. there is no Resources entry, so a net spawn is null and the client clear deletes the real one.
         "macrofleshrebuilder",
-
-        // each machine already built this from the world. a net copy is a second gun that does not share the first.
-        "ceilingturret",
     };
 
     public static bool ObjectShouldBeSynced(GameObject obj) => !ObjectShouldNotBeSynced(obj);
@@ -987,6 +1019,15 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
                     return true;
                 }
                 if (obj.TryGetComponent<Climbable>(out var c)) {
+                    // spicevine is a climbable you can also smash. the rope tracker would leave the break on one machine.
+                    bool spice = b.id == TrackerClimbableEntity.spicevine_id
+                        || b.id == TrackerClimbableEntity.spicevineceiling_id
+                        || (c.name != null && c.name.StartsWith("spicevineceiling"));
+                    if (spice) {
+                        if (c.name != null && c.name.StartsWith("spicevineceiling") && b.id != TrackerClimbableEntity.spicevineceiling_id)
+                            b.id = TrackerClimbableEntity.spicevineceiling_id;
+                        return false;
+                    }
                     if (!obj.TryGetComponent<TrackerClimbableEntity>(out var _)) {
                         var r = obj.AddComponent<TrackerClimbableEntity>();
                         // late-bind fullgame climbables if prefab init had not rewritten this instance yet

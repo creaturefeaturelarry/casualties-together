@@ -7,7 +7,8 @@ using UnityEngine.Rendering.Universal;
 namespace Together;
 
 // contents of a closed bag stay off. the bag itself stays on.
-// decay still runs here, because Item.Update does not run while the object is off.
+// this tick is their Update: rot, the trade timer, and the destroy at zero.
+// weight follows that destroy. the body retallies every half second.
 public static class BagSleep
 {
 	struct Row
@@ -24,6 +25,8 @@ public static class BagSleep
 	static readonly HashSet<int> Ids = new HashSet<int>();
 	static readonly HashSet<int> Holds = new HashSet<int>();
 	static readonly Dictionary<int, bool> Lights = new Dictionary<int, bool>();
+	// scripts we turned off on a belt or trauma rig. renderers stay up.
+	static readonly Dictionary<int, List<Behaviour>> Paused = new Dictionary<int, List<Behaviour>>();
 	static int _sleepLeft;
 
 	internal static void Note(Item item)
@@ -53,7 +56,10 @@ public static class BagSleep
 		for (int i = 0; i < Rows.Count; i++)
 		{
 			Item item = Rows[i].Item;
-			if (item == null || item.gameObject.activeSelf)
+			if (item == null)
+				continue;
+			// a belt item stays active so the sprite draws. its tracker update is paused with the rest.
+			if (item.gameObject.activeSelf && !Paused.ContainsKey(Rows[i].Id))
 				continue;
 			if (!item.TryGetComponent(out SyncInfoGameObjectTracker tracker))
 				continue;
@@ -98,17 +104,37 @@ public static class BagSleep
 			}
 			Hold(item);
 			GameObject go = item.gameObject;
-			if (go.activeSelf)
+			if (WornShow(box))
+			{
+				if (!go.activeSelf)
+					go.SetActive(true);
+				Pause(item);
+			}
+			else if (go.activeSelf)
 			{
 				if (_sleepLeft <= 0)
 					continue;
+				Resume(item.gameObject.GetInstanceID());
 				go.SetActive(false);
 				_sleepLeft--;
 			}
 			item.HandleDecay();
+			TickTrade(item);
 			if (Net.IsServer)
 				ItemSync.SpentDestroy(item);
 		}
+	}
+
+	// BoughtItem.Update does not run while the mesh is off. host owns a synced copy.
+	static void TickTrade(Item item)
+	{
+		if (!item.TryGetComponent(out BoughtItem bought))
+			return;
+		if (Net.IsClient && NetObjectRegistry.IsRegistered(item.gameObject))
+			return;
+		bought.time -= Time.deltaTime;
+		if (bought.time < 0f)
+			UnityEngine.Object.Destroy(bought);
 	}
 
 	internal static void WakeContents(Container box)
@@ -152,10 +178,18 @@ public static class BagSleep
 				continue;
 			}
 			Hold(child);
+			if (WornShow(box))
+			{
+				if (!child.gameObject.activeSelf)
+					child.gameObject.SetActive(true);
+				Pause(child);
+				continue;
+			}
 			if (!child.gameObject.activeSelf)
 				continue;
 			if (left <= 0)
 				continue;
+			Resume(child.gameObject.GetInstanceID());
 			child.gameObject.SetActive(false);
 			left--;
 		}
@@ -174,6 +208,7 @@ public static class BagSleep
 		int id = Rows[index].Id;
 		Ids.Remove(id);
 		Holds.Remove(id);
+		Paused.Remove(id);
 		int last = Rows.Count - 1;
 		Rows[index] = Rows[last];
 		Rows.RemoveAt(last);
@@ -188,8 +223,48 @@ public static class BagSleep
 
 	static void Release(Item item)
 	{
-		Holds.Remove(item.gameObject.GetInstanceID());
+		int id = item.gameObject.GetInstanceID();
+		Resume(id);
+		Holds.Remove(id);
 		ChunkSleep.Watch(item);
+	}
+
+	// belt and trauma rig draw their contents on the body. a backpack does not.
+	static bool WornShow(Container box)
+	{
+		if (box == null || !box.TryGetComponent(out Item bag) || bag.id == null)
+			return false;
+		return bag.id == "belt" || bag.id == "traumarig";
+	}
+
+	static void Pause(Item item)
+	{
+		int id = item.gameObject.GetInstanceID();
+		if (Paused.ContainsKey(id))
+			return;
+		MonoBehaviour[] scripts = item.GetComponentsInChildren<MonoBehaviour>(true);
+		List<Behaviour> list = new List<Behaviour>(scripts.Length);
+		for (int i = 0; i < scripts.Length; i++)
+		{
+			MonoBehaviour script = scripts[i];
+			if (script == null || !script.enabled)
+				continue;
+			script.enabled = false;
+			list.Add(script);
+		}
+		Paused[id] = list;
+	}
+
+	static void Resume(int id)
+	{
+		if (!Paused.TryGetValue(id, out List<Behaviour> list))
+			return;
+		for (int i = 0; i < list.Count; i++)
+		{
+			if (list[i] != null)
+				list[i].enabled = true;
+		}
+		Paused.Remove(id);
 	}
 
 	// chunk wake asks this before setactive. a closed bag stays off, an open one does not.
@@ -207,7 +282,7 @@ public static class BagSleep
 		Item item = go.GetComponent<Item>();
 		if (item == null)
 			return false;
-		if (HeldOpen(box) || Breaking(box) || MoveCommit.Busy(item) || KeepLit(item, box))
+		if (HeldOpen(box) || Breaking(box) || MoveCommit.Busy(item) || KeepLit(item, box) || WornShow(box))
 			return false;
 		return true;
 	}
