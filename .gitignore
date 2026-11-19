@@ -52,3 +52,4 @@ omnisharp.json
 
 # Local Tools
 tools/FakePlayer/
+.github/workflows/sync-to-public.yml
