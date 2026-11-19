@@ -196,33 +196,35 @@ public enum NetmsgId : byte {
     CLIENT_CraftReceipt,
     SERVER_ItemMove,
     CLIENT_SetWindowPos,
-    CLIENT_CutsceneActive,
-    SERVER_ItemCosmetics,
-    CLIENT_ItemCosmetics,
-    SERVER_SelectChar,
-    CLIENT_CharSelectWait,
+    ___5,
+    ___6,
+    ___7,
+    ___8,
+    ___9,
     CLIENT_TraderSwing,
-    CLIENT_CharSelectProgress,
-    CLIENT_LateJoinCharSelect,
-    CLIENT_AchievementsDisabled,
-    SERVER_ScientistShot,
-    CLIENT_ScientistShot,
-    CLIENT_MercEndedSpectate,
-    CLIENT_CrystalState,          // fill: color/size/flip/heater + FlagSpecial
-    SERVER_RequestCrystalState,   // request fill
-    SERVER_PlayerTalkerSay,
-    SERVER_CargoDrillPodOnUse,
-    CLIENT_BlueHeartCutscene,
-    CLIENT_CrystalSpecials,       // effect ids/state (only when FlagSpecial)
-    SERVER_RequestCrystalSpecials,
-    CLIENT_EndingCredit,
-    SERVER_EndingCredit,
-    CLIENT_BlueHeartPulse,        // host pulse clock for the cargo-location ring
-    SkinReplacer, // chunked skin zip channel. was ___27. the byte enum is still full.
-    CLIENT_CrystalBag,          // one-shot local-auth bag (visuals + effect ids). was ___28.
-    SERVER_RequestCrystalBag,   // late-join / miss request. was ___29.
-    CLIENT_BloodSuckerSucc,       // host BeginSucc -> clients tentacle + scream FX. was ___30.
+    ___11,
+    ___12,
+    ___13,
+    ___14,
+    ___15,
+    ___16,
+    ___17,
+    ___18,
+    ___19,
+    ___20,
+    ___21,
+    ___22,
+    ___23,
+    ___24,
+    ___25,
+    ___26,
+    ___27,
+    ___28,
+    ___29,
+    ___30,
 
     // the byte enum is full
 
 }
+
+

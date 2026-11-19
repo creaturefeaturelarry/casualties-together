@@ -92,11 +92,13 @@ internal static class TraderCommit {
         }
         TraderScript live = trader.trader;
         if ((live.items == null) || (index >= live.items.Count)) {
+            FindTheBugInator.Trader("buy-deny", $"sync={trader.syncId} index={index} id={itemId}");
             Publish(live, actor);
             return;
         }
         TraderItem offer = live.items[index];
         if ((offer is null) || (offer.id != itemId) || ((ushort)offer.value != value) || Reserved(trader.syncId, index)) {
+            FindTheBugInator.Trader("buy-deny", $"sync={trader.syncId} index={index} id={itemId}");
             Publish(live, actor);
             return;
         }
@@ -121,6 +123,7 @@ internal static class TraderCommit {
             sellFrame = Time.frameCount;
         }
         if (ReservedSell.Contains(sold)) {
+            FindTheBugInator.Trader("sell-deny", $"sync={trader.syncId} item={sold}");
             Publish(trader.trader, actor);
             return;
         }
@@ -139,8 +142,10 @@ internal static class TraderCommit {
         }
         SyncInfo si = tt.si;
         if ((si == null) || (si.syncId == 0)) {
+            FindTheBugInator.TraderAsk(tt);
             return;
         }
+        FindTheBugInator.TraderAsk(tt);
         Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_RequestTraderSnapshot, si.syncId, true);
     }
 
@@ -158,6 +163,9 @@ internal static class TraderCommit {
             ids.Add(acting.playerId);
         }
         if (ids.Count == 0) {
+            if (Multiplayer.verbose) {
+                FindTheBugInator.Trader("publish-none", FindTheBugInator.TraderState(trader));
+            }
             return;
         }
         Send(trader, ids);
@@ -369,6 +377,7 @@ internal static class TraderCommit {
             NetObjectRegistry.NewGO(trader.gameObject);
             id = IdOf(trader);
             if (id == 0) {
+                FindTheBugInator.Trader("send-skip", "id=0 " + FindTheBugInator.TraderState(trader));
                 return;
             }
         }
@@ -400,6 +409,9 @@ internal static class TraderCommit {
             writer.Put((item is not null) && item.bought);
             writer.Put((ushort)(item is null ? 0 : item.value));
             writer.Put((byte)(item is null ? 0 : (byte)item.preference));
+        }
+        if (Multiplayer.verbose) {
+            FindTheBugInator.Trader("send", FindTheBugInator.TraderState(trader) + " " + FindTheBugInator.IdList(ids));
         }
         Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, clientIds: ids);
     }
@@ -480,20 +492,20 @@ internal static class TraderCommit {
                 case Op.Sell:
                 RunSell(trader, actor, job);
                 break;
-                case Op.Haggle:
-                bool bite = (trader.character == 2) && (trader.totalValueGiven < MAX_VALUE_GIVEN);
-                Vector2 biteAt = (actor != null) ? (Vector2)actor.transform.position : (Vector2)trader.transform.position;
-                trader.TryHaggle();
-                if (bite) {
-                    RelaySound(trader, actor, "eatFlesh", biteAt);
-                    // stock wrote the limbs on the host copy. living players upload their own
-                    // health, so without a confirm the owner never keeps the bite.
-                    if (actor != null && actor.TryGetNetBody(out NetBody bitten)) {
-                        bitten.OnDamageEvent(new BodyDamageEvent(trader.build, bitten, 30));
-                        MedicalSync.ForceHealth(bitten);
-                    }
-                }
-                break;
+				case Op.Haggle:
+				bool bite = (trader.character == 2) && (trader.totalValueGiven < MAX_VALUE_GIVEN);
+				Vector2 biteAt = (actor != null) ? (Vector2)actor.transform.position : (Vector2)trader.transform.position;
+				trader.TryHaggle();
+				if (bite) {
+					RelaySound(trader, actor, "eatFlesh", biteAt);
+					// stock wrote the limbs on the host copy. living players upload their own
+					// health, so without a confirm the owner never keeps the bite.
+					if (actor != null && actor.TryGetNetBody(out NetBody bitten)) {
+						bitten.OnDamageEvent(new BodyDamageEvent(trader.build, bitten, 30));
+						MedicalSync.ForceHealth(bitten);
+					}
+				}
+				break;
                 case Op.Threaten:
                 if (trader.reputation >= 30f) {
                     trader.Threaten();
@@ -529,10 +541,12 @@ internal static class TraderCommit {
 
     private static void RunBuy(TraderScript trader, Body actor, Job job) {
         if ((trader.items == null) || (job.index >= trader.items.Count)) {
+            FindTheBugInator.Trader("buy-deny", $"sync={job.trader.syncId} index={job.index} id={job.itemId}");
             return;
         }
         TraderItem offer = trader.items[job.index];
         if ((offer is null) || (offer.id != job.itemId) || ((ushort)offer.value != job.value)) {
+            FindTheBugInator.Trader("buy-deny", $"sync={job.trader.syncId} index={job.index} id={job.itemId}");
             return;
         }
         Item bought = TraderScript_TryPurchase_MultiplayerPatch.TryPurchase_rewritten(trader, offer, actor);
@@ -543,17 +557,13 @@ internal static class TraderCommit {
 
     private static void RunSell(TraderScript trader, Body actor, Job job) {
         if (!ItemSync.TryGetItemSyncInfo(job.sold, out SyncInfo itemsi) || (itemsi.item == null)) {
+            FindTheBugInator.Trader("sell-deny", $"sync={job.trader.syncId} item={job.sold}");
             return;
         }
         if (!ItemSync.CheckIfBodyReachThisItem(itemsi, actor) || (trader.reputation < 30f)) {
+            FindTheBugInator.Trader("sell-deny", $"sync={job.trader.syncId} item={job.sold}");
             return;
         }
-#if FULLGAME
-        // full marks many shared mats untradeable. stock roll already skips them; sell must too.
-        if (itemsi.item.Stats != null && itemsi.item.Stats.untradeable) {
-            return;
-        }
-#endif
         trader.GiveItem(itemsi.item);
     }
 
@@ -604,12 +614,14 @@ internal static class TraderCommit {
         int left = 0;
         try { left = reader.AvailableBytes; } catch (Exception) { }
         if (!NetObjectRegistry.TryGetSyncInfoLive(traderId, out SyncInfo si) || (si is null)) {
+            FindTheBugInator.Trader("drop", "no-sync id=" + traderId.id + " bytes=" + left + " side=" + FindTheBugInator.Side());
             return;
         }
         TraderScript trader;
         try {
             trader = si.trader;
         } catch (Exception ex) {
+            FindTheBugInator.Trader("drop", "trader-throw id=" + traderId.id + " bytes=" + left + " " + ex.GetType().Name);
             return;
         }
         if (trader == null) {
@@ -619,13 +631,16 @@ internal static class TraderCommit {
                     go = "go=" + si.go.name;
                 }
             } catch (Exception) { }
+            FindTheBugInator.Trader("drop", "no-trader id=" + traderId.id + " bytes=" + left + " " + go);
             return;
         }
         try {
             Apply(trader, reader);
         } catch (Exception ex) {
+            FindTheBugInator.Trader("apply-fail", "id=" + traderId.id + " bytes=" + left + " " + ex.GetType().Name + " " + ex.Message);
             throw;
         }
+        FindTheBugInator.Trader("apply", "bytes=" + left + " " + FindTheBugInator.RefreshText(trader) + " " + FindTheBugInator.TraderState(trader));
     }
 
     [ServerReceiver((byte)NetmsgId.SERVER_RequestTraderSnapshot)]
@@ -645,12 +660,15 @@ internal static class TraderCommit {
                 fail = "no-trader";
             }
         }
+        string state = (live == null) ? "" : (" " + FindTheBugInator.TraderState(live));
+        FindTheBugInator.Trader("request", "from=" + clientId.id + " id=" + traderId.id + " " + fail + state);
         if (live != null) {
             Body body = null;
             ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out _, out body);
             // client walked up first. roll first impression on the host copy before they paint the ui
             if (TraderScript_MeetPlayer_MultiplayerPatch.EnsureFirstMeet(live, body))
-                PublishTo(live, clientId);
+                FindTheBugInator.Trader("request-first-meet", FindTheBugInator.TraderState(live));
+            PublishTo(live, clientId);
         }
     }
 

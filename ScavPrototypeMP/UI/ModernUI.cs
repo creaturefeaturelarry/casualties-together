@@ -341,7 +341,6 @@ public static class SettingsMenu_Start_MultiplayerPatch {
                 g.transform.GetChild(1).GetComponent<TMP_Dropdown>().SetValueWithoutNotify(val);
                 g.transform.GetChild(1).GetComponent<TMP_Dropdown>().onValueChanged.AddListener(delegate (int x) {
                     c_attr.Save(f, x);
-                    UIMainMenu.CommitSkinSetting(f);
                 });
             } else if (attr is SettingDeclarerThingyBoolAttribute b_attr) {
                 var val = (bool)f.GetValue(null);
@@ -350,7 +349,6 @@ public static class SettingsMenu_Start_MultiplayerPatch {
                 g.transform.GetChild(1).GetComponent<Toggle>().SetIsOnWithoutNotify(val);
                 g.transform.GetChild(1).GetComponent<Toggle>().onValueChanged.AddListener(delegate (bool x) {
                     b_attr.Save(f, x);
-                    UIMainMenu.CommitSkinSetting(f);
                 });
             } else {
                 log.warn($"Unknown setting: {langkey}");
@@ -512,3 +510,8 @@ public class NewNewMultiplayerUI : CasualtiesTogetherSingleton {
 
 
 }
+
+
+
+
+

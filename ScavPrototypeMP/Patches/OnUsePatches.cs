@@ -1,7 +1,4 @@
-using CasualtiesTogetherUtils;
 using HarmonyLib;
-using KrokV5Optimization;
-using LiteNetLib;
 using System;
 using System.Collections.Generic;
 using System.EnterpriseServices;
@@ -9,8 +6,11 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Unity.Collections;
+using LiteNetLib;
 using Unity.VisualScripting;
 using UnityEngine;
+using CasualtiesTogetherUtils;
+using KrokV5Optimization;
 
 namespace Together;
 
@@ -48,7 +48,7 @@ public static class BioTerminalScript_OnUse_MultiplayerPatch {
     static void Postfix(BioTerminalScript __instance) {
         if (Net.IsRunning) {
             var tr = __instance.GetOrAddComponent<TrackerBuildingEntityBackgroundified>();
-            if (tr.is_backgroundified && NetObjectRegistry.TryGetSyncInfo(__instance.gameObject, out var si)) {
+            if (tr.is_backgroundified && NetObjectRegistry.TryGetSyncInfo(__instance.gameObject,out var si)) {
                 //success
 
                 Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_BioTerminalScriptOpenShitheadBruh, si.syncId, true);
@@ -67,16 +67,16 @@ public static class BioTerminalScript_OnUse_MultiplayerPatch {
         Body body;
         SyncInfo si;
         if (ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out user, out body) &&
-            NetObjectRegistry.TryGetSyncInfo(bioterminal_syncid, out si) &&
+            NetObjectRegistry.TryGetSyncInfo(bioterminal_syncid, out si) && 
             (clientId == 0 ||
-             (user.body.conscious
-                 && si.IsBuilding() &&
+             ( user.body.conscious
+                 && si.IsBuilding() && 
                  si.go.TryGetComponent<TrackerBuildingEntityBackgroundified>(out var tr) && !tr.is_backgroundified && si.go.TryGetComponent<BioTerminalScript>(out var biot)
-                 && KM.DistanceCheck(body, si.building, 20)
+                 && KM.DistanceCheck(body, si.building,20)
             ))
         ) {
 
-            if (clientId != 0) {
+            if (clientId != 0) { 
                 OnUseRewritten(body, si.building);
             }
             ServerMain.Server_AnnounceSound(si.go.transform.position, "beep", ServerMain.GetListOfClientIdsExceptThisAndHost(clientId));
@@ -108,53 +108,52 @@ public static class DrillPod_OnUse_MultiplayerPatch {
 
     //OG: DrillPod.OnUse  
     public static void OnUseRewritten(Body user, DrillPod drel) {
-        if (user == null || drel == null) {
-            return;
-        }
-        if (!user.FindByIdThorough("drillrepairkit", out var it)) {
-            return;
-        }
+        if (user.FindByIdThorough("drillrepairkit", out var it)) {
 
 #if DEBUG
-        log.l($"DrillPod OnUse OnUseRewritten CALLED !!!!!!!!!!!!! ");
+            log.l($"DrillPod OnUse OnUseRewritten CALLED !!!!!!!!!!!!! ");
 #endif
 
-        UnityEngine.Object.Destroy(it.gameObject);
-        ForceRepairDrill(drel);
+            UnityEngine.Object.Destroy(it.gameObject);
+            ForceRepairDrill(drel);
+        }
     }
     //OG: DrillPod.OnUse  
     public static void ForceRepairDrill(DrillPod drel) {
-        if (drel == null) {
-            return;
-        }
 
 #if DEBUG
         log.l($"DrillPod OnUse ForceRepairDrill  CALLED !!!!!!!!!!!!! ");
 #endif
 
-        drel.working = true;
+        Traverse.Create(drel).Field("working").SetValue(true);
         Sound.Play("drillpodrepair", drel.transform.position, twoDimensional: false, pitchShift: false);
-        BuildingEntity be = drel.GetComponent<BuildingEntity>();
-        if (be != null) {
-            be.description = Locale.GetBuilding("drillpoddscfixed");
-        }
-        UsableObject usable = drel.GetComponent<UsableObject>();
-        if (usable != null) {
-            UnityEngine.Object.Destroy(usable);
+        drel.GetComponent<BuildingEntity>().description = Locale.GetBuilding("drillpoddscfixed");
+        UnityEngine.Object.Destroy(drel.GetComponent<UsableObject>());
+    }
+
+
+
+    static void Prefix() {
+        if (Net.IsRunning) {
+
         }
     }
 
-    // skip vanilla OnUse in mp - client used to destroy the kit locally while host never got working=true
-    static bool Prefix(DrillPod __instance) {
-        if (!Net.IsRunning) {
-            return true;
+
+    static void Postfix(DrillPod __instance) {
+        if (Net.IsRunning) {
+            if ( NetObjectRegistry.TryGetSyncInfo(__instance.gameObject, out var si)) {
+                //success
+
+#if DEBUG
+                Plugin.log.LogWarning($"Client_SendSimpleMessageToServer  DrillPodRepairTypeShit ");
+#endif
+
+                si.SetIgnoreTimeForRoundTrip();
+
+                Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_DrillPodRepairTypeShit, si.syncId, true);
+            }
         }
-        if (!NetObjectRegistry.TryGetSyncInfo(__instance.gameObject, out SyncInfo si)) {
-            return false;
-        }
-        si.SetIgnoreTimeForRoundTrip();
-        Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_DrillPodRepairTypeShit, si.syncId, true);
-        return false;
     }
 
     [ServerReceiver((byte)NetmsgId.SERVER_DrillPodRepairTypeShit)]
@@ -164,34 +163,30 @@ public static class DrillPod_OnUse_MultiplayerPatch {
 #endif
         reader.Get(out knetid bioterminal_syncid);
 
-        ScavPlayer user = null;
-        Body body = null;
-        DrillPod drel = null;
+        ScavPlayer user;
+        Body body;
+        DrillPod drel = null ;
         SyncInfo si = null;
         if (ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out user, out body) &&
-            NetObjectRegistry.TryGetSyncInfo(bioterminal_syncid, out si) &&
-            si.go != null &&
-            si.go.TryGetComponent(out drel) &&
-            !drel.working &&
-            (clientId == 0 ||
-             (user != null && user.body != null && user.body.conscious &&
-              si.IsBuilding() &&
-              KM.DistanceCheck(body, si.building, 20)))
+            NetObjectRegistry.TryGetSyncInfo(bioterminal_syncid, out si) && 
+            si.go.TryGetComponent<DrillPod>(out drel) &&
+            (   clientId == 0 ||
+             (  user.body.conscious && 
+                si.IsBuilding() &&
+                 !Traverse.Create(drel).Field("working").GetValue<bool>()  && 
+                 KM.DistanceCheck(body, si.building, 20)
+            ))
         ) {
 #if DEBUG
             Plugin.log.LogWarning($" Server_DrillPodRepairTypeShit    IS WORKING   YAYYAAYAYYAYAYAYA  {user}  dril:  {drel}  si: {si} ");
 #endif
 
-            OnUseRewritten(body, drel);
-            // if kit was already gone on host inventory, still force the pod working
-            if (!drel.working) {
-                ForceRepairDrill(drel);
+            if (clientId != 0) {
+                OnUseRewritten(body, drel);
             }
             ServerMain.Server_AnnounceSound(si.go.transform.position, "drillpodrepair", ServerMain.GetListOfClientIdsExceptThisAndHost(clientId));
 
-            if (DebugHelp._DEV_VISUALISE_NET_EVENTS) {
-                DebugHelp.OnNetEvent(si.go.transform.position, $"S: DrillPod Repair {user}");
-            }
+            if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(si.go.transform.position, $"S: DrillPod Repair {user}");
 
             return;
         }
@@ -217,7 +212,7 @@ public static class DrillPod_OnUse_MultiplayerPatch {
 
 
 
-// onUse is by the structure of the mod, only triggerable by local player 
+// OnUse is by the structure of the mod, only triggerable by local player 
 [HarmonyPatch(typeof(LifepodButton), nameof(LifepodButton.OnUse))]
 public static class LifepodButton_OnUse_MultiplayerPatch {
 
@@ -230,7 +225,7 @@ public static class LifepodButton_OnUse_MultiplayerPatch {
 #if !RELEASE
             if (log.verbose) log.l($"Lifepod button pressed: parent:{__instance.transform.parent} building:{parentbuilding}  si:{(NetObjectRegistry.TryGetSyncInfo(parentbuilding.gameObject, out var si) ? si.ToString() : "NULL")} ");
 #endif
-            if (parentbuilding) {
+            if (parentbuilding ) {
                 if (NetObjectRegistry.TryGetSyncInfoOrRegister(parentbuilding.gameObject, out var si)) {
 
                     //continue  to the postfix
@@ -276,25 +271,25 @@ public static class LifepodButton_OnUse_MultiplayerPatch {
         Body body;
         SyncInfo si = null;
         if (ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out user, out body) &&
-            NetObjectRegistry.TryGetSyncInfo(lifepodbuttonactivate_syncid, out si) && si.IsBuilding() &&
-            KM.DistanceCheck(si.go.transform.position, body.transform.position, 20)
+            NetObjectRegistry.TryGetSyncInfo(lifepodbuttonactivate_syncid, out si) && si.IsBuilding()  &&
+            KM.DistanceCheck(si.go.transform.position,body.transform.position,20)
         ) {
             var lifepodcontroller = si.go.GetComponentInChildren<LifepodController>();
-
+            
             if (lifepodcontroller != null) {
 
                 if (log.verbose) log.l($"SERVER: Lifepod button pressed: {user}  type:{buttontype}:{(buttontype == 0 ? "HEATER" : "SHOWER")}  heatstate:{heatState} si:{si} ");
                 if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(si.go.transform.position, $"S: LifepodButtonActivate {buttontype}:{(buttontype == 0 ? "HEATER" : "SHOWER")} HEAT:{heatState}");
 
-                if (buttontype != 0) {
-                    if (lifepodcontroller.shower != null) {
+                if (buttontype != 0 ) {
+                    if ( lifepodcontroller.shower != null) {
                         lifepodcontroller.ActivateShower();
                     } else {
-                        log.error_devevent($"LIFEPOD SHOWER BUTTON: {si} DOES NOT HAVE A SHOWER ???????????", si.transformPosition);
+                        log.error_devevent($"LIFEPOD SHOWER BUTTON: {si} DOES NOT HAVE A SHOWER ???????????",si.transformPosition);
                     }
                 }
 
-                lifepodcontroller.heatState = Mathf.Max(-1, heatState - 1);
+                lifepodcontroller.heatState = Mathf.Max(-1,heatState - 1);
                 if (lifepodcontroller.heater != null) {
                     lifepodcontroller.ToggleHeatState();
                 } else {
@@ -311,7 +306,7 @@ public static class LifepodButton_OnUse_MultiplayerPatch {
                 return;
             }
         }
-
+        
         log.serverdeny($"LifepodButton DENIED, something seems sus: user:{user} si:{si}");
 
     }
@@ -466,8 +461,8 @@ public static class Openable_OnUse_MultiplayerPatch {
             (clientId == 0 ||
              (user.body.conscious &&
                 si.IsBuilding() &&
-                 KM.DistanceCheck(body, si.building, 20)
-
+                 KM.DistanceCheck(body, si.building, 20) 
+                  
             ))
         ) {
 
@@ -478,7 +473,7 @@ public static class Openable_OnUse_MultiplayerPatch {
 
             EvidenceBag.Arm();
             EvidenceBag.Line("open server ok client=" + clientId + " " + EvidenceBag.Building(si.building));
-
+            
             if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(si.go.transform.position, $"S: Openable open {user}, si:{si}");
 
             return;
@@ -518,7 +513,7 @@ public static class ScrapEaterScript_OnUse_MultiplayerPatch {
                 return;
             }
 
-            if (NetObjectRegistry.TryGetSyncInfo(__instance.gameObject, out var si)) {
+            if (NetObjectRegistry.TryGetSyncInfo(__instance.gameObject, out var si) ) {
                 //success
 
 #if DEBUG
@@ -581,7 +576,7 @@ public static class ScrapEaterScript_OnUse_MultiplayerPatch {
                 }
 
             }
-
+            
             ServerMain.Server_AnnounceSound(si.go.transform.position, "beep", ServerMain.GetListOfClientIdsExceptThis(clientId));
 
 
@@ -608,3 +603,4 @@ public static class ScrapEaterScript_OnUse_MultiplayerPatch {
 
 internal class OnUsePatches {
 }
+

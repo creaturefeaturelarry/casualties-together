@@ -20,7 +20,6 @@ public class Spectator : CasualtiesTogetherSingletonWorldOnly {
     static Transform SpectatorTarget;
     public static void SetCameraFollow(Transform t) {
         SpectatorTarget = t;
-        // PlayerCamera.following was removed
         if (PlayerCamera.main != null) {
             var f = Traverse.Create(PlayerCamera.main).Field("following");
             if (f.FieldExists()) {

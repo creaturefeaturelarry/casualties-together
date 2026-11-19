@@ -29,15 +29,7 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
         get => pb1[0];
         set => pb1[0] = value;
     }
-#if FULLGAME
-    public bool has_prosthetic {
-        get => pb1[1];
-        set => pb1[1] = value;
-    }
-    public byte prostheticKind;
-#else
     // 1
-#endif
     public bool infected {
         get => pb1[2];
         set => pb1[2] = value;
@@ -88,15 +80,11 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
     public ushort disinfectionTime;
 
     private byte bandageSlowAmount;
-
+    
 
     public CharacterLimbHealthState(Limb limb) {
         dismembered = limb.dismembered;
-#if FULLGAME
-        has_prosthetic = limb.HasProsthetic();
-        prostheticKind = FullgameWorldCompat.EncodeProsthetic(limb);
-#endif
-        shrapnel = (byte)limb.shrapnel;
+        shrapnel = (byte)limb.shrapnel; 
         infected = limb.infected;
         muscleHealth = limb.muscleHealth;
         skinHealth = limb.skinHealth;
@@ -114,7 +102,7 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
         infectionAmount = limb.infectionAmount;
         bleedAmount = limb.bleedAmount;
         pain = limb.pain;
-        disinfectionTime = (ushort)Mathf.Clamp(limb.disinfectionTime, 0, ushort.MaxValue);
+        disinfectionTime = (ushort)Mathf.Clamp(limb.disinfectionTime,0,ushort.MaxValue);
 
         // uhh idk how much that matters 
         if (limb.bandageSlowAmount < 0.5f) {
@@ -128,12 +116,12 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
             splint_type = splint.item == "carcasssplint";
 
             //splint_condition = splint.condition;
-        }
+        } 
 
         if (limb.TryGetComponent(out TourniquetScript tourniquet)) {
             has_tourniquet = true;
-        } else {
-            has_tourniquet = false;
+        } else { 
+            has_tourniquet = false; 
         }
 
 
@@ -182,7 +170,7 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
 
     public void Apply(Limb limb) {
 
-        //do sound
+        //Do sound
         if (dismembered && !limb.dismembered && SharedMain.LocalWorldIsGenerated) {
             limb.body.DoGoreSound();
             if (WoundView.view.body == limb.body) {
@@ -226,15 +214,13 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
         if (has_tourniquet) {
             var tourniquet = limb.GetOrAddComponent<TourniquetScript>();
         } else if (limb.TryGetComponent<TourniquetScript>(out var tourniquet)) {
-            tourniquet.affectedLimbs.ForEach(delegate (Limb x) {
+            tourniquet.affectedLimbs.ForEach(delegate (Limb x)
+            {
                 x.blockedBleeding = false;
             });
             UnityEngine.Object.Destroy(tourniquet);
         }
 
-#if FULLGAME
-        FullgameWorldCompat.ApplyProstheticKind(limb, has_prosthetic ? prostheticKind : (byte)0);
-#endif
 
         if (dislocationTimer > 0f) {
             if (!limb.dislocated) {
@@ -243,17 +229,11 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
         } else {
             limb.dislocated = false;
         }
-        bool bendInProgress = ProsthesisBendInProgress(limb);
         if ((boneHealTimer > 0f)) {
             if (!limb.broken) {
-                // a prosthetic snap at the limb is still full-volume on every machine. far listeners just mark it broken.
-                if (ProstheticBreakShouldStayQuiet(limb)) {
-                    limb.broken = true;
-                } else {
-                    limb.BreakBone();
-                }
+                limb.BreakBone();
             }
-        } else if (!bendInProgress) {
+        } else {
             limb.MendBone();
         }
 
@@ -270,43 +250,17 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
         }
 
         limb.furBloodAmount = furBloodAmount;
-        limb.shrapnel = shrapnel;
+        limb.shrapnel = shrapnel; 
         limb.infected = infected;
         limb.muscleHealth = muscleHealth;
         limb.skinHealth = skinHealth;
-        if (!bendInProgress) {
-            limb.boneHealTimer = boneHealTimer;
-        }
+        limb.boneHealTimer = boneHealTimer;
         limb.dislocationTimer = dislocationTimer;
         limb.infectionAmount = infectionAmount;
         limb.bleedAmount = bleedAmount;
         limb.pain = pain;
         limb.disinfectionTime = disinfectionTime;
         limb.bandageSlowAmount = bandageSlowAmount;
-    }
-
-    static bool ProsthesisBendInProgress(Limb limb) {
-        if (limb == null || Minigame.game == null || Minigame.game.currentMinigame is not ProsthesisRepairMinigame repair) {
-            return false;
-        }
-        Limb active = Traverse.Create(repair).Field("limb").GetValue<Limb>();
-        if (!ReferenceEquals(active, limb)) {
-            return false;
-        }
-        return Traverse.Create(repair).Field("startedBroken").GetValue<bool>();
-    }
-
-    static bool ProstheticBreakShouldStayQuiet(Limb limb) {
-        if (limb == null || !limb.HasProsthetic() || !Net.IsRunning) {
-            return false;
-        }
-        if (limb.IsBodyLocal()) {
-            return false;
-        }
-        if (PlayerCamera.main == null || PlayerCamera.main.body == null) {
-            return true;
-        }
-        return Vector2.Distance(PlayerCamera.main.body.transform.position, limb.transform.position) > 18f;
     }
 
     public static int GetByteSize() {
@@ -378,7 +332,7 @@ public struct CharacterSkillsStateSyncPacket : INetSerializeByMemcpy {
         // the first packet for this body is the join snapshot. a later rise is a real level.
         bool first = FirstApply(s);
         // levels first, then the stored exp, then the caps.
-        // addExp would add onto the exp already stored here and test the old cap,
+        // AddExp would add onto the exp already stored here and test the old cap,
         // so a full bar became one more level on the next fall.
         s.STR = skill_STR;
         s.RES = skill_RES;
@@ -416,8 +370,6 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
     ushort Tick;
 
     Bitset8 pb1;
-    Bitset8 pb2;
-
     void SetDefaults() {
         this.usedNeuralBooster = false;
         this.maxSpeed = 25;
@@ -506,21 +458,21 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
     //public bool alive => brainHealth > 0;
 
     public bool usedNeuralBooster;
-    public float maxSpeed;
-    public float moveForce;
-    public float jumpSpeed;
+	public float maxSpeed;
+	public float moveForce;
+	public float jumpSpeed;
     public float caffeinated;
 
-    public float bloodVolume;
-    public float bloodOxygen;
+    public float bloodVolume ;
+    public float bloodOxygen ;
     public float bloodPressure;
     public float respiratoryRate;
-
-    public float heartRate;
-    public float bloodVesselSize;
-    public float bloodViscosity;
-    public float strokeAmount;
-    public bool hasPulmonaryEmbolism;
+    
+    public float heartRate ;
+    public float bloodVesselSize ;
+    public float bloodViscosity ;
+    public float strokeAmount ;
+    public bool hasPulmonaryEmbolism ;
     public float fibrillationProgress;
 
     public float venomCurrent;
@@ -564,15 +516,6 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
     public float burpTimer { get { return (compressednumb / 2.55f / 0.9f) - 100f; } set { compressednumb = (byte)(Mathf.Clamp((value + 100f) * 0.9f, 0, 100f) * 2.55f); } }
 
     public float stimulantMultiplier;
-
-#if FULLGAME
-    public bool hasCargo {
-        get => pb2[0];
-        set => pb2[0] = value;
-    }
-    public float venomFake;
-    public float barotrauma;
-#endif
 
     // 15 limbs i think
     CharacterLimbHealthState limb0;
@@ -664,12 +607,6 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
 
             stimulantMultiplier = body.stimulantMultiplier;
 
-#if FULLGAME
-            hasCargo = body.hasCargo;
-            venomFake = body.venomFake;
-            barotrauma = body.barotrauma;
-#endif
-
             // because the component destroys itself if everything is back to normal
             if (body.TryGetComponent(out Painkillers component)) {
                 painkilled = true;
@@ -704,7 +641,7 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
         var seqDiff = LiteEntitySystem.Utils.SequenceDiff(Tick, npc._lastHealthPacketReceiveTick);
         if (
             !force &&
-            seqDiff <= 0
+            seqDiff <= 0 
         ) {
 #if TESTING 
             if (seqDiff < 0) {
@@ -829,40 +766,13 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
             }
 
             body.stimulantMultiplier = stimulantMultiplier;
-#if FULLGAME
-            // rising edge: show cargo + ragdoll locally without re-running EmbedCargo damage/SFX
-            // (host already applied full effects; BlueHeart cutscene must not double-impale)
-            // after local CargoMinigame removal, ignore stale host snapshots that still have cargo
-            // until cargo_off clears the host copy - otherwise the heart pops back and UsableObject
-            // was already consumed so peers could not retry.
-            if (MacroFleshRebuilderMp.BlockCargoReembed(body) && hasCargo) {
-                hasCargo = false;
-            }
-            if (hasCargo && !body.hasCargo) {
-                body.hasCargo = true;
-                if (body.cargo != null) {
-                    body.cargo.SetActive(true);
-                }
-                body.Ragdoll();
-            } else if (!hasCargo && body.hasCargo) {
-                body.hasCargo = false;
-                if (body.cargo != null) {
-                    body.cargo.SetActive(false);
-                }
-            } else {
-                body.hasCargo = hasCargo;
-            }
-
-            body.venomFake = venomFake;
-            body.barotrauma = barotrauma;
-#endif
 
             body.burpTimer = burpTimer;
         }
 
         skills.Apply(body);
 
-        if (body.TryGetNetBody(out var npc)) {
+        if (body.TryGetNetBody( out var npc)) {
             npc.last_mood = happiness;
         }
 
@@ -1050,7 +960,7 @@ public static class WoundView_UpdateView_MultiplayerPatch {
             if (wv.body.TryGetNetBody(out viewTarget)) {
                 var healersList = System.Linq.Enumerable.ToHashSet(ScavPlayer.AllLivingPlayers.Where(x => x.WoundviewTargetNetBodyId == viewTarget.netId && (Multiplayer.rules.DeadTextchat || x.IsAlive())));
 
-                // create player list on bottom right
+                // Create player list on bottom right
                 if (
                     !healersList.SetEquals(lastHealerList)
                 ) {
@@ -1079,7 +989,7 @@ public static class WoundView_UpdateView_MultiplayerPatch {
 
                                 var imgLerp = Mathf.Max(0.2f, wv.limbImageLerp[k]);
                                 {
-                                    // draw Individual icons
+                                    // Draw Individual icons
                                     var healerList = healersOnThisLimb.ToList();
 
                                     for (int m = 0; m < healerList.Count; m++) {
@@ -1226,9 +1136,7 @@ public static class WoundView_UpdateView_MultiplayerPatch {
 
         var headSiblingIndex = wv.limbImages[0].transform.parent.GetSiblingIndex() + 1;
 
-        bool haveLocal = ScavPlayer.TryGetLocalNetBody(out NetBody localNetBody);
-        bool canPush = haveLocal && localNetBody.body.conscious && Multiplayer.rules.AllowPush;
-        bool canHug = haveLocal && localNetBody.body.alive && localNetBody.body.conscious;
+        var canPush = ScavPlayer.TryGetLocalNetBody(out var localNetBody) && localNetBody.body.conscious && Multiplayer.rules.AllowPush;
 
         var transparentWhite = new Color(1, 1, 1, 0.6f);
 
@@ -1343,7 +1251,7 @@ public static class WoundView_UpdateView_MultiplayerPatch {
                 }
 
                 if (
-                    viewTarget.IsLocal // i am looking at myself, I should be able to defend myself 
+                    viewTarget.IsLocal // I am looking at myself, I should be able to defend myself 
                     && canPush
                     && !plr.IsLocal
                 ) {
@@ -1359,33 +1267,6 @@ public static class WoundView_UpdateView_MultiplayerPatch {
 
                     button.onClick.AddListener(() => {
                         localNetBody.Push(plr.netBody);
-                    });
-                }
-
-                if (viewTarget.IsLocal && canHug && !plr.IsLocal && plr.netBody != null && plr.body != null && plr.body.alive && plr.body.conscious) {
-                    UIManager.CreateButton(healerListUIElementRT, "plrint_hug", null, null, out GameObject hugGo, out TMPro.TextMeshProUGUI hugText, out RectTransform hugRt, out UnityEngine.UI.Button hugButton, out UnityEngine.UI.Image hugImage);
-                    hugImage.sprite = UIManager.uiBlockNano;
-                    hugImage.color = transparentWhite;
-                    hugRt.anchorMin = new Vector2(0.99f, 0.5f);
-                    hugRt.anchorMax = hugRt.anchorMin;
-                    hugRt.pivot = new Vector2(1f, 0.5f);
-                    hugRt.sizeDelta = new Vector2(hugText.preferredWidth, hugText.preferredHeight) * 0.9f;
-                    hugText.margin *= 1.5f;
-                    hugButton.onClick.AddListener(() => {
-                        localNetBody.Hug(plr.netBody);
-                    });
-
-                    UIManager.CreateButton(healerListUIElementRT, "plrint_pat", null, null, out GameObject patGo, out TMPro.TextMeshProUGUI patText, out RectTransform patRt, out UnityEngine.UI.Button patButton, out UnityEngine.UI.Image patImage);
-                    patImage.sprite = UIManager.uiBlockNano;
-                    patImage.color = transparentWhite;
-                    patRt.anchorMin = new Vector2(0.99f, 0.5f);
-                    patRt.anchorMax = patRt.anchorMin;
-                    patRt.pivot = new Vector2(1f, 0.5f);
-                    patRt.sizeDelta = new Vector2(patText.preferredWidth, patText.preferredHeight) * 0.9f;
-                    patText.margin *= 1.5f;
-                    patRt.anchoredPosition = new Vector2(-(hugRt.sizeDelta.x + 8f), 0f);
-                    patButton.onClick.AddListener(() => {
-                        localNetBody.Pat(plr.netBody);
                     });
                 }
 
@@ -1414,7 +1295,7 @@ public static class WoundView_TakeANap_MultiplayerPatch {
             // so i need to tell server that im boutta eep
 
             var plr = ScavPlayer.LocalPlayer;
-            if (plr != null && plr.TryGetNetBody(out var nb)) {
+            if (plr != null && plr.TryGetNetBody(out var nb) ) {
 
                 nb.SetNetHealthSyncIgnoreTime(2); // sleep animation takes at most 1.95 secs i think
 
@@ -1528,7 +1409,7 @@ public static class PlayerCamera_ToggleWoundView_MultiplayerPatch {
                     button.onClick.RemoveAllListeners();
                     button.onClick.SetPersistentListenerState(0, UnityEngine.Events.UnityEventCallState.Off);
                     button.onClick.AddListener(() => {
-                        if (CPRHandler.CheckIfBodyIsNotOkAndNeedCPR(WoundView.view.body) && CPRHandler.IsCPRBeingPerformedOnThisBody_IsMeOrNobody(WoundView.view.body)) {
+                        if (CPRHandler.CheckIfBodyIsNotOkAndNeedCPR(WoundView.view.body) && CPRHandler.IsCPRBeingPerformedOnThisBody_IsMeOrNobody(WoundView.view.body) ) {
 #if !RELEASE
                             log.l("OPENING CPR !!!");
 #endif
@@ -1539,7 +1420,7 @@ public static class PlayerCamera_ToggleWoundView_MultiplayerPatch {
                         }
                     });
 
-                } catch (Exception e) {
+                }  catch (Exception e) {
                     log.error("CPRButton creation: " + e.ToString());
                 }
             }
@@ -1566,8 +1447,12 @@ public static class PlayerCamera_ToggleWoundView_MultiplayerPatch {
         if (looking_at_someone_else) {
             if (b.TryGetNetBody(out var nb)) {
                 wv.nameText.text = nb.bodyName;
-                // this line used to be "PEER ID: n". the name is more useful there.
-                wv.bodyStatText.text = WoundViewName(nb);
+
+                if (nb.IsPlayer) {
+                    wv.bodyStatText.text = Lang.Get("wv_peerid") + nb.plr.playerId;
+                } else {
+                    wv.bodyStatText.text = Lang.Get("wv_peerid") + nb.netId;
+                }
 
             } else { // thats a problem
                 Plugin.log.LogError($"Couldnt get NetBody of a body, what??? {wv.body} ");
@@ -1583,67 +1468,12 @@ public static class PlayerCamera_ToggleWoundView_MultiplayerPatch {
         WoundView_AddImageToLimb_MultiplayerPatch.RefreshAllLimbImages();
     }
 
-    static string WoundViewName(NetBody nb) {
-        string name = nb != null ? nb.playerName : null;
-        if (!string.IsNullOrEmpty(name) && name != "NO_NAME_BODY") {
-            return name;
-        }
-
-        if (nb != null && nb.IsPlayer) {
-            return Lang.Get("wv_peerid") + nb.plr.playerId;
-        }
-
-        return Lang.Get("wv_peerid") + (nb != null ? nb.netId.ToString() : "");
-    }
-
     static string GetSpeciesName(Body body) {
-        int chr = body != null ? Mathf.Clamp(body.charType, 0, 2) : 0;
-        return chr switch {
-            1 => Locale.GetOther("milky").ToUpper(),
-            2 => Locale.GetOther("dune").ToUpper(),
-            _ => Locale.GetOther("experiment").ToUpper(),
-        };
+        var defaultname = "EXPERIMENT"; 
+        return defaultname;
     }
-
-    // woundView.Start only applies local body.charType once; MP retarget must swap head sprites/text.
     static void SetWoundviewSpeciesSprite(WoundView wv, Body body) {
-        if (wv == null || body == null) {
-            return;
-        }
 
-        int chr = Mathf.Clamp(body.charType, 0, 2);
-        if (wv.speciesText != null) {
-            wv.speciesText.text = GetSpeciesName(body);
-        }
-
-        if (wv.headCharSprites == null || wv.headCharSprites.Length < 6
-            || wv.limbImages == null || wv.limbImages.Length == 0 || wv.limbImages[0] == null) {
-            return;
-        }
-
-        // OG WoundView.Start: experiment=prefab/[0,1], milky=[2,3], dune=[4,5]
-        int outer = chr * 2;
-        int inner = outer + 1;
-        Image head = wv.limbImages[0];
-        if (wv.headCharSprites[outer] != null) {
-            head.sprite = wv.headCharSprites[outer];
-            head.SetNativeSize();
-        }
-        if (head.transform.childCount > 0) {
-            Image muscle = head.transform.GetChild(0).GetComponent<Image>();
-            if (muscle != null && wv.headCharSprites[inner] != null) {
-                muscle.sprite = wv.headCharSprites[inner];
-                muscle.SetNativeSize();
-            }
-        }
-
-        // stock head names change per species; refresh custom wound art for the viewed body.
-        WoundViewIntegration.RememberStock(head);
-        if (head.transform.childCount > 0) {
-            Image muscle = head.transform.GetChild(0).GetComponent<Image>();
-            WoundViewIntegration.RememberStock(muscle);
-        }
-        WoundViewIntegration.Apply(wv);
     }
 
     public static bool IsOpen() {
@@ -1776,13 +1606,13 @@ public static class WoundView_AddImageToLimb_MultiplayerPatch {
         public Body body => limb.body;
         public NetBody pb => body.GetNetBody();
         public UnityEngine.UI.Image image => GetComponent<UnityEngine.UI.Image>();
-
+        
         public void RefreshLimbImage() {
             image.enabled = (body == WoundView.view.body && !limb.dismembered);
         }
     }
 
-    public static void RefreshAllLimbImages() {
+    public static void RefreshAllLimbImages() { 
         var a = WoundView.view.GetComponentsInChildren<WoundviewLimbImagePerPlayerTrackerComponent>();
         foreach (var item in a) {
             item.RefreshLimbImage();
@@ -1794,7 +1624,7 @@ public static class WoundView_AddImageToLimb_MultiplayerPatch {
         oldbody = __instance.body;
         __instance.body = limb.body;
     }
-    static void Postfix(WoundView __instance, ref UnityEngine.UI.Image __result, Limb limb, Sprite sprite, bool flip, LimbCondition removeCondition) {
+    static void Postfix(WoundView __instance, ref UnityEngine.UI.Image __result, Limb limb, Sprite sprite, bool flip, LimbCondition removeCondition ) {
         var compo = __result.AddComponent<WoundviewLimbImagePerPlayerTrackerComponent>();
         compo.limb = limb;
         __instance.body = oldbody;
@@ -1802,7 +1632,7 @@ public static class WoundView_AddImageToLimb_MultiplayerPatch {
     }
 }
 
-
+    
 
 
 
@@ -1822,7 +1652,8 @@ public static class PlayerCamera_WoundSpecialAction_MultiplayerPatch {
             if (limb.TryGetNetBody(out var pacient))
                 pacient.SetNetHealthSyncIgnoreTime(0.05f);
         }
-        tourniquet.affectedLimbs.ForEach(delegate (Limb x) {
+        tourniquet.affectedLimbs.ForEach(delegate (Limb x)
+        {
             x.blockedBleeding = false;
         });
         UnityEngine.Object.Destroy(tourniquet);
@@ -1836,7 +1667,7 @@ public static class PlayerCamera_WoundSpecialAction_MultiplayerPatch {
             gameObject.GetComponent<Item>().condition = splint.condition;
             healer.AutoPickUpItem(gameObject.GetComponent<Item>());
         } else if (healer.IsBodyLocal()) {
-            if (limb.TryGetNetBody(out var pacient))
+            if (limb.TryGetNetBody(out var pacient)) 
                 pacient.SetNetHealthSyncIgnoreTime(0.05f);
         }
         UnityEngine.Object.Destroy(splint);
@@ -1844,7 +1675,7 @@ public static class PlayerCamera_WoundSpecialAction_MultiplayerPatch {
 
 
     public static void OG_WoundSpecialAction(Body healer, Limb targetLimb) {
-
+       
         var healerIsLocal = Util.IsBodyLocal(healer);
 
         //OG: PlayerCamera.WoundSpecialAction  THE ENTIRE FUNCTION I REIMPLEMENTED IT HERE
@@ -1866,7 +1697,7 @@ public static class PlayerCamera_WoundSpecialAction_MultiplayerPatch {
         if (targetLimb.TryGetNetBody(out var nbPacient) && healerIsLocal) {
             nbPacient.SetNetHealthSyncIgnoreTime(0.01f);
         }
-
+        
     }
 
 
@@ -1884,7 +1715,7 @@ public static class PlayerCamera_WoundSpecialAction_MultiplayerPatch {
             }
 
             if (!Util.DoFullInteractionCheck(__instance.body, __instance.selectedLimb.body, true)) {
-                PlayerCamera.main.DoAlert(Lang.Get("plr_unreachable"));
+                PlayerCamera.main.DoAlert(Lang.Get("plr_unreachable"));  
                 PlayerCamera.main.PlayUISound(PlayerCamera.UISoundType.Deny);
                 return false;
             }
@@ -1940,30 +1771,6 @@ public static class PlayerCamera_ApplyWoundItem_MultiplayerPatch {
         if (limb.dismembered || !healer.conscious || !item.Stats.ActuallyUsableOnLimb(item)) {
             return false;
         }
-        // full meds no-op on prosthetics inside useLimbAction. deny early so mp does not spend the item.
-        // amputate tools are allowed: vanilla DoAmputate instantly Dismembers prosthetic limbs (no minigame).
-        // wrench opens the prosthetic dislocation screen. the bent-prosthesis moodle tells you to use one.
-        if (limb.HasProsthetic()
-            && item.Stats.usableOnLimb
-            && !Item_DoAmputate_MultiplayerPatch.IsAmputateTool(item)
-            && item.id != "peglimb"
-            && item.id != "steelprosthesis"
-            && item.id != "peo"
-            && item.id != "scrapmetal"
-            && item.id != "scrapcube"
-            && item.id != "scrappanel"
-            && item.id != "scraptube"
-            && item.id != "woodscraps"
-            && item.id != "woodcube"
-            && item.id != "woodpanel"
-            && item.id != "stick"
-            && item.id != "titaniumslab"
-            && item.id != "titaniumsheet"
-            && item.id != "titaniumrod"
-            && item.id != "wrench"
-            && item.id != "makeshiftwrench") {
-            return false;
-        }
 
 
 
@@ -1990,7 +1797,7 @@ public static class PlayerCamera_ApplyWoundItem_MultiplayerPatch {
 
                 if (MedicalSync.IsRefusingHelp(otherbody) && !item.Stats.ignoreDepression) {
                     if (healer_is_me) {
-                        pc.DoAlert(Lang.Get("deny_refuse"));
+                        pc.DoAlert(Lang.Get("deny_refuse"));  
                         pc.PlayUISound(PlayerCamera.UISoundType.Deny);
                     }
                 } else {
@@ -2016,47 +1823,18 @@ public static class PlayerCamera_ApplyWoundItem_MultiplayerPatch {
         }
     }
 
-    public static void ForceApplyWoundItem(Body healer, Limb limb, Item item) {
+    public static void ForceApplyWoundItem(Body healer ,Limb limb, Item item) {
         PlayerCamera_ApplyWoundItem_MultiplayerPatch.last_wounditem_user = healer;
 
 
         //OG: PlayerCamera.ApplyWoundItem V5t2
 
         limb.GetCoUtilsInstance().SelectForMPOverride();
-        Limb previousLimb = applying_on_limb;
-        Item previousItem = applying_item;
-        bool healerIsHere = healer != null && Util.IsBodyLocal(healer);
-        if (healerIsHere) {
-            applying_on_limb = limb;
-            applying_item = item;
-        }
         WaterContainerItem component;
-        // vanilla peglimb/steel/peo check limb.body.skills.INT (patient). when treating someone
-        // else, use the better of patient/applier so a skilled medic can install for a low-INT friend.
-        int savedInt = -1;
-        Skills patientSkills = null;
-        if (healer != null && limb != null && limb.body != null && healer != limb.body
-            && healer.skills != null && limb.body.skills != null) {
-            patientSkills = limb.body.skills;
-            savedInt = patientSkills.INT;
-            if (healer.skills.INT > patientSkills.INT) {
-                patientSkills.INT = healer.skills.INT;
-            }
-        }
-        try {
-            if (item.Stats.usableOnLimb) {
-                item.Stats.useLimbAction(limb, item);
-            } else if (item.TryGetComponent(out component)) {
-                component.ApplyToLimb(limb);
-            }
-        } finally {
-            if (healerIsHere) {
-                applying_on_limb = previousLimb;
-                applying_item = previousItem;
-            }
-            if (patientSkills != null && savedInt >= 0) {
-                patientSkills.INT = savedInt;
-            }
+        if (item.Stats.usableOnLimb) {
+            item.Stats.useLimbAction(limb, item);
+        } else if (item.TryGetComponent(out component)) {
+            component.ApplyToLimb(limb);
         }
     }
 
@@ -2069,7 +1847,7 @@ public static class PlayerCamera_ApplyWoundItem_MultiplayerPatch {
         if (Net.IsRunning) {
 
             if (!ItemSync.CheckIfBodyReachThisItem(item, __instance.body, 20f, true)) {
-                PlayerCamera.main.DoAlert(Lang.Get("item_unreachable"));
+                PlayerCamera.main.DoAlert(Lang.Get("item_unreachable"));  
                 PlayerCamera.main.PlayUISound(PlayerCamera.UISoundType.Deny);
                 return false;
             }
@@ -2079,7 +1857,7 @@ public static class PlayerCamera_ApplyWoundItem_MultiplayerPatch {
 
 
                     if (log.verbose) log.l($"CLIENT: Sending ApplyWoundItem {__instance.selectedLimb.body.GetNetBody()} {Util.GetLimbIndex(__instance.selectedLimb)} {isi} ");
-
+                    
 
 
                     if (Net.IsClient) {
@@ -2112,32 +1890,12 @@ public static class PlayerCamera_ApplyWoundItem_MultiplayerPatch {
         }
         // only network client will get here, it will call the useLimbAction
         last_wounditem_user = Util.GetLocalBody();
-        // solo / non-net path still needs applier INT when treating another body via wound view
-        if (__instance.selectedLimb != null && __instance.body != null
-            && __instance.selectedLimb.body != __instance.body) {
-            // prefix returns true -> vanilla ApplyWoundItem runs; swap INT for that call.
-            Body healer = __instance.body;
-            Body patient = __instance.selectedLimb.body;
-            if (healer.skills != null && patient.skills != null && healer.skills.INT > patient.skills.INT) {
-                _pendingPatientSkills = patient.skills;
-                _pendingSavedInt = patient.skills.INT;
-                patient.skills.INT = healer.skills.INT;
-            }
-        }
         return true;
     }
-
-    static Skills _pendingPatientSkills;
-    static int _pendingSavedInt = -1;
 
     static void Postfix(PlayerCamera __instance) {
         applying_on_limb = null;
         applying_item = null;
-        if (_pendingPatientSkills != null && _pendingSavedInt >= 0) {
-            _pendingPatientSkills.INT = _pendingSavedInt;
-            _pendingPatientSkills = null;
-            _pendingSavedInt = -1;
-        }
     }
 }
 
@@ -2167,7 +1925,7 @@ public static class Limb_FurBloodUpdate_MultiplayerPatch {
 public static class Limb_Dislocate_MultiplayerPatch {
 
     static void Prefix(Limb __instance) {
-        if (!__instance.dislocated && __instance.body.TryGetNetBody(out var pb)) {
+        if (!__instance.dislocated && __instance.body.TryGetNetBody( out var pb)) {
             //pb.CameraShakeOverrideFunc(50f);
         }
     }
@@ -2177,7 +1935,7 @@ public static class Limb_Dislocate_MultiplayerPatch {
             ILGenerator generator,
             MethodBase __originalMethod) {
         var codes = instructions;
-
+        
         codes = TranspilerHelpers.PatchShakers(codes, generator, __originalMethod);
 
         return codes;
@@ -2261,13 +2019,13 @@ public static class Limb_ImpactDamage_MultiplayerPatch {
         var body = __instance.body;
 
         if (!last_impact_is_local_body) body.fallShakeCooldown = 1f;
-        if (SharedMain.LocalWorldIsGenerating) return false;
+        if (SharedMain.LocalWorldIsGenerating) return false; 
         if (!Net.IsRunning) return true;
 
         if (!force_run) {
 
 
-            if (__instance.TryGetNetBody(out var netBody)) {
+            if (__instance.TryGetNetBody(out var netBody)) { 
                 if (netBody.piggybacking_on != null) { // disable impact damage if piggybacking
                     return false;
                 } else if (!netBody.IsPlayer) {// fuck it, just make npcs take damage to prevent unsyncability issues or idk what im doing rn
@@ -2327,8 +2085,8 @@ public static class Limb_ImpactDamage_MultiplayerPatch {
             var body = __instance.body;
 
 
-            //OG: Limb.ImpactDamage
-            if (!(force > body.jumpSpeed)) {
+			//OG: Limb.ImpactDamage
+			if (!(force > body.jumpSpeed)) {
                 return;
             }
 
@@ -2394,10 +2152,12 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
     // latest body snapshot per id. applied once this client is in the game and that body exists. no expiry.
     static readonly HashSet<knetid> ForceHeld = new HashSet<knetid>();
 
-    internal static void HoldHealth(knetid id, CharacterHealthStateSyncPacket health, bool force = false) {
+    internal static void HoldHealth(knetid id, CharacterHealthStateSyncPacket health, bool force = false)
+    {
         if (force)
             ForceHeld.Add(id);
-        if (KrokV5Optimization.FixInvSync.InGame() && NetBody.TryGetNetBodyFromId(id, out NetBody nb) && nb.body != null) {
+        if (KrokV5Optimization.FixInvSync.InGame() && NetBody.TryGetNetBodyFromId(id, out NetBody nb) && nb.body != null)
+        {
             bool confirm = force || ForceHeld.Remove(id);
             health.Apply(nb, confirm);
             return;
@@ -2405,8 +2165,10 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
         HeldHealth[id] = health;
     }
 
-    internal static void FlushHeldHealth() {
-        if (!Util.IsInWorld()) {
+    internal static void FlushHeldHealth()
+    {
+        if (!Util.IsInWorld())
+        {
             HeldHealth.Clear();
             ForceHeld.Clear();
             return;
@@ -2414,7 +2176,8 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
         if (!KrokV5Optimization.FixInvSync.InGame() || HeldHealth.Count == 0)
             return;
         HeldHealthDone.Clear();
-        foreach (KeyValuePair<knetid, CharacterHealthStateSyncPacket> pair in HeldHealth) {
+        foreach (KeyValuePair<knetid, CharacterHealthStateSyncPacket> pair in HeldHealth)
+        {
             if (!NetBody.TryGetNetBodyFromId(pair.Key, out NetBody nb) || nb.body == null)
                 continue;
             pair.Value.Apply(nb, ForceHeld.Remove(pair.Key));
@@ -2425,7 +2188,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
     }
 
     public static bool IsRefusingHelp(Body b) {
-        return !b.aboveMedicalCutoff && b.conscious;
+        return !b.aboveMedicalCutoff && b.conscious ;
     }
 
     void UpdateCPREffects() {
@@ -2434,11 +2197,11 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
             var imPacientOfCPR = CPRHandler.IsCPRBeingPerformedOnThisBody(locNb, out var plr);
 
             if (imPacientOfCPR && locNb.body.IsRagdolling() && locNb.body.moveDir == Vector2.zero && !PlayerCamera.main.wantsJumpInput) {
-                locNb.body.Ragdoll(); // make player stay ragdolling
+                locNb.body.Ragdoll(); // Make player stay ragdolling
             }
 
-            //realistically this shouldn't show on ECG, but I think it's cool for visualization
-            //i specifically won't want to do this for health panel ECG because of it
+            //Realistically this shouldn't show on ECG, but I think it's cool for visualization
+            //I specifically won't want to do this for health panel ECG because of it
             var consciousnessECG = PlayerCamera.main.consciousnessECG;
             if (consciousnessECG != null && consciousnessECG.active) {
 
@@ -2544,7 +2307,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
                                 if (
                                     //(NetPlayer.BodyToPlayerDict.Count > 4 && (float)count_plrs_in_range < Mathf.Max(1f, (float)required_count_plrs_in_range * 0.9f - 1f)) ||
                                     (
-                                        max_recorded_dist > Util.MetersToTiles(Multiplayer.rules.ScatterPunishDistance) * 0.8f //mathf.Clamp((10 - NetPlayer.BodyToPlayerDict.Count) * 0.1f, 0.7f,0.95f)
+                                        max_recorded_dist > Util.MetersToTiles(Multiplayer.rules.ScatterPunishDistance) * 0.8f //Mathf.Clamp((10 - NetPlayer.BodyToPlayerDict.Count) * 0.1f, 0.7f,0.95f)
                                     )
                                 ) {
                                     var thing = (int)Time.unscaledTime % 2;
@@ -2573,7 +2336,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
             alert_and_breath_audio.volume = (body.alive || antidispersion) ? 1 : 0;
 
         }
-
+        
     }
 
 
@@ -2586,7 +2349,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
         return false;
     }
     public static bool TryGetNetBodyAndLimb(knetid netBodyId, byte limbId, out NetBody nb, out Limb limb) {
-        if (NetBody.TryGetNetBodyFromId(netBodyId, out nb) && limbId < nb.body.limbs.Count()) {
+        if (NetBody.TryGetNetBodyFromId(netBodyId, out nb ) && limbId < nb.body.limbs.Count()) {
             limb = nb.body.limbs[limbId];
             return true;
         }
@@ -2603,20 +2366,20 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
         var intrdist = SharedMain.max_player_interaction_distance * 2.5f;
 
         var res = ScavPlayer.TryGetPlayerAndBodyFromClientId(healer_CId, out healersci, out var healerbody) && healerbody.conscious &&
-                TryGetNetBodyAndLimb(target_bodyNetId, limb_id, out target_nb, out var targetlimb) &&
+                TryGetNetBodyAndLimb(target_bodyNetId, limb_id, out target_nb, out var targetlimb ) &&
                 NetObjectRegistry.TryGetSyncInfo(item_syncid, out item_si) && item_si.IsItem() && (item_si.item.Stats.usableOnLimb) &&
                 ItemSync.CheckIfBodyReachThisItem(item_si.item, healerbody, intrdist, false) &&
                 Util.DoFullInteractionCheck(healerbody, target_nb.body, false, intrdist, false);
-
+        
         return res;
     }
 
 
 
-
+    
     public static void Server_SendCharacterHealth(NetBody nb, bool force = false) {
-        if ((force || MedicalSync.CanSyncHealth())) {
-
+        if ((force || MedicalSync.CanSyncHealth()) ) {
+            
             Body cur_body = nb.body;
 
             var health = new CharacterHealthStateSyncPacket();
@@ -2631,14 +2394,14 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
             writer.CompressWriter();
 
-            Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
+            Net.Server_SendToClients( DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
 
             // WRITER END;
         }
     }
 
     // where its not really important to send character health right now and doesnt even matter if it arrives
-
+    
     static Queue<NetBody> server_tosend_queue = new Queue<NetBody>();
     public static void Server_QueueSendCharacterHealth(NetBody nb, bool force = false) {
         Con.ConFailIfNetworkIsRunningAndIsClient();
@@ -2683,8 +2446,8 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
     static int _healthsync_cur_body = 0;
     private IEnumerator HealthUpdateSyncClients() {
 
-        if (Util.IsWorldGenerated() && Net.IsRunning && MedicalSync.CanSyncHealth()) {
-
+        if ( Util.IsWorldGenerated() && Net.IsRunning && MedicalSync.CanSyncHealth()) {
+            
             { // shouldnt be here but whatever i needed to sync the painkiller state
                 var tosync = new List<NetBody>();
                 int bytecounter = 0;
@@ -2701,7 +2464,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
                     while (true) {
 
-                        var dobreak = false;
+						var dobreak = false;
                         if (_mischealthsync_cur_body >= NetBody.all_instances.Count()) {
                             _mischealthsync_cur_body = 0;
                             dobreak = true;
@@ -2713,8 +2476,8 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
                         if (dobreak) {
 
-                            timer_HealthUpdateSyncClients = -5;
-                            yield return null;
+							timer_HealthUpdateSyncClients = -5;
+							yield return null;
                             tosync.RemoveAll(x => x.body == null);
 
                             // send the packet
@@ -2732,7 +2495,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
                                 writer.Put(false);
 
                                 Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
-
+                                
                                 bytecounter = 0;
                                 tosync.Clear();
                             }
@@ -2761,7 +2524,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
 
             while (true) {
-                if (_healthsync_cur_body >= NetBody.all_instances.Count()) {
+				if (_healthsync_cur_body >= NetBody.all_instances.Count()) {
                     _healthsync_cur_body = 0;
                     break;
                 }
@@ -2772,8 +2535,8 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
                 if (npc._SERVER_healthsync_skip_frame) {
                     npc._SERVER_healthsync_skip_frame = false;
                     _healthsync_cur_body++;
-                    continue;
-                }
+                    continue; 
+                } 
                 if (!npc.body.alive) {
                     npc._SERVER_healthsync_skip_frame = !npc._SERVER_healthsync_skip_frame;
                 }
@@ -2861,7 +2624,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
     [ClientReceiver((byte)NetmsgId.CLIENT_HealthPainkillerSync)]
     static void ClientReceiver__HealthPainkillerSync(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-
+        
         reader.Get(out knetid who);
         reader.Get(out CharacterHealthPainkillerStateSyncPacket health);
         if (NetBody.TryGetNetBodyFromId(who, out var nb)) {
@@ -2907,7 +2670,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
     [ClientReceiver((byte)NetmsgId.CLIENT_VomiterVomit)]
     static void ClientReceiver__VomiterVomit(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-
+        
         reader.Get(out knetid who);
         reader.Get(out bool isblood);
 
@@ -2941,7 +2704,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
         if (
             ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out var healer, out var healerbody) && healer.body.conscious &&
-            target_limb.TryGetNetBodyAndLimbSafe(out var target_pb, out var limb)
+            target_limb.TryGetNetBodyAndLimbSafe(out var target_pb, out var limb) 
         ) {
             var targetbody = target_pb.body;
             if (healerbody != targetbody) {
@@ -2986,7 +2749,7 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
         if (
             ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out var healer, out var healer_nb) && healer.body.conscious &&
             targetlimb.TryGetNetBodyAndLimbSafe(out var target_nb, out var limb) &&
-            ItemSync.TryGetItemSyncInfo(item_syncid, out var isi)
+            ItemSync.TryGetItemSyncInfo(item_syncid, out var isi) 
         ) {
 
 #if !RELEASE // these are for verbose output why shit gets denied
@@ -3012,62 +2775,29 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
             if (PlayerCamera_ApplyWoundItem_MultiplayerPatch.DoApplyWoundItemChecks(healer.body, limb, isi.item)) {
 
-                bool removingProsthetic = limb.HasProsthetic() && Item_DoAmputate_MultiplayerPatch.IsAmputateTool(isi.item);
-
-                void FinishApply() {
-                    // tell everyone to use this item (so that visuals and sounds apply)
-                    var writer = Net.CreateWriter(NetmsgId.CLIENT_PlayerCamera_ApplyWoundItem_Relay);
-
-                    writer.Put(clientId);
-                    writer.Put(targetlimb);
-                    writer.Put(item_syncid);
-
-                    if (log.verbose) log.l($"Server receives: PlayerCamera.ApplyWoundItem {healer.playerName} -> {targetlimb} si:{isi}  ");
-
-                    Net.Server_SendToClients(DeliveryMethod.ReliableUnordered, writer, clientIds: ServerMain.GetListOfClientIdsExceptThisAndHost(clientId));
-                    // WRITER END;
 
 
-                    MinigameBase_StartMinigame_MultiplayerPatch.ignore_next_mgstart_cuz_its_not_me = !Util.IsBodyLocal(healer.body);
-                    //OG: PlayerCamera.ApplyWoundItem
-                    PlayerCamera_ApplyWoundItem_MultiplayerPatch.ForceApplyWoundItem(healer.body, limb, isi.item);
-                    MinigameBase_StartMinigame_MultiplayerPatch.ignore_next_mgstart_cuz_its_not_me = false;
+                // tell everyone to use this item (so that visuals and sounds apply)
+                var writer = Net.CreateWriter(NetmsgId.CLIENT_PlayerCamera_ApplyWoundItem_Relay);
+
+                writer.Put(clientId);
+                writer.Put(targetlimb);
+                writer.Put(item_syncid);
+
+                if (log.verbose) log.l($"Server receives: PlayerCamera.ApplyWoundItem {healer.playerName} -> {targetlimb} si:{isi}  ");
+
+                Net.Server_SendToClients(DeliveryMethod.ReliableUnordered, writer, clientIds: ServerMain.GetListOfClientIdsExceptThisAndHost(clientId));
+                // WRITER END;
+
+
+                MinigameBase_StartMinigame_MultiplayerPatch.ignore_next_mgstart_cuz_its_not_me = !Util.IsBodyLocal(healer.body);
+                //OG: PlayerCamera.ApplyWoundItem
+                PlayerCamera_ApplyWoundItem_MultiplayerPatch.ForceApplyWoundItem(healer.body, limb, isi.item);
+                MinigameBase_StartMinigame_MultiplayerPatch.ignore_next_mgstart_cuz_its_not_me = false;
 
 
 
-                    // prosthetic removal is instant Dismember - force a confirm health push so clients drop the limb promptly
-                    if (removingProsthetic) {
-                        ForceHealth(target_nb);
-                    } else {
-                        Server_QueueSendCharacterHealth(target_nb);
-                    }
-                }
-
-                bool askConsent = removingProsthetic
-                    && healer_nb != target_nb
-                    && target_nb.IsPlayer
-                    && target_nb.plr != null
-                    && target_nb.body != null
-                    && target_nb.body.conscious;
-                if (askConsent) {
-                    ServerMain.PromptPlayer(target_nb.plr, "PROSTHETIC_REMOVE",
-                        $"<body:{healer_nb.netId}> wants to remove your prosthetic.",
-                        "Allow this?",
-                        (answer) => {
-                            if (answer == 0) {
-                                if (isi.go == null || limb == null || !limb.HasProsthetic()) {
-                                    healer.Server_DoAlertSingle($"<bodyc:{target_nb.netId}> <key:giveitem_noitem>.");
-                                    return;
-                                }
-                                FinishApply();
-                                healer.Server_DoAlertSingle($"<bodyc:{target_nb.netId}> <key:accepted>.");
-                            } else {
-                                healer.Server_DoAlertSingle($"<bodyc:{target_nb.netId}> <key:declined>.");
-                            }
-                        });
-                } else {
-                    FinishApply();
-                }
+                Server_QueueSendCharacterHealth(target_nb);
 
 
             } else {
@@ -3123,3 +2853,6 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
 
 }
+
+
+

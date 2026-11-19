@@ -19,22 +19,18 @@ namespace Together;
 
 public class UIChoicePrompt : CasualtiesTogetherSingleton {
 
-    public static float ScreenHeight {
-        get {
-            if (UIBullshit.USE_NEW_UI) {
+    public static float ScreenHeight {get{
+        if (UIBullshit.USE_NEW_UI) {
 
-            }
-            return Screen.height;
         }
-    }
-    public static float ScreenWidth {
-        get {
-            if (UIBullshit.USE_NEW_UI) {
-
-            }
-            return Screen.width;
+        return Screen.height;
+    }}
+    public static float ScreenWidth {get{
+        if (UIBullshit.USE_NEW_UI) {
+            
         }
-    }
+        return Screen.width;
+    }}
 
     public static void ClientDoNetPrompt(uint key, string promptid, string title, string text) {
         Lang.MsgTryParse(ref title);
@@ -43,25 +39,6 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
 #if TESTING
         log.l($"ClientDoNetPrompt:\n{title}\n{text}");
 #endif
-
-        // dune bite: if we are KO/asleep, never show Yes/No - auto-accept (host may have thought we were still conscious)
-        if (promptid == "DUNE_BITE") {
-            Body local = PlayerCamera.main != null ? PlayerCamera.main.body : null;
-            if (local == null && ScavPlayer.LocalPlayer != null) {
-                local = ScavPlayer.LocalPlayer.body;
-            }
-            if (local != null && NetBody.DuneBiteSessionCannotConsent(local)) {
-                var auto = Net.CreateWriter(NetmsgId.SERVER_CustomPromptAnswer);
-                auto.Put(key);
-                auto.Put(promptid);
-                auto.Put((byte)0);
-                Net.Client_Send(DeliveryMethod.ReliableOrdered, auto);
-                return;
-            }
-        }
-
-        string yes = promptid == "DUNE_BITE" ? Lang.Get("yes") : Lang.Get("accept");
-        string no = promptid == "DUNE_BITE" ? Lang.Get("no") : Lang.Get("decline");
 
         UIChoicePrompt.ShowPrompt(new UIChoicePrompt.Prompt {
             text = text,
@@ -72,7 +49,7 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
             size = new Vector2(0.43f, 0.18f),
             choices = new UIChoicePrompt.Prompt.PromptChoice[] {
                 new UIChoicePrompt.Prompt.PromptChoice {
-                    text = yes,
+                    text = Lang.Get("accept"),
                     action = () => {
                         var writer = Net.CreateWriter(NetmsgId.SERVER_CustomPromptAnswer);
                         writer.Put(key);
@@ -82,7 +59,7 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
                     }
                 },
                 new UIChoicePrompt.Prompt.PromptChoice {
-                    text = no,
+                    text = Lang.Get("decline"),
                     action = () => {
                         var writer = Net.CreateWriter(NetmsgId.SERVER_CustomPromptAnswer);
                         writer.Put(key);
@@ -113,11 +90,11 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
 
     public class Prompt {
         public class PromptChoice {
-            public Dictionary<string, object> data;
+            public Dictionary<string,object> data;
             public string text;
             public Action action;
         }
-        public readonly Dictionary<string, object> data = new();
+        public readonly Dictionary<string,object> data = new();
         public string name;
         public string text;
         public float timeout = 5;
@@ -153,7 +130,7 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
 
             rt.anchorMin = realPos;
             rt.anchorMax = realPos;
-            rt.SetSizeAndPos(realPromptSize, Vector2.one * 0.5f);
+            rt.SetSizeAndPos(realPromptSize, Vector2.one*0.5f);
         }
 
 
@@ -192,7 +169,7 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
         mouse_is_near_area = false;
         if (prompt_queue.Count > 0) {
             var firstprompt = prompt_queue.Peek();
-            if (firstprompt.timeout <= 0) {
+            if ( firstprompt.timeout <= 0 ) {
                 prompt_show_progress = Mathf.MoveTowards(prompt_show_progress, 0, Time.deltaTime * 4f);
 
                 if (prompt_show_progress == 0) {
@@ -223,7 +200,7 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
                 } else {
                     if (firstprompt.timeout > 0) {
                         firstprompt.timeout -= Time.deltaTime;
-                        if (firstprompt.timeout <= 0) {
+                        if (firstprompt.timeout <= 0 ) {
                             if (firstprompt.defaultcanignore) {
                                 firstprompt.chosenignore = true;
                             } else {
@@ -251,7 +228,7 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
             SafeActionInvoke(prompt.choices[ch].action);
         }
 
-        prompt.chosenchoice = ch;
+        prompt.chosenchoice = ch;  
         prompt.timeout = 0;
     }
     public static void SafeActionInvoke(Action action) {
@@ -279,79 +256,79 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
         FixChoicePrompt.Begin();
         try {
 
-            if (prompt_show_progress != 0) {
-                if (prompt_queue.Count > 0) {
-                    var ogcolor = GUI.color;
-                    var ogwrap = GUI.skin.label.wordWrap;
-                    var ogrich = GUI.skin.label.richText;
-                    var ogalignment = GUI.skin.label.alignment;
+        if (prompt_show_progress != 0) {
+            if (prompt_queue.Count > 0) {
+                var ogcolor = GUI.color;
+                var ogwrap = GUI.skin.label.wordWrap;
+                var ogrich = GUI.skin.label.richText;
+                var ogalignment = GUI.skin.label.alignment;
 
-                    var firstprompt = prompt_queue.Peek();
-                    if (prompt_show_progress < 1) {
-                        if (mouse_is_near_area) {
-                            var aaaaa = Mathf.Sin(Time.realtimeSinceStartup * 6f);
-                            GUI.color = new Color(aaaaa, aaaaa, aaaaa, 0.7f + aaaaa * 0.3f);
-                            var shadowrect = firstprompt.CalculateRect(false);
-                            GUI.Label(shadowrect, "", GUI.skin.box);
-
-                            GUI.color = ogcolor;
-
-                            GUI.skin.label.alignment = TextAnchor.LowerCenter;
-                            GUI.Label(shadowrect, Lang.Get("movemouse"));
-
-                            UIBullshit._GUI_SetTooltip(Lang.Get("movemouse"), "");
-                        }
-                    }
-                    GUI.skin.label.alignment = TextAnchor.UpperCenter;
-
-                    var rect = firstprompt.CalculateRect(true).ShrinkBorder(3 * UIMainMenu.GetMenuUIScale());
-                    //GUI.Label(rect, "", GUI.skin.box);
-
-                    UIBullshit.CheckCursorOverlap(rect);
-                    GUILayout.BeginArea(rect, "", GUI.skin.box);
-
-                    GUI.skin.label.richText = true;
-                    UIBullshit._GUI_BiggerLabel(firstprompt.name, 1.4f);
-
-                    GUI.skin.label.wordWrap = true;
-                    GUI.skin.label.richText = true;
-
-                    GUILayout.Label(firstprompt.text);
-                    GUI.skin.label.wordWrap = ogwrap;
-
-
-                    if (firstprompt.timeout > 0 && firstprompt.choices != null) {
-                        GUILayout.BeginVertical();
-                        GUILayout.FlexibleSpace();
-                        GUILayout.EndVertical();
-
-                        var og_enabled = GUI.enabled;
-                        if (prompt_show_progress < 1 && mouse_is_near_area) {
-                            GUI.enabled = false;
-                            var aaaaa = Mathf.Sin(Time.realtimeSinceStartup * 6f);
-                            GUI.color = new Color(1, 1, 1, 0.2f + aaaaa * 0.15f);
-                        }
-
-                        GUILayout.BeginHorizontal();
-                        GUILayout.FlexibleSpace();
-                        for (int i = 0; i < firstprompt.choices.Length; i++) {
-                            var item = firstprompt.choices[i];
-                            if (GUILayout.Button(item.text)) {
-                                PromptUse(firstprompt, i);
-                                Util.PlayUISound(PlayerCamera.UISoundType.MiniClick);
-                            }
-                            GUILayout.FlexibleSpace();
-                        }
-                        GUILayout.EndHorizontal();
-
-                        GUI.enabled = og_enabled;
+                var firstprompt = prompt_queue.Peek();
+                if (prompt_show_progress < 1) {
+                    if (mouse_is_near_area) {
+                        var aaaaa = Mathf.Sin(Time.realtimeSinceStartup*6f);
+                        GUI.color = new Color(aaaaa, aaaaa, aaaaa, 0.7f + aaaaa * 0.3f);
+                        var shadowrect = firstprompt.CalculateRect(false);
+                        GUI.Label(shadowrect, "", GUI.skin.box);
+                        
                         GUI.color = ogcolor;
+
+                        GUI.skin.label.alignment = TextAnchor.LowerCenter;
+                        GUI.Label(shadowrect, Lang.Get("movemouse"));
+
+                        UIBullshit._GUI_SetTooltip(Lang.Get("movemouse"),"");
                     }
-                    GUILayout.EndArea();
-                    GUI.skin.label.alignment = ogalignment;
-                    GUI.skin.label.richText = ogrich;
                 }
+                GUI.skin.label.alignment = TextAnchor.UpperCenter;
+
+                var rect = firstprompt.CalculateRect(true).ShrinkBorder(3 * UIMainMenu.GetMenuUIScale());
+                //GUI.Label(rect, "", GUI.skin.box);
+
+                UIBullshit.CheckCursorOverlap(rect);
+                GUILayout.BeginArea(rect,"", GUI.skin.box);
+
+                GUI.skin.label.richText = true;
+                UIBullshit._GUI_BiggerLabel(firstprompt.name ,1.4f);
+
+                GUI.skin.label.wordWrap = true;
+                GUI.skin.label.richText = true;
+                
+                GUILayout.Label( firstprompt.text );
+                GUI.skin.label.wordWrap = ogwrap;
+
+
+                if (firstprompt.timeout > 0 && firstprompt.choices != null) {
+                    GUILayout.BeginVertical();
+                    GUILayout.FlexibleSpace();
+                    GUILayout.EndVertical();
+
+                    var og_enabled = GUI.enabled;
+                    if (prompt_show_progress < 1 && mouse_is_near_area) {
+                        GUI.enabled = false;
+                        var aaaaa = Mathf.Sin(Time.realtimeSinceStartup * 6f);
+                        GUI.color = new Color(1, 1, 1, 0.2f + aaaaa * 0.15f);
+                    }
+
+                    GUILayout.BeginHorizontal();
+                    GUILayout.FlexibleSpace();
+                    for (int i = 0; i < firstprompt.choices.Length; i++) {
+                        var item = firstprompt.choices[i];
+                        if (GUILayout.Button(item.text)) {
+                            PromptUse(firstprompt,i);
+                            Util.PlayUISound(PlayerCamera.UISoundType.MiniClick);
+                        }
+                        GUILayout.FlexibleSpace();
+                    }
+                    GUILayout.EndHorizontal();
+
+                    GUI.enabled = og_enabled;
+                    GUI.color = ogcolor;
+                }
+                GUILayout.EndArea();
+                GUI.skin.label.alignment = ogalignment;
+                GUI.skin.label.richText = ogrich;
             }
+        }
 
         } finally {
             FixChoicePrompt.End();
@@ -362,7 +339,7 @@ public class UIChoicePrompt : CasualtiesTogetherSingleton {
 }
 
 
-public class VoteSystem : CasualtiesTogetherSingleton {
+public class VoteSystem :CasualtiesTogetherSingleton {
 
 
 
@@ -401,7 +378,7 @@ public class VoteSystem : CasualtiesTogetherSingleton {
                         Server_VoteKick(oplr, plr);
                     }
                 }, false, plr, false, true);
-
+                
             } else if (argv[1] == "mutevc") {
                 var plrname = argv[2];
                 var res = Con.PerformActionOnPlayersByName(plrname, (ScavPlayer oplr) => {
@@ -427,7 +404,7 @@ public class VoteSystem : CasualtiesTogetherSingleton {
 
     public static void Server_VoteKick(ScavPlayer plr, ScavPlayer who_called_the_vote = null) {
         var txt = $"Kick {plr.playerName}";
-
+        
 
         Server_AnnounceVote("Vote Kick", txt, 10, (HashSet<ScavPlayer> voted_yes, HashSet<ScavPlayer> voted_no, HashSet<ScavPlayer> voted_ignore) => {
             voted_ignore.Remove(plr);
@@ -448,7 +425,7 @@ public class VoteSystem : CasualtiesTogetherSingleton {
     }
     public static void Server_VoteMuteVC(ScavPlayer plr, ScavPlayer who_called_the_vote = null) {
         var txt = $"Mute {plr.playerName}";
-
+        
 
         Server_AnnounceVote("Vote Mute VC", txt, 10, (HashSet<ScavPlayer> voted_yes, HashSet<ScavPlayer> voted_no, HashSet<ScavPlayer> voted_ignore) => {
             voted_ignore.Remove(plr);
@@ -468,7 +445,7 @@ public class VoteSystem : CasualtiesTogetherSingleton {
     }
     public static void Server_VoteMuteTC(ScavPlayer plr, ScavPlayer who_called_the_vote = null) {
         var txt = $"Mute {plr.playerName}";
-
+        
 
         Server_AnnounceVote("Vote Mute TC", txt, 10, (HashSet<ScavPlayer> voted_yes, HashSet<ScavPlayer> voted_no, HashSet<ScavPlayer> voted_ignore) => {
             voted_ignore.Remove(plr);
@@ -495,13 +472,13 @@ public class VoteSystem : CasualtiesTogetherSingleton {
             throw new Exception("Already voting");
         }
 
-        voters ??= ScavPlayer.AllPlayers.ToList();
+        voters ??= ScavPlayer.ClientIdToPlayerDict.Values.ToList();
 
         if (voters.Count > 0) {
             Server_ActiveVote = new Server_VoteState() {
                 id = _voteCounter++,
                 time = timetovote + 1,
-                endAction = action,
+                endAction = action, 
                 voters = new HashSet<ScavPlayer>(voters),
             };
 
@@ -567,10 +544,10 @@ public class VoteSystem : CasualtiesTogetherSingleton {
 
         var voteid = (reader.GetUShort());
         var votenumber = (reader.GetByte());
-        if (ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr)) {
+        if ( ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr) ) {
             if (Server_ActiveVote != null) {
                 if (Server_ActiveVote.voters.Contains(plr)) {
-                    if (!Server_ActiveVote.votedPositive.Contains(plr) && !Server_ActiveVote.votedNegative.Contains(plr)) { // didn't vote before
+                    if (!Server_ActiveVote.votedPositive.Contains(plr) && !Server_ActiveVote.votedNegative.Contains(plr)) { // Didn't vote before
 
                         if (votenumber == 0) {
                             Server_ActiveVote.votedPositive.Add(plr);
@@ -586,14 +563,14 @@ public class VoteSystem : CasualtiesTogetherSingleton {
     }
 
     void Update() {
+        
 
-
-
+        
         if (Net.IsServer && Server_ActiveVote != null) {
             Server_ActiveVote.time -= Time.deltaTime;
 
             // remove players that may have disconnected
-            Server_ActiveVote.voters.RemoveWhere(x => x == null);
+            Server_ActiveVote.voters.RemoveWhere(x => x == null); 
             Server_ActiveVote.votedPositive.RemoveWhere(x => x == null);
             Server_ActiveVote.votedNegative.RemoveWhere(x => x == null);
 
@@ -604,9 +581,9 @@ public class VoteSystem : CasualtiesTogetherSingleton {
             if (Server_ActiveVote.time < 0 || ignorers.Count == 0) {
                 try {
                     Server_ActiveVote.endAction.Invoke(Server_ActiveVote.votedPositive, Server_ActiveVote.votedNegative, ignorers);
-                } catch (Exception e) {
+                } catch     (Exception e) {
                     log.error(e);
-                }
+                }   
                 Server_ActiveVote = null;
             } else {
 
@@ -651,3 +628,15 @@ public class VoteSystem : CasualtiesTogetherSingleton {
 
 
 }
+
+
+
+
+
+
+
+
+
+
+
+

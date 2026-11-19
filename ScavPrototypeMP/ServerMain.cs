@@ -24,9 +24,6 @@ public struct PlayerSavedState {
 
     public Color24 plrcolor;
 
-    // species for mid-run rejoin (skip char-select menu)
-    public byte charType;
-
     public CharacterHealthPainkillerStateSyncPacket painkiller;
     public CharacterHealthStateSyncPacket health;
 
@@ -39,7 +36,6 @@ public struct PlayerSavedState {
     public PlayerSavedState(Body body) {
         position = body.transform.position;
         savedonlayer = WorldGeneration.world.biomeDepth;
-        charType = (byte)Mathf.Clamp(body != null ? body.charType : 0, 0, 2);
 
         health = new CharacterHealthStateSyncPacket();
         health.Write(body);
@@ -50,8 +46,8 @@ public struct PlayerSavedState {
         if (body.TryGetNetBody(out var nb)) {
             unchipped = nb.unchipped;
             if (nb.IsPlayer) {
-                RecipesHasCrafterBefore = new(nb.RecipesHasCrafterBefore);
-                MindMemory = new(nb.MindMemory);
+                RecipesHasCrafterBefore = new (nb.RecipesHasCrafterBefore);
+                MindMemory = new (nb.MindMemory);
                 plrcolor = nb.plr.playerColor;
             }
         }
@@ -93,7 +89,7 @@ public struct PlayerSavedState {
     }
 
     public void Apply(Body body) {
-        // is on the same layer
+        // Is on the same layer
         if (Multiplayer.rules.SavePlayerPosition && savedonlayer == WorldGeneration.world.biomeDepth) {
             if (body.TryGetNetBody(out var nb)) {
                 if (nb.IsPlayer) {
@@ -109,7 +105,7 @@ public struct PlayerSavedState {
                 nb.SetUnchipped(unchipped);
                 if (nb.IsPlayer) {
                     if (MindMemory != null) {
-                        nb.MindMemory = MindMemory;
+                    	nb.MindMemory = MindMemory;	
                     }
                     if (RecipesHasCrafterBefore != null) {
                         nb.RecipesHasCrafterBefore = RecipesHasCrafterBefore;
@@ -126,7 +122,7 @@ public struct PlayerSavedState {
                 var item = inventory[i];
                 if (item != null) {
                     item.transform.parent = null;
-                    body.PickUpItem(item, i, true);
+                    body.PickUpItem(item,i,true);
                 }
             }
 
@@ -231,7 +227,7 @@ abstract public class BaseComponentTracker<T> : MonoBehaviour where T : MonoBeha
     public SyncInfoGameObjectTracker tracker => GetComponent<SyncInfoGameObjectTracker>();
 
     protected abstract void TrackerAwake();
-    void Awake() {
+    void Awake() { 
         og = GetComponent<T>();
         TrackerAwake();
     }
@@ -327,7 +323,7 @@ public class ServerWorldStateSingleton : SingletonEntityLogic {
         if (Util.IsInWorld() && timeScale.Value.IsFinite()) {
             var diff = Time.timeScale - timeScale.Value;
             if (diff >= 1f) {
-
+                
             }
             Time.timeScale = timeScale.Value;
         }
@@ -346,9 +342,9 @@ public class ServerWorldStateSingleton : SingletonEntityLogic {
         ambientLightIntensity.Value = 0.12f;
         base.OnConstructed();
     }
-
+    
     public ServerWorldStateSingleton(EntityParams entityParams) : base(entityParams) {
-        shuttleDoorPosition.Value = new Vector2(0, 500);
+        shuttleDoorPosition.Value = new Vector2(0,500);
         timeScale.Value = 1;
     }
 
@@ -369,9 +365,7 @@ public class ServerWorldStateSingleton : SingletonEntityLogic {
 
 public class ServerMain : MonoBehaviour {
 
-    public const float SleepEnergySpeedMult = 25f;
-
-    public static Dictionary<string, PlayerSavedState> Server_LastPlayerStates = new();
+    public static Dictionary<string,PlayerSavedState> Server_LastPlayerStates = new();
 
     public static float AVERAGE_PING = 0;
 
@@ -406,9 +400,6 @@ public class ServerMain : MonoBehaviour {
         };
         writer.Put(LastStartGameAnnouncementPacket);
         writer.Put(WorldMP.CompileRunSettings(), true);
-#if FULLGAME
-        AchievementBreakSync.WriteAnnouncementFlag(writer);
-#endif
 
         if (runpref.tutorial) {
             Chat.Server_ChatAnnouncement(Chat.AddColorTags(Chat.DefaultChatColors.Server, "<key:host_started_tutorial>"));
@@ -420,25 +411,25 @@ public class ServerMain : MonoBehaviour {
 
         //writer.Truncate();
 
-        Net.Server_SendToClientsVeryReliable(writer, ServerMain.AllClientIdsExceptHost);
+        Net.Server_SendToClientsVeryReliable( writer, ServerMain.AllClientIdsExceptHost);
 
         // WRITER END;
-
+        
     }
 
     public static void Server_SendMPLogMessage(in string msg, in bool is_error = false, IReadOnlyList<knetid> targets = null) {
         var writer = Net.CreateWriter(NetmsgId.CustomLogMessage);
         writer.Put(msg);
         writer.Put(is_error);
-        Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, clientIds: targets ?? ServerMain.AllClientIds);
+        Net.Server_SendToClients( DeliveryMethod.ReliableOrdered , writer, clientIds: targets ?? ServerMain.AllClientIds);
         // WRITER END;
     }
 
     public static void _Server_OnServerNameChange(IReadOnlyList<knetid> targets = null) {
-
+         
         var writer = Net.CreateWriter(NetmsgId.ServerInfoUpdate);
         writer.Put(Net.MyServerInfo);
-        Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, clientIds: targets ?? ServerMain.AllClientIdsExceptHost);
+        Net.Server_SendToClients( DeliveryMethod.ReliableOrdered , writer, clientIds: targets ?? ServerMain.AllClientIdsExceptHost);
         // WRITER END;
 
         if (Net.IsRunningSteam) {
@@ -480,7 +471,7 @@ public class ServerMain : MonoBehaviour {
             Talker_Talk_MultiplayerPatch.ForceNoSpeechImpairment(foundtalker, msg, true);
 
             if (targets == null) targets = ServerMain.AllClientIdsExceptHost;
-
+            
             return TalkerSayAnnounce(si.syncId, 0, msg, targets);
         }
 
@@ -491,8 +482,8 @@ public class ServerMain : MonoBehaviour {
         if (Util.TryGetTalkerOnObject(pb.gameObject, out var foundtalker, out var _)) {
             Talker_Talk_MultiplayerPatch.ForceNoSpeechImpairment(foundtalker, msg, true);
 
-            if (targets == null) targets = ServerMain.AllClientIdsExceptHost;
-
+            if (targets == null)  targets = ServerMain.AllClientIdsExceptHost;
+            
             return TalkerSayAnnounce(pb.netId, 1, msg, targets);
         }
 
@@ -506,7 +497,7 @@ public class ServerMain : MonoBehaviour {
         writer.Put(msg);
         Net.Server_SendToClients(DeliveryMethod.ReliableUnordered, writer, clientIds: targets ?? ServerMain.AllClientIds);
         // WRITER END;
-
+            
         return true;
     }
 
@@ -527,14 +518,7 @@ public class ServerMain : MonoBehaviour {
 
 
 
-    static readonly HashSet<knetid> _spawnBusy = new HashSet<knetid>();
-
-    internal static bool SpawnPlacementBusy(knetid clientId) => _spawnBusy.Contains(clientId);
-
     public static IEnumerator GiveSpawnLocationToPlayer(knetid clientId) {
-        if (!_spawnBusy.Add(clientId)) {
-            yield break;
-        }
 #if TESTING
         log.l($"GiveSpawnLocationToPlayer called  clientId:{clientId}");
 #endif
@@ -542,15 +526,10 @@ public class ServerMain : MonoBehaviour {
         ScavPlayer plr;
         NetBody pb;
 
-        while (!ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out plr, out pb) || !Util.IsWorldGenerated() || !Body_PlaceBody_MultiplayerPatch.has_spawn_location) { // wait until the world is generated
+        while (!ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out plr, out pb) || !Util.IsWorldGenerated() || !Body_PlaceBody_MultiplayerPatch.has_spawn_location ) { // wait until the world is generated
 
-            if (ScavPlayer.TryGetPlayerFromClientId(clientId, out plr) && plr != null) {
+            if (plr != null) {
                 plr.ResetEntropy();
-                // regen and a late join can reach this with no character. the client
-                // waits on the spawn packet, and this wait used to wait on the body.
-                if (plr.body == null && Util.IsWorldGenerated() && Body_PlaceBody_MultiplayerPatch.has_spawn_location) {
-                    plr.CreateCharacter();
-                }
             }
 
             yield return null;
@@ -569,7 +548,7 @@ public class ServerMain : MonoBehaviour {
                     plr.ServerPlayerState.did_give_spawn_location_from_a_save = false;
                 } else {
                     if (
-                        !Body_PlaceBody_MultiplayerPatch.ShouldKeepLayerXOffset() // off, or doPod (everyone in the pod)
+                        !Multiplayer.rules.LayerFinishKeepXOffset // dont keep x offset
                         || WorldGeneration.world.totalTraveled <= 0  // if its the first layer all spawn in the pod
                         || plr.LateJoin // if late join it must pick random player to spawn on
                     ) {
@@ -597,7 +576,6 @@ public class ServerMain : MonoBehaviour {
 
             WorldChunkSync.singleton.timer_TilemapSync = 10;
         }
-        _spawnBusy.Remove(clientId);
     }
 
 
@@ -621,20 +599,16 @@ public class ServerMain : MonoBehaviour {
             required = 1000;
             return false;
         }
-#if FULLGAME
-        return CheckIfCanFinishLayerCustomCondition((ScavPlayer plr) => FullgameWorldCompat.IsAtLayerExit(plr.body), out current, out required);
-#else
         return CheckIfCanFinishLayerCustomCondition((ScavPlayer plr) => { return (plr.pos.y < (float)(0L - (long)WorldGeneration.world.halfHeight) + 3.1f); }, out current, out required);
-#endif
     }
     public static bool CheckIfShouldStartRadlineForStragglers(byte minimum = 1) {
         if (Multiplayer.rules.StragglerRadlinePercent < 100) {
             ServerMain.CheckIfEnoughPeopleAreAtLayerFinish(out int current, out int required);
             int required_for_radline = 0;
-            if (ScavPlayer.AllLivingPlayers.Count > 1 &&
-                required > 0 &&
-                current != ScavPlayer.AllLivingPlayers.Count &&
-                current >= minimum
+            if (ScavPlayer.AllLivingPlayers.Count > 1 && 
+                required > 0 && 
+                current != ScavPlayer.AllLivingPlayers.Count && 
+                current >= minimum 
             ) {
                 required_for_radline = GetAlivePlayerCountPercent(Multiplayer.rules.StragglerRadlinePercent * 0.01f);
                 if (required_for_radline > 0 && current >= required_for_radline) {
@@ -667,7 +641,7 @@ public class ServerMain : MonoBehaviour {
 
 
     public static void LateSpawnLocation(NetBody b) {
-        var pb = GetPlayerBodyHostOrAnyoneAlive(b.plr, b);
+        var pb = GetPlayerBodyHostOrAnyoneAlive(b.plr, b); 
         var shouldSpawnOnPlayer = Multiplayer.rules.SpawnOnPlayer && pb != null && pb.body.alive;
 
         if (shouldSpawnOnPlayer && IsInWorld(pb.pos)) {
@@ -690,7 +664,7 @@ public class ServerMain : MonoBehaviour {
             PlayerCheckpoint.ReclaimGear(b.plr.playerId);
     }
     public static bool IsInWorld(in Vector2 pos) {
-        return Mathf.Abs(pos.x) < WorldChunkSync.WORLDSIZE * 0.5f && Mathf.Abs(pos.y) < WorldChunkSync.WORLDSIZE * 0.5f;
+        return Mathf.Abs(pos.x) < WorldChunkSync.WORLDSIZE*0.5f && Mathf.Abs(pos.y) < WorldChunkSync.WORLDSIZE * 0.5f;
     }
 
     public static NetBody GetPlayerBodyHostOrAnyoneAlive(ScavPlayer for_who = null, NetBody except = null) {
@@ -701,11 +675,11 @@ public class ServerMain : MonoBehaviour {
         }
         if (pb == null || !pb.body.conscious) {
             foreach (var item in ScavPlayer.BodyToPlayerDict) {
-                if (item.Key.conscious && except != item.Value.netBody && for_who != item.Value && IsInWorld(item.Key.transform.position) && item.Value.ServerPlayerState.did_give_spawn_location && item.Value.ServerPlayerState.is_loaded_in) {
+                if (item.Key.conscious && except != item.Value.netBody && for_who != item.Value && IsInWorld(item.Key.transform.position) && item.Value.ServerPlayerState.did_give_spawn_location && item.Value.ServerPlayerState.is_loaded_in ) {
                     if (item.Key == Util.GetLocalBody()) { // cuz its a default fallback
                         continue;
                     }
-                    if (Multiplayer.rules.Teams && for_who != null) {
+                    if (Multiplayer.rules.Teams && for_who != null) { 
                         if (item.Value.IsInSameTeamAs(for_who)) {
                             pb_team = item.Value.netBody;
                         }
@@ -722,7 +696,7 @@ public class ServerMain : MonoBehaviour {
 
     public static bool CheckIfEveryoneAliveIsActuallyConscious() {
         foreach (var item in ScavPlayer.BodyToPlayerDict) {
-            if (item.Key.alive) {
+            if ( item.Key.alive ) {
                 if (!item.Key.conscious) {
                     return false;
                 }
@@ -745,9 +719,9 @@ public class ServerMain : MonoBehaviour {
 
     public static List<knetid> GetListOfClientIdsExceptThis(knetid exclude) {
         var l = new List<knetid>();
-        foreach (var item in ScavPlayer.AllPlayers) {
+        foreach (var item in ScavPlayer.ClientIdToPlayerDict.Values) {
             var plr = item.GetComponent<ScavPlayer>();
-            if (plr != null && (exclude != plr.playerId)) {
+            if (plr != null && ( exclude != plr.playerId)) {
                 l.Add(plr.playerId);
             }
         }
@@ -769,7 +743,7 @@ public class ServerMain : MonoBehaviour {
 
     public static bool CheckIfAnyoneIsMoving() {
         foreach (var plr in ScavPlayer.AllLivingPlayers) {
-            if (plr.body.conscious) {
+            if ( plr.body.conscious) {
                 if ((plr.body.moveDir != Vector2.zero)) {
                     return true;
                 }
@@ -780,8 +754,8 @@ public class ServerMain : MonoBehaviour {
 
     public static bool CheckIfAnyoneFinishedLayer(out ScavPlayer who) {
         foreach (var item in ScavPlayer.BodyToPlayerDict) {
-            if (item.Key.alive && item.Key.conscious) {
-
+            if ( item.Key.alive && item.Key.conscious) {
+                
                 if (DidHeFinishTheLayer(item.Key)) {
                     who = item.Value;
                     return true;
@@ -792,34 +766,29 @@ public class ServerMain : MonoBehaviour {
         return false;
     }
     public static bool DidHeFinishTheLayer(Body body) {
-#if FULLGAME
-        return FullgameWorldCompat.IsAtLayerExit(body);
-#else
         // OG: WorldGeneration.ContinueRun
         if ((body.transform.position.y < (float)(0L - (long)WorldGeneration.world.halfHeight) + 3.1f)) {
             return true;
         }
-
+         
         return false;
-#endif
     }
     public static bool CheckIfEveryoneIsSleeping() {
-        bool any = false;
+        bool everyonesleeping = false;
         foreach (var item in ScavPlayer.BodyToPlayerDict) {
-            if (!item.Key.alive) {
-                continue;
-            }
-            any = true;
-            // KO drops consciousness without setting sleeping. only a real sleep counts.
-            if (!item.Key.sleeping) {
-                return false;
+            if (item.Key.alive) {
+                if (item.Key.consciousness > 20f) { // concsiousness is lost at 30,  but doing 20 to make sure   (suggestion by the "dawn" guy or whoever it is)
+                    return false;
+                } else {
+                    everyonesleeping = true;
+                }
             }
         }
-        return any;
+        return everyonesleeping;
     }
     public static void ResetPlayersFinishedStatus() {
 
-        foreach (var item in ScavPlayer.AllPlayers) {
+        foreach (var item in ScavPlayer.ClientIdToPlayerDict.Values) {
             item._tutorial_finished = false;
             item.finishedLayer = false;
         }
@@ -840,7 +809,7 @@ public class ServerMain : MonoBehaviour {
         _real_AllClientIds.Clear();
         if (!Net.IsRunning) return;
 
-        foreach (var plr in ScavPlayer.AllPlayers) {
+        foreach (var plr in ScavPlayer.ClientIdToPlayerDict.Values) {
             _real_AllClientIds.Add(plr.playerId);
             if (plr != null && !plr.IsHost) {
                 _real_AllClientIdsExceptHost.Add(plr.playerId);
@@ -873,7 +842,7 @@ public class ServerMain : MonoBehaviour {
 
 
         // for server, move the local body somewhere far offscreen so that it doesnt cause anything bad
-        if (Net.IsDedicatedServer && Util.TryGetLocalBody(out var locbody)) {
+        if ( Net.IsDedicatedServer && Util.TryGetLocalBody(out var locbody)) {
             (locbody).ResetHealth();
             Util.Body_DropAllItems(locbody);
 
@@ -894,25 +863,17 @@ public class ServerMain : MonoBehaviour {
                 if (ScavPlayer.ClientIdToPlayerDict.Count >= (Multiplayer.rules.AutoMinPlrsToStart)) { // there is at least minimum required players 
 
                     ServerMain._ded_server_switch_counter += Time.deltaTime;
-                    if (ServerMain._ded_server_switch_counter > 20f) { // open ready gate - do NOT dump WaitLoad as default Exp
+                    if (ServerMain._ded_server_switch_counter > 20f) { // auto-start the run when someone has joined
                         ServerMain._ded_server_switch_counter = -100;
 
                         var prs = PreRunScript.instance;
                         if (prs) {
-#if FULLGAME
-                            // autostart only proceeds once everyone is Ready (CharacterSelectWait).
-                            if (!CharacterSelectWait.Waiting) {
-                                Multiplayer.DoMultiplayerStatusMessageLog(Lang.GetEN("autostarting_run"));
-                                Chat.Server_ChatAnnouncement("<key:autostarting_run>");
-                                Chat.Server_ChatAnnouncement("Ready up to start...");
-                                CharacterSelectWait.HostBeginNewRun(false);
-                            }
-#else
+
                             var msg = "autostarting_run";
                             Multiplayer.DoMultiplayerStatusMessageLog(Lang.GetEN(msg));
                             Chat.Server_ChatAnnouncement("<key:autostarting_run>");
+
                             prs.StartCoroutine(prs.WaitLoad());
-#endif
                         } else {
                             Multiplayer.DoMultiplayerStatusMessageError($"Failed to autostart the run. Theres no PreRunScript???? what???");
 
@@ -927,8 +888,8 @@ public class ServerMain : MonoBehaviour {
         }
 
 
-
-
+        
+        
     }
 
 
@@ -962,7 +923,7 @@ public class ServerMain : MonoBehaviour {
         }
 
         if (!Multiplayer.IsNetworkActiveAndIsServer()) return;
-
+        
         timer_UpdateSyncClientsToClients += Time.unscaledDeltaTime;
         timer_RareUpdateSyncClients += Time.unscaledDeltaTime;
         timer_SecondUpdateSyncClients += Time.unscaledDeltaTime;
@@ -1031,83 +992,35 @@ public class ServerMain : MonoBehaviour {
             }
         }
 
+        
 
-
-    }
-
-    public const float SoloSleepBonusRampSeconds = 10f;
-
-    static bool _togetherSleepTimeScale;
-    static int _energyMedianFrame = -1;
-    static float _energyMedian;
-    static bool _energyMedianValid;
-
-    // living players' energy median for this frame (host and clients, from local body views)
-    public static bool TryGetLivingEnergyMedian(out float median) {
-        if (_energyMedianFrame == Time.frameCount) {
-            median = _energyMedian;
-            return _energyMedianValid;
-        }
-        _energyMedianFrame = Time.frameCount;
-        _energyMedianValid = false;
-        median = 0f;
-
-        List<float> energies = null;
-        foreach (ScavPlayer plr in ScavPlayer.AllLivingPlayers) {
-            if (plr == null || plr.body == null) {
-                continue;
-            }
-            if (energies == null) {
-                energies = new List<float>(ScavPlayer.AllLivingPlayers.Count);
-            }
-            energies.Add(plr.body.energy);
-        }
-        if (energies == null || energies.Count == 0) {
-            return false;
-        }
-        energies.Sort();
-        int mid = energies.Count / 2;
-        if ((energies.Count & 1) == 1) {
-            _energyMedian = energies[mid];
-        } else {
-            _energyMedian = (energies[mid - 1] + energies[mid]) * 0.5f;
-        }
-        _energyMedianValid = true;
-        median = _energyMedian;
-        return true;
     }
 
     static void HandleSleepUpdate() {
+
         if (Multiplayer.rules.DisableSleep) {
             if (Util.IsInWoundView()) {
-                WoundView.view.sleepTip.tipName = Lang.Get("sleep_is_disabled");
+                WoundView.view.sleepTip.tipName = Lang.Get("sleep_is_disabled"); 
                 WoundView.view.sleepTip.tipDesc = Lang.Get("sleep_disabled_desc");
             }
-            ClearTogetherSleepTimeScale();
-            return;
-        }
+        } else {
 
-        // everyone asleep: vanilla together-sleep timescale (ignores DisableTimeManipulation)
-        if (CheckIfEveryoneIsSleeping()) {
-            _togetherSleepTimeScale = true;
-            Time.timeScale = 25f;
-            if (PlayerCamera.main != null) {
-                PlayerCamera.main.curTimeScale = PlayerCamera.SpeedType.UnconsciousFast;
+            if (Multiplayer.rules.DisableTimeManipulation) {
+                if (ServerMain.CheckIfEveryoneIsSleeping()) {
+                    Time.timeScale = 25f; // i pray that settime gets after called sometime and sets its back to 1
+                } else {
+                    if (Time.timeScale == 25f) {
+                        Time.timeScale = 1f;
+                    }
+                }
+            } else {
+
+                if (ServerMain.CheckIfEveryoneIsSleeping()) {
+                    if (Net.IsServer) {
+                        PlayerCamera.main.SetTimeScale(PlayerCamera.SpeedType.UnconsciousFast);
+                    }
+                }
             }
-            return;
-        }
-
-        ClearTogetherSleepTimeScale();
-    }
-
-    static void ClearTogetherSleepTimeScale() {
-        if (!_togetherSleepTimeScale) {
-            return;
-        }
-        _togetherSleepTimeScale = false;
-        Time.timeScale = 1f;
-        if (PlayerCamera.main != null && PlayerCamera.main.curTimeScale == PlayerCamera.SpeedType.UnconsciousFast) {
-            PlayerCamera.main.curTimeScale = PlayerCamera.SpeedType.Normal;
         }
     }
 
@@ -1213,7 +1126,7 @@ public class ServerMain : MonoBehaviour {
                         deathMessage.Append($" <key:plrdeath_plrkill_using> <obj:{tracker.syncId}>");
                     }
                 }
-
+                
                 deathMessage.Append(".");
 
             } else if (lastAttack.IsBuildingAttack(out var tracker)) {
@@ -1224,8 +1137,8 @@ public class ServerMain : MonoBehaviour {
                     deathMessage.Append($"<key:plrdeath_objkill>");
                 }
                 deathMessage.Append($" <obj:{tracker.syncId}>");
-
-
+                
+                
             } else {
                 lastAttack = null;
             }
@@ -1262,21 +1175,21 @@ public class ServerMain : MonoBehaviour {
 
     public static void OnPlayerDeath(ScavPlayer plr) {
 
-        //plugin.log.LogInfo($"{plr.playerName} died.");
+        //Plugin.log.LogInfo($"{plr.playerName} died.");
 
         if (Net.IsServer) {
 
             var nb = plr.netBody;
             var body = nb.body;
 
-            if (Multiplayer.rules.TrackPlayerDeaths) {
+            if (Multiplayer.rules.TrackPlayerDeaths) { 
                 var deathMessage = GenerateDeathMessage(plr);
                 Chat.Server_ChatAnnouncement(deathMessage);
             }
 
 
             // make witnesses sadder, nah its done by the corpse script 
-            //yOU_SHOULD_KILL_YOURSELF_NOOOW.DoMoodPenaltyInRadius(pb.body, Multiplayer.rules.DeathWitnessMoodPenalty , 70);
+            //YOU_SHOULD_KILL_YOURSELF_NOOOW.DoMoodPenaltyInRadius(pb.body, Multiplayer.rules.DeathWitnessMoodPenalty , 70);
 
 
             if (Util.IsTutorialWorld()) {
@@ -1288,10 +1201,10 @@ public class ServerMain : MonoBehaviour {
                 Chat.Server_ChatAnnouncement(Chat.AddColorTags(Chat.DefaultChatColors.Server, fgdg));
                 Server_AnnounceAlert(fgdg, true, true, null);
 
-                PlayerCamera.main.DoAlert(Lang.Get("everyone_is_dead_host"));
+                PlayerCamera.main.DoAlert(Lang.Get("everyone_is_dead_host") );
             }
 
-        }
+        } 
 
         // this will make witnesses stare at the dead body 
         var corpse = plr.GetOrAddComponent<CorpseScriptMultiplayerRewrite>();
@@ -1304,18 +1217,18 @@ public class ServerMain : MonoBehaviour {
     public static void Server_AnnounceSeed(IReadOnlyList<knetid> to_who) {
         var writer = Net.CreateWriter(NetmsgId.GenerateWorld_SeedAnnounce);
         writer.Put(WorldGeneration_GenerateWorld_MultiplayerPatch.firstworldgenparams);
-        Net.Server_SendToClientsVeryReliable(writer, to_who);
+        Net.Server_SendToClientsVeryReliable( writer, to_who);
 
         // WRITER END;
     }
 
 
-    public static void Server_AnnounceSound(Vector2 pos, string name, IReadOnlyList<knetid> to_who) {
+    public static void Server_AnnounceSound(Vector2 pos,string name, IReadOnlyList<knetid> to_who) {
 
         var writer = Net.CreateWriter(NetmsgId.PlayThisSoundHere);
 
         writer.Put(pos);
-        writer.Put(name, true);
+        writer.Put(name,true);
 
         //writer.Truncate();
 
@@ -1332,11 +1245,9 @@ public class ServerMain : MonoBehaviour {
 
         writer.Put(new SerializableRandomState { State = UnityEngine.Random.state });
         writer.Put(Util.IsWorldGenerated());
-#if FULLGAME
-        FullgameWorldCompat.WriteWorldExtras(writer);
-#endif
 
-        Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, ServerMain.AllClientIdsExceptHost);
+
+        Net.Server_SendToClients( DeliveryMethod.Unreliable, writer,  ServerMain.AllClientIdsExceptHost);
 
         // WRITER END;
     }
@@ -1374,7 +1285,7 @@ public class ServerMain : MonoBehaviour {
 
 
     private void SecondUpdateSyncClients() {
-
+       
         {
             { // cuz this function is only called by the server ima reset all my ping numbers
                 if (ScavPlayer.LocalPlayer != null) {
@@ -1385,7 +1296,7 @@ public class ServerMain : MonoBehaviour {
 
             var writer = Net.CreateWriter(NetmsgId.CurrentPingOfAllPlayers);
 
-            foreach (var w in ScavPlayer.AllPlayers) {
+            foreach (var w in ScavPlayer.ClientIdToPlayerDict.Values) {
 
                 writer.Put(true);
 
@@ -1409,7 +1320,7 @@ public class ServerMain : MonoBehaviour {
 
         {
             var curRunSettings = WorldMP.CompileRunSettings();
-            var curRules = JsonConvert.SerializeObject(Multiplayer.rules, Formatting.None); ;
+            var curRules = JsonConvert.SerializeObject(Multiplayer.rules, Formatting.None);;
 
             if (_lastSentRunSettings != curRunSettings || _lastSentRules != curRules) {
                 _lastSentRunSettings = curRunSettings;
@@ -1432,7 +1343,7 @@ public class ServerMain : MonoBehaviour {
         if (!Util.IsWorldGenerated()) return;
 
         Server_SendWorldState();
-
+        
     }
 
 
@@ -1445,13 +1356,7 @@ public class ServerMain : MonoBehaviour {
 
         { // allow skipping layer, when whoever first reaches the end
             var world = WorldGeneration.world;
-#if FULLGAME
-            // one player at the top starts the scroller. autocontinue must not skip it.
-            if (FullgameWorldCompat.IsAscentLayer()) {
-                ConcurrentEndings.Server_TryStartAscentCutscene();
-                return;
-            }
-#endif
+
             if (!WorldGeneration.world.doingRegen && !WorldGeneration.world.generatingWorld && WorldGeneration.world.worldExists) {
 
                 ScavPlayer new_finisher = null;
@@ -1462,8 +1367,8 @@ public class ServerMain : MonoBehaviour {
                         // OG: WorldGeneration.ContinueRun
                         if ((item.Value.IsAtTheEndOfLayer())) {
 
-                            if (!item.Value.finishedLayer) {
-
+                            if (!item.Value.finishedLayer) { 
+                            
                                 new_finisher = item.Value;
 
                                 item.Value.finishedLayer = true;
@@ -1476,16 +1381,16 @@ public class ServerMain : MonoBehaviour {
 
                 bool can_autocontinue = false;
 
-                if (new_finisher != null) {
+                if (new_finisher != null ) {
                     var msg = String.Format(Lang.Get("plr_finished_layer"), new_finisher.playerName);
-                    if (!new_finisher.IsLocal) {
-                        PlayerCamera.main.DoAlert(msg);
+                    if (!new_finisher.IsLocal) { 
+                        PlayerCamera.main.DoAlert(msg);  
                     }
                     Chat.Server_ChatAnnouncement(msg);
 
 
                 }
-
+                    
 
                 if (ServerMain.CheckIfEnoughPeopleAreAtLayerFinish(out int current, out int required)) {
                     world.savePanel.SetActive(value: true);
@@ -1497,7 +1402,7 @@ public class ServerMain : MonoBehaviour {
                         ScavPlayer highest_plr = ScavPlayer.AllLivingPlayers.First();
                         foreach (var item in ScavPlayer.AllLivingPlayers) {
                             // OG: WorldGeneration.ContinueRun V5t4
-
+                                        
                             if (item.netBody.GetHeadPos().y > highest_plr.netBody.GetHeadPos().y) {
                                 highest_plr = item;
                             }
@@ -1507,8 +1412,8 @@ public class ServerMain : MonoBehaviour {
                         }
 
                         RadiationLine_Update_MultiplayerPatch.timeGone = world.halfHeight - highest_plr.netBody.GetHeadPos().y - 64;
-
-                        //radiationLineUpdatePatch.timeGone = 899,0034 = 512 - -451,0034 - 64
+                        
+                        //RadiationLineUpdatePatch.timeGone = 899,0034 = 512 - -451,0034 - 64
 
                     }
                 }
@@ -1540,7 +1445,7 @@ public class ServerMain : MonoBehaviour {
 
 
 
-
+    
 
 
 
@@ -1559,7 +1464,7 @@ public class ServerMain : MonoBehaviour {
                     item.Key.GetMessageId(),
                     (knetid clientId, LiteNetLib.Utils.NetDataReader reader) => {
                         try {
-                            item.Value.Invoke(clientId, reader);
+                            item.Value.Invoke(clientId, reader);    
                         } catch (Exception e) {
                             log.error($"SUS: caused error in Server receiver {item.Key.GetMessageName()} ({DebugHelp.GetPlayerFullDebugString(clientId)}) \n{e.ToString()}");
                         }
@@ -1588,7 +1493,7 @@ public class ServerMain : MonoBehaviour {
             if (
                 plr.IsLocal ||
                 (plr.body.conscious && guybody.IsPiggybackable() &&
-                plrbody.StartPiggyback(guybody, true, true))
+                plrbody.StartPiggyback(guybody,true,true))
             ) {
 
                 if (DebugHelp._DEV_VISUALISE_NET_EVENTS)
@@ -1610,11 +1515,11 @@ public class ServerMain : MonoBehaviour {
         }
 
     }
-
+    
     [ServerReceiver((byte)NetmsgId.SERVER_RequestStopCarryPiggyback)]
     static void ServerReceiver__RequestStopCarryPiggyback(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
-
-        if (Util.IsWorldGenerated() && ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out var plr, out var plrbody)) {
+        
+        if (Util.IsWorldGenerated() && ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out var plr, out var plrbody) ) {
 
             if (
                 plr.IsConscious() &&
@@ -1643,14 +1548,14 @@ public class ServerMain : MonoBehaviour {
         reader.Get(out knetid itemId);
         reader.Get(out knetid this_guy);
 
-        if (Util.IsWorldGenerated()
-            && ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out var giverPlr, out NetBody giverNetBody)
-            && NetBody.TryGetNetBodyFromId(this_guy, out NetBody receiverNetBody) && giverNetBody != receiverNetBody
-            && ItemSync.TryGetItemSyncInfo(itemId, out var si)
-            && KM.DistanceCheck(giverNetBody, receiverNetBody, 20)
+        if (Util.IsWorldGenerated() 
+            && ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out var giverPlr, out NetBody giverNetBody) 
+            && NetBody.TryGetNetBodyFromId(this_guy, out NetBody receiverNetBody) && giverNetBody != receiverNetBody 
+            && ItemSync.TryGetItemSyncInfo(itemId, out var si) 
+            && KM.DistanceCheck(giverNetBody,receiverNetBody,20)
         ) {
             var ici = ItemSync.ItemGetContainerInfo(si.item);
-            if (ici.bodynpc != receiverNetBody) {// check if it's not already taken
+            if (ici.bodynpc != receiverNetBody) {// Check if it's not already taken
 
                 if (receiverNetBody.body.conscious && receiverNetBody.IsPlayer) {
                     PromptPlayer(receiverNetBody.plr, "ITEM_OFFER", $"<body:{giverNetBody.netId}> <key:plrint_give_prompt>", $"<key:plrint_take_prompt> \"<item:{si.syncId}>\"?", (answer) => {
@@ -1718,7 +1623,7 @@ public class ServerMain : MonoBehaviour {
                 }
             }
             plr.Server_DoAlertSingle("SERVER: Denied Carry.");
-
+            
 
             log.serverdeny($"RequestCarryPerson {plr} -> {nb2}");
         }
@@ -1728,8 +1633,8 @@ public class ServerMain : MonoBehaviour {
     static void ServerReceiver__RequestStopCarryPerson(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
         if (
             Util.IsWorldGenerated() &&
-            ScavPlayer.TryGetPlayerAndBodyFromClientId(clientId, out var plr, out var body) &&
-            plr.IsConscious() &&
+            ScavPlayer.TryGetPlayerAndBodyFromClientId( clientId, out var plr, out var body) &&
+            plr.IsConscious() && 
             plr.netBody.carrying_person != null
         ) {
             var sci2 = plr.netBody.carrying_person;
@@ -1737,7 +1642,7 @@ public class ServerMain : MonoBehaviour {
             sci2.StopPiggyback(); // it sends the reminder
 
             if (DebugHelp._DEV_VISUALISE_NET_EVENTS)
-                DebugHelp.OnNetEvent(plr.body.transform.position, $"S: StopCarryPerson {plr} to {sci2}");
+                DebugHelp.OnNetEvent(plr.body.transform.position,   $"S: StopCarryPerson {plr} to {sci2}");
         }
     }
 
@@ -1827,27 +1732,6 @@ public class ServerMain : MonoBehaviour {
         }
     }
 
-    [ServerReceiver((byte)NetmsgId.SERVER_PlayerTalkerSay)]
-    static void ServerReceiver__PlayerTalkerSay(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
-        reader.Get(out knetid speakerId);
-        reader.Get(out string msg);
-        if (String.IsNullOrEmpty(msg)) {
-            return;
-        }
-        if (!ScavPlayer.TryGetPlayerFromClientId(speakerId, out var plr) || plr == null || plr.netBody == null) {
-            if (!ScavPlayer.TryGetPlayerFromClientId(clientId, out plr) || plr == null || plr.netBody == null) {
-                return;
-            }
-        }
-        List<knetid> others = new List<knetid>();
-        foreach (knetid id in AllClientIdsExceptHost) {
-            if (id != plr.playerId) {
-                others.Add(id);
-            }
-        }
-        ForceTalkerSayAndAnnounce(plr.netBody, msg, others);
-    }
-
     [ServerReceiver((byte)NetmsgId.SERVER_PlayerBark)]
     static void ServerReceiver__PlayerBark(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
         if (
@@ -1868,14 +1752,14 @@ public class ServerMain : MonoBehaviour {
     }
 
     [ServerReceiver((byte)NetmsgId.SERVER_Push_Ego_Naxuy)]
-    static void ServerReceiver__Push_Ego_Naxuy(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
+    static void ServerReceiver__Push_Ego_Naxuy( knetid clientId, LiteNetLib.Utils.NetDataReader reader ) {
         reader.Get(out knetid target);
 
         if (
             ScavPlayer.TryGetPlayerAndBodyFromClientId(
                 clientId, out var pusher_plr, out var pusher) &&
             pusher.conscious && pusher.standing &&
-            pusher_plr.ServerPlayerState.Cooldown("push", NetBody.PUSH_COOLDOWN) &&
+            pusher_plr.ServerPlayerState.Cooldown("push", NetBody.PUSH_COOLDOWN) &&  
             NetBody.TryGetNetBodyFromId(target, out var target_nb) &&
             KM.DistanceCheck(pusher, target_nb.body, SharedMain.max_player_interaction_distance * 1.2f)
         ) {
@@ -1893,7 +1777,7 @@ public class ServerMain : MonoBehaviour {
         if (
             Util.IsInWorld() && ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr)
         ) {
-            Plugin.log.LogInfo($"SetTimeScale: Received SetTimeScale from a client {clientId} {plr.ToString()}  ");
+            Plugin.log.LogInfo( $"SetTimeScale: Received SetTimeScale from a client {clientId} {plr.ToString()}  ");
 
             PlayerCamera.main.SetTimeScale((PlayerCamera.SpeedType)sc, true);  // it already does the relay thing
 
@@ -1930,7 +1814,7 @@ public class ServerMain : MonoBehaviour {
                         }
 
                         if (pack.IncludeRagData() && !reader.EndOfData && pb.piggybacking_on == null) {
-                            ClientMain.ReadRagdollPacket(ref reader, pb.body);
+                           ClientMain.ReadRagdollPacket(ref reader, pb.body);
                         }
                     }
                 } else {

@@ -155,12 +155,6 @@ public static class SaveSystem_SaveGame_MultiplayerPatch {
                         dict["RULES"] = Multiplayer.rules;
                         dict["MODIFIER"] = midlevel ? (WorldMP.GetLayerModifier()?.modifierIndex ?? -1) : -1;
                         dict["PLRPOS"] = ScavPlayer.BodyToPlayerDict.ToDictionary(x => x.Value.GetPersistentId(), x => (x.Key.transform.position.x, x.Key.transform.position.y));
-#if FULLGAME
-                        dict[AchievementBreakSync.SaveHeaderKey] = SteamManager.disableAchievements;
-                        dict["PLRCHARS"] = ScavPlayer.BodyToPlayerDict.ToDictionary(
-                            x => x.Value.GetPersistentId(),
-                            x => x.Key != null ? x.Key.charType : (int)x.Value.selectedCharacter);
-#endif
 
                         string serialized = JsonConvert.SerializeObject(dict, Formatting.Indented);
 #if !RELEASE 
@@ -211,7 +205,7 @@ public static class SaveSystem_SaveGame_MultiplayerPatch {
             PlayerCamera.main.body = OG_LOCAL_BODY;
 
         }
-        log.l($"SAVING TO FILE: {SavesystemPatch.savedatapathreplacement}");
+        log.l($"SAVING TO FILE: {Path.GetRelativePath(SavesystemPatch.vanillasavefolder, SavesystemPatch.savedatapathreplacement)}");
         wrote = true;
         return true;
     }
@@ -253,10 +247,6 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
             SaveSystem.loadedRun = false;
             return false;
         }
-        // continue may lose loadedRun across WaitLoad; sticky flag keeps the lobby walk alive.
-        if (!force && SavesystemPatch.PendingLoadMpSave && Net.IsRunning && Net.IsServer) {
-            SaveSystem.loadedRun = true;
-        }
         __state = SaveSystem.loadedRun;
         if (Multiplayer.IsNetworkActiveAndIsClient()) {
             return false;
@@ -283,7 +273,7 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
         }
 
         deleteVanillaAfter = !Net.IsRunning;
-        log.l($"LOADING SAVE FROM DIRECTORY: {SavesystemPatch.savedatapathreplacement}");
+        Plugin.log.LogInfo($"LOADING SAVE FROM DIRECTORY: {Path.GetRelativePath(SavesystemPatch.vanillasavefolder, SavesystemPatch.savedatapathreplacement)}");
 
         return true;
     }
@@ -311,10 +301,6 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
                 var mpsavedir = SavesystemPatch.mpsavefolder;
                 if (Multiplayer.IsNetworkActiveAndIsServer() && SaveSystem.loadedRun && Directory.Exists(mpsavedir)) {
                     Multiplayer.DoMultiplayerStatusMessageLog("Attempting to load a multiplayer save.");
-                    if (SavesystemPatch.TryPeekMpWorldState(out var peek) && WorldGeneration.world != null) {
-                        SavesystemPatch.ApplyPeekedWorldState(WorldGeneration.world, peek);
-                        log.l($"LoadGame: applied mp_save world peek depth={peek.biomeDepth} midlevel={peek.midlevel} traveled={peek.totalTraveled}");
-                    }
 
                     try {
                         var rulespath = Path.Combine(mpsavedir, SavesystemPatch.mpsaveheaderfile);
@@ -371,13 +357,6 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
                                 if (jObject.TryGetValue("RULES", out var RULES)) {
                                     Multiplayer.rules = RULES.ToObject<MultiplayerGameRules>();
                                 }
-#if FULLGAME
-                                if (jObject.TryGetValue(AchievementBreakSync.SaveHeaderKey, out var CHEATED)
-                                    && CHEATED != null && CHEATED.Type != JTokenType.Null
-                                    && CHEATED.Value<bool>()) {
-                                    AchievementBreakSync.ApplyLocal(showAlert: true);
-                                }
-#endif
                             }
 
 #if !RELEASE
@@ -447,7 +426,7 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
 
                                             bodyplr.Value.ServerPlayerState.loaded_save = true;
                                         } catch (Exception e) {
-                                            log.error($"LoadGame_MultiplayerPatch: READING {bodyplr.Value.ToString()}:\nPATH: {SavesystemPatch.savedatapathreplacement}\n{e.ToString()}");
+                                            log.error($"LoadGame_MultiplayerPatch: READING {bodyplr.Value.ToString()}:\nPATH: {Path.GetRelativePath(SavesystemPatch.vanillasavefolder, SavesystemPatch.savedatapathreplacement)}\n{e.ToString()}");
                                         }
                                     } else {
                                         log.warn($"LoadGame_MultiplayerPatch: SAVE FILE NOT FOUND FOR {bodyplr.Value}");
@@ -492,7 +471,6 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
 
 
                     SaveSystem.loadedRun = true;
-                    SavesystemPatch.PendingLoadMpSave = false;
                     SaveSystem_HasSave_MultiplayerPatch.force = false;
                     SavesystemPatch.savedatapathreplacement = SavesystemPatch.vanillasavefolder;
                     force = false;
@@ -526,83 +504,10 @@ public static class SavesystemPatch {
     public static string savedatapathreplacement = "";
     // set for map debug and the tutorial. those sessions neither read nor write mp_save.
     internal static bool PreserveSave;
-    // continue/LoadRun: sticky across WaitLoad→scene load so Start still treats this as a loaded run
-    // even if something clears SaveSystem.loadedRun before TryLoadGame.
-    internal static bool PendingLoadMpSave;
     const string _mpsavefolder_name = "mp_save";
     public static string mpsavefolder => Path.Combine(Application.persistentDataPath, _mpsavefolder_name);
     public static string vanillasavefolder => Application.persistentDataPath;
     public const string mpsaveheaderfile = "mp_rules.json";
-
-    internal struct MpWorldPeek {
-        public int biomeDepth;
-        public int totalTraveled;
-        public float lootRarity;
-        public float trapRarity;
-        public bool midlevel;
-        public bool ok;
-    }
-
-    // mid-layer checkpoints store raw biomeDepth; layer-transition / vanilla SaveGame stores depth+1.
-    internal static bool TryPeekMpWorldState(out MpWorldPeek peek) {
-        peek = default;
-        try {
-            bool midlevel = false;
-            var rulespath = Path.Combine(mpsavefolder, mpsaveheaderfile);
-            if (File.Exists(rulespath)) {
-                var rules = JObject.Parse(File.ReadAllText(rulespath));
-                if (rules.TryGetValue("LEVEL", out var lvl) && lvl != null && lvl.Type != JTokenType.Null)
-                    midlevel = lvl.Value<bool>();
-            }
-
-            string savePath = Path.Combine(mpsavefolder, "save.sv");
-            if (!File.Exists(savePath) && Directory.Exists(mpsavefolder)) {
-                foreach (var dir in Directory.GetDirectories(mpsavefolder)) {
-                    var candidate = Path.Combine(dir, "save.sv");
-                    if (File.Exists(candidate)) {
-                        savePath = candidate;
-                        break;
-                    }
-                }
-            }
-            if (!File.Exists(savePath))
-                return false;
-
-            var root = JObject.Parse(SaveSystem.Unzip(File.ReadAllBytes(savePath)));
-            if (root["biome"] == null)
-                return false;
-
-            int stored = (int)root["biome"];
-            // mid-layer: raw depth. otherwise vanilla depth+1 → convert back.
-            int depth = midlevel ? stored : Math.Max(0, stored - 1);
-            if (WorldGeneration.world != null && WorldGeneration.world.amountOfLayers > 0)
-                depth = Mathf.Clamp(depth, 0, WorldGeneration.world.amountOfLayers - 1);
-
-            peek.biomeDepth = depth;
-            peek.midlevel = midlevel;
-            peek.totalTraveled = root["totalTraveled"] != null ? (int)root["totalTraveled"] : 0;
-            peek.lootRarity = root["lootRarity"] != null ? (float)root["lootRarity"] : 1f;
-            peek.trapRarity = root["trapRarity"] != null ? (float)root["trapRarity"] : 1f;
-            peek.ok = true;
-            return true;
-        } catch (Exception e) {
-            log.warn($"TryPeekMpWorldState: {e.Message}");
-            return false;
-        }
-    }
-
-    internal static void ApplyPeekedWorldState(WorldGeneration world, in MpWorldPeek peek) {
-        if (world == null || !peek.ok)
-            return;
-        world.debugStartDepth = peek.biomeDepth;
-        world.biomeDepth = peek.biomeDepth;
-        if (peek.totalTraveled > 0)
-            world.totalTraveled = peek.totalTraveled;
-        if (peek.lootRarity > 0f)
-            world.lootRarityMultiplier = peek.lootRarity;
-        if (peek.trapRarity > 0f)
-            world.trapRarityMultiplier = peek.trapRarity;
-    }
 
     public static string ReplacementFor_Application_persistentDataPath() {
         return savedatapathreplacement;
@@ -658,7 +563,6 @@ public static class SavesystemPatch {
         }
     }
     internal static void DeleteMPSave() {
-        PendingLoadMpSave = false;
         if (Directory.Exists(mpsavefolder)) {
             try {
                 Directory.Delete(mpsavefolder, true);

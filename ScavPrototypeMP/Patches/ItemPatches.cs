@@ -83,7 +83,6 @@ internal static class GeigerCounterAudio_Update_MultiplayerPatch {
 [HarmonyPatch(typeof(AutoPump), nameof(AutoPump.Update))]
 static class AutoPump_Update_MultiplayerPatch {
 
-
     static void AutoPump_Update_Rewritten(AutoPump ap) {
 
         ap.coolDown -= Time.deltaTime;
@@ -103,8 +102,7 @@ static class AutoPump_Update_MultiplayerPatch {
 
         if (ap.worn && ap.item.battery.hasCharge) {
             ap.item.battery.DrainCharge(Time.deltaTime / 1200f);
-            if (body.bloodPressure < 85f && ap.coolDown <= 0f) {
-                ap.coolDown = 0.3f;
+            if (body.bloodPressure < 85f) {
                 body.bloodPressure += 44f;
                 ap.item.battery.DrainCharge(0.002f);
                 Sound.Play("autopump", ap.item.transform.position, body.IsBodyLocal(), pitchShift: true, null, 0.6f);
@@ -169,84 +167,10 @@ internal static class GrapplingHook_Use_MultiplayerPatch {
 public static class Item_DoAmputate_MultiplayerPatch {
     public static readonly HashSet<string> ItemsThatCanAmputate = new();
 
-    // vanilla: prosthetic limbs skip AmputationMinigame and call Limb.Dismember() immediately.
-    // flesh limbs use the minigame + SERVER_AmputationMinigame_success.
-    public static bool IsAmputateTool(Item item) {
-        if (item == null || string.IsNullOrEmpty(item.id)) {
-            return false;
-        }
-        if (ItemsThatCanAmputate.Contains(item.id)) {
-            return true;
-        }
-        try {
-            ItemInfo.UseLimb action = item.Stats != null ? item.Stats.useLimbAction : null;
-            if (action?.Method == null) {
-                return false;
-            }
-            if (MethodCallsDoAmputate(action.Method)) {
-                ItemsThatCanAmputate.Add(item.id);
-                return true;
-            }
-        } catch {
-        }
-        return false;
-    }
-
-    static bool MethodCallsDoAmputate(System.Reflection.MethodInfo method) {
-        if (method == null) {
-            return false;
-        }
-        System.Reflection.MethodBody body = method.GetMethodBody();
-        if (body == null) {
-            return false;
-        }
-        byte[] il = body.GetILAsByteArray();
-        if (il == null || il.Length < 5) {
-            return false;
-        }
-        System.Reflection.Module module = method.Module;
-        for (int i = 0; i < il.Length - 4; i++) {
-            // call / callvirt
-            if (il[i] != 0x28 && il[i] != 0x6F) {
-                continue;
-            }
-            int token = il[i + 1] | (il[i + 2] << 8) | (il[i + 3] << 16) | (il[i + 4] << 24);
-            try {
-                System.Reflection.MethodBase resolved = module.ResolveMethod(token);
-                if (resolved != null && resolved.Name == nameof(Item.DoAmputate) && resolved.DeclaringType == typeof(Item)) {
-                    return true;
-                }
-            } catch {
-            }
-        }
-        return false;
-    }
-
-    public static void SeedAmputateToolsFromGlobalItems() {
-        if (Item.GlobalItems == null) {
-            return;
-        }
-        foreach (var kv in Item.GlobalItems) {
-            ItemInfo info = kv.Value;
-            if (info?.useLimbAction?.Method == null) {
-                continue;
-            }
-            if (MethodCallsDoAmputate(info.useLimbAction.Method)) {
-                ItemsThatCanAmputate.Add(kv.Key);
-            }
-        }
-    }
-
     static bool Prefix(Item item, Limb limb) {
         ItemsThatCanAmputate.Add(item.id);
 
         if (!Net.IsRunning) return true;
-
-        // prosthetic removal is host-authoritative via ApplyWoundItem -> vanilla DoAmputate
-        // (instant Dismember, no minigame). Clients must not run it or they spawn duplicate scrap.
-        if (limb != null && limb.HasProsthetic()) {
-            return Net.IsServer;
-        }
 
         if (PlayerCamera_ApplyWoundItem_MultiplayerPatch.last_wounditem_user != null && PlayerCamera_ApplyWoundItem_MultiplayerPatch.last_wounditem_user.IsBodyLocal()) {
 
@@ -315,3 +239,12 @@ static class FreshItemDrop_OnDestroy_ErrorfixPatch {
         return false;
     }
 }
+
+
+
+
+
+
+
+
+

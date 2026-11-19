@@ -92,14 +92,7 @@ public class AnyDataContainerComponent : MonoBehaviour {
         }
         return d;
     }
-    public T GetOrAdd<T>(string key, T d) {
-        if (dict.TryGetValue(key, out var val)) {
-            return (T)val;
-        }
-        dict[key] = d;
-        return d;
-    }
-
+    
     public object this[string key] { 
         get {
             return dict[key];
@@ -359,28 +352,19 @@ public static class TranspilerHelpers {
 #endif
         if (Net.IsRunning) {
             Component c = null;
-            bool fromCrystal = false;
             if (source is CrystalEffect ce) {
                 c = ce.crystal;
-                fromCrystal = true;
             } else if (source is Component) {
                 c = (Component)source;
-                fromCrystal = c is CrystalBehaviour || c.GetComponent<CrystalBehaviour>() != null || c.GetComponent<CrystalEffect>() != null;
             }
-            Body b = null;
             if (c != null) {
-                if (Util.TryGetBodyFromObject(c, out b)) {
+                if (Util.TryGetBodyFromObject(c, out var b)) {
                 } else if (c.TryGetComponent(out BodyGetterOverrider bgo)) {
-                    // prefer the explicit trigger body - never GetBody() fallback to local.
                     b = bgo.body;
                 }
-            }
-            if (fromCrystal) {
-                if (b == null || !b.IsBodyLocal()) {
+                if (b != null && !b.IsBodyLocal()) {
                     return;
                 }
-            } else if (b != null && !b.IsBodyLocal()) {
-                return;
             }
         }
 
@@ -391,15 +375,16 @@ public static class TranspilerHelpers {
 #if DEBUG
         log.l($"CoroutineOverrider called {source} - {name}");
 #endif
-        if (Net.IsRunning && name == "FlashBrief" && source is CrystalEffect cEffect) {
-            // flashBrief is first-person only. Do not use GetBody() - it falls back to
-            // playerCamera.main.body and would flash every peer when a remote player triggers.
-            Body trigger = null;
-            if (cEffect.crystal != null && cEffect.crystal.TryGetComponent(out BodyGetterOverrider bgo)) {
-                trigger = bgo.body;
-            }
-            if (trigger == null || !trigger.IsBodyLocal()) {
-                return;
+        if (Net.IsRunning) {
+            var FlashBrief = name == "FlashBrief";
+            if (source is CrystalEffect cEffect) {
+                if (FlashBrief) {
+                    var bgo = cEffect.crystal.GetOrAddComponent<BodyGetterOverrider>();
+                    var data = cEffect.crystal.GetOrAddComponent<AnyDataContainerComponent>();
+                    if (!bgo.GetBody().IsBodyLocal()) {
+                        return;
+                    }
+                }
             }
         }
 

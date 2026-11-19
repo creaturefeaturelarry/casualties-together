@@ -1,7 +1,7 @@
+using Together;
 using CasualtiesTogetherUtils;
 using LiteNetLib.Utils;
 using System.Collections.Generic;
-using Together;
 using Unity.VisualScripting;
 using UnityEngine;
 
@@ -73,22 +73,18 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
     public void Apply(NetBody nb) {
         var body = nb.body;
 
-        bool alreadyCarried = nb.piggybacking_on != null;
         {
-            // a packet still in flight from the ground must not stand them up or clear the carry
-            if (!alreadyCarried) {
+            if (this.standing) {
+                is_piggyback = false;
+                body.shock = 0; // ensure that he will not get ragdolled later imidietly
+            } else {
+                body.shock = 100;
+            }
+            if (body.standing != this.standing) {
                 if (this.standing) {
-                    is_piggyback = false;
-                    body.shock = 0; // ensure that he will not get ragdolled later imidietly
+                    body.ForceStand(); // force Stand
                 } else {
-                    body.shock = 100;
-                }
-                if (body.standing != this.standing) {
-                    if (this.standing) {
-                        body.ForceStand(); // force Stand
-                    } else {
-                        body.Ragdoll(); //ragdoll is guranteed to work
-                    }
+                    body.Ragdoll(); //ragdoll is guranteed to work
                 }
             }
         }
@@ -108,12 +104,10 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
         } else {
             if ((nb.piggybacking_on != null) != is_piggyback) {
                 if (nb.piggybacking_on != null) {
-                    // the carried client keeps reporting the ground spot until the pickup arrives.
-                    // interact range is 9 and the server accepts up to 1.75x that, so 5 was inside a normal pickup.
-                    bool fresh = Time.unscaledTime - nb.piggybackStartedUnscaled < 2f;
-                    if (!is_piggyback && !fresh && !KM.DistanceCheck(this.pos, nb.piggybacking_on.pos, 18f)) {
-                        if (log.verbose) log.warn($"{nb} is piggybacking but pos is too far, missed unpiggyback request?");// it does happen
-                        nb.StopPiggyback();
+                    // on server, account for possibly missed unpiggyback packet
+                    if (!is_piggyback && !KM.DistanceCheck(this.pos, nb.piggybacking_on.pos, 5)) {
+                        if (log.verbose) log.warn($"{nb} is piggybacking but pos is too far, missed unpiggyback request?");// It does happen
+                        nb.Server_RemindPlayersCurrentState( false);
                     }
                 }
             }
@@ -125,7 +119,7 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
 
             if (body.IsBodyLocal() && body.alive) {
                 ConsoleScript.instance.noClipPos = this.pos;
-                //consoleScript.instance.freecamPos = pack.pos;
+                //ConsoleScript.instance.freecamPos = pack.pos;
                 if (Util.IsGeneratingWorld() && !Con._DEV_FREECAM) {
                     PlayerCamera.main.transform.position = body.transform.position;
                 }
@@ -138,17 +132,14 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
         nb.moveDir = compressedmoveDir;
         if (body.conscious) {
             body.moveDir = moveDir;
-        }
+        } 
 
         Vector2 targetvel = (Vector2)this.velocity;
-
-        // setVelocity writes every limb. doing that while carried cancels the ragdoll flop and yanks them off the chest.
-        if (nb.piggybacking_on == null) {
-            if (body.standing) {
-                body.rb.velocity = targetvel;
-            } else {
-                body.SetVelocity(targetvel);
-            }
+        
+        if (body.standing) {
+            body.rb.velocity = targetvel;
+        } else {
+            body.SetVelocity(targetvel);
         }
 
         // fix the randomass jitter when on a rope
@@ -184,3 +175,16 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
     }
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

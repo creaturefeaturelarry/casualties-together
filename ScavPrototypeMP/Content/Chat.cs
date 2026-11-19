@@ -990,7 +990,7 @@ public class Chat : CasualtiesTogetherSingleton {
                 yapper.body?.talker?.ForceNoSpeechImpairment(message, true);
             }
 
-            var targetlisteners = ScavPlayer.AllPlayers.ToList();
+            var targetlisteners = ScavPlayer.ClientIdToPlayerDict.Values.ToList();
             if (only_for_team) {
                 targetlisteners = yapper.GetTeamPlayers();
                 yappertag = $"<color={yapper.playerColor.ToHex()}><key:plr_chattag_team></color>"; 

@@ -125,8 +125,8 @@ public static class RadiationLine_Update_MultiplayerPatch {
 
 
 
-// fix this bug:
-//nullReferenceException
+// Fix this bug:
+//NullReferenceException
 //  at(wrapper managed-to-native) UnityEngine.Component.GetComponentFastPath(UnityEngine.Component, System.Type, intptr)
 //  at UnityEngine.Component.GetComponent[T] ()[0x00021] in <c39a522eee05469b8171a6cfeb646c59>:0 
 //  at TourniquetScript+<>c.<Start>b__5_1(Limb x) [0x00000] in <ab887c07f51841c98ea015c9c29ae1af>:0 
@@ -164,7 +164,7 @@ static class OnLimbWound_Update_MultiplayerPatch {
 
 [HarmonyPatch(typeof(Vomiter), nameof(Vomiter.VomitBlood))]
 public static class Vomiter_VomitBlood_MultiplayerPatch {
-    public static bool Prefix(Vomiter __instance) {
+    public static bool Prefix(Vomiter __instance)  {
         return Vomiter_Vomit_MultiplayerPatch.VerifyAndAnnounceVomit(__instance, true);
     }
 }
@@ -197,7 +197,7 @@ public static class Vomiter_Vomit_MultiplayerPatch {
         // WRITER END;
     }
 
-    internal static bool VerifyAndAnnounceVomit(Vomiter __instance, bool isblood) {
+    internal static bool VerifyAndAnnounceVomit(Vomiter __instance , bool isblood ) {
         if (Net.IsRunning) {
 
             var body = __instance.GetComponent<Body>();
@@ -206,7 +206,7 @@ public static class Vomiter_Vomit_MultiplayerPatch {
                 return false;
             }
 
-            if (body.TryGetNetBody(out var pb)) {
+            if ( body.TryGetNetBody(out var pb))  {
                 if (Net.IsServer) {
                     AnnounceVomit(pb.netId, isblood);
                 }
@@ -223,14 +223,14 @@ public static class Vomiter_Vomit_MultiplayerPatch {
         return true;
     }
 
-    public static bool Prefix(Vomiter __instance) {
+    public static bool Prefix(Vomiter __instance)  {
         //var vomiting = Traverse.Create(__instance).Field("vomiting").GetValue<bool>();
 
         if (__instance.vomiting) { // cuz it only adds a number
             return true;
         }
 
-        return VerifyAndAnnounceVomit(__instance, false);
+        return VerifyAndAnnounceVomit(__instance,false);
     }
 
 
@@ -246,7 +246,7 @@ public static class Vomiter_Vomit_MultiplayerPatch {
 
 
 
-[HarmonyPatch(typeof(Body), nameof(Body.Eat), new[] { typeof(float), typeof(float) })]
+[HarmonyPatch(typeof(Body), nameof(Body.Eat))]
 static class Body_Eat_MultiplayerPatch {
     static void Prefix(Body __instance) {
         if (__instance.IsBodyLocal() && __instance.TryGetNetBody(out var nb)) {
@@ -254,19 +254,6 @@ static class Body_Eat_MultiplayerPatch {
         }
     }
 }
-
-#if FULLGAME
-// diet quirks live on the 3-arg overload; keep health sync ignore on that path too
-[HarmonyPatch(typeof(Body), nameof(Body.Eat), new[] { typeof(float), typeof(float), typeof(int) })]
-static class Body_Eat_FoodType_MultiplayerPatch {
-    static void Prefix(Body __instance) {
-        CharacterSpawn.EnsureBodySpecies(__instance);
-        if (__instance.IsBodyLocal() && __instance.TryGetNetBody(out NetBody nb)) {
-            nb.SetNetHealthSyncIgnoreTime();
-        }
-    }
-}
-#endif
 [HarmonyPatch(typeof(Body), nameof(Body.Drink))]
 static class Body_Drink_MultiplayerPatch {
     static void Prefix(Body __instance) {
@@ -307,12 +294,12 @@ public static class Body_StartClimbing_MultiplayerPatch {
 
 [HarmonyPatch(typeof(Body), nameof(Body.GetTotalEncumberance))]
 static class Body_GetTotalEncumberance_MultiplayerPatch {
-    public static void Postfix(Body __instance, ref float __result) {
+    public static void Postfix(Body __instance, ref  float __result) {
         if (Net.IsRunning) {
             if (__instance.TryGetComponent<NetBody>(out var npc)) {
                 if (npc.carrying_person != null) {
-                    var realweight = npc.carrying_person.GetRealFullEncumberanceOfBody(); // this also gets encumberence from carryong other players, so it stacks
-                    __result += realweight * Multiplayer.rules.PiggybackWeightMultiplier;
+                    var realweight = npc.carrying_person.GetRealFullEncumberanceOfBody() ; // this also gets encumberence from carryong other players, so it stacks
+                    __result += realweight * Multiplayer.rules.PiggybackWeightMultiplier ;
                 }
             }
         }
@@ -378,14 +365,15 @@ static class Body_HasWearable_Id_MultiplayerPatch {
 
 [HarmonyPatch(typeof(Body), nameof(Body.OnCollisionEnter2D))]
 public static class Body_OnCollisionEnter2D_MultiplayerPatch {
-    public static bool Prefix(Body __instance, Collision2D collision) {
-        var body = __instance;
-        if (!Util.IsBodyLocal(body)) { // dont shake the camera, do only visual body stuff
+    public static bool Prefix(Body __instance, Collision2D collision)  {
+        var body = __instance ;
+        if (!Util.IsBodyLocal(body))  { // dont shake the camera, do only visual body stuff
 
             //OG: Body.OnCollisionEnter2D  V5t2
             body.standLerpTime = 0.58f;
             body.crouchAmount -= body.lastTimeStepVelocity.y * 0.03f;
-            if (body.lastTimeStepVelocity.y < 0f - body.jumpSpeed - 1f) {
+            if (body.lastTimeStepVelocity.y < 0f - body.jumpSpeed - 1f)
+            {
                 body.visualBodyOffset += new Vector2(0f, body.lastTimeStepVelocity.y * 0.035f);
                 if (body.lastTimeStepVelocity.y < 0f - body.jumpSpeed - 5f) {
                     body.skills.AddExp(1, 0.5f);
@@ -406,7 +394,7 @@ public static class Body_OnCollisionEnter2D_MultiplayerPatch {
 
         return true;
     }
-
+    
 }
 
 
@@ -418,7 +406,7 @@ public static class DrillPod_Update_MultiplayerPatch {
 
 
 
-    public class DrillPodMultiplayerRewrite : MonoBehaviour {
+    public class DrillPodMultiplayerRewrite : MonoBehaviour{
 
         public bool working => drill.working;
 
@@ -439,7 +427,7 @@ public static class DrillPod_Update_MultiplayerPatch {
             if (Multiplayer.rules.CheckIfLayerContinueIsDisabled()) {
                 return;
             }
-
+            
             var w = working;
 
 
@@ -536,45 +524,18 @@ public static class DrillPod_Update_MultiplayerPatch {
     internal static bool didTeleport = false;
 
 
-    // slightly looser than vanilla 1.5/5 - net position lag was failing the everyone-in gate
-    const float InsideX = 2.25f;
-    const float InsideY = 7.5f;
-
     public static bool BodyIsInside(DrillPod drill, Body body) {
-        if (drill == null || body == null) {
-            return false;
-        }
-        return Mathf.Abs(body.transform.position.x - drill.transform.position.x) < InsideX
-            && Mathf.Abs(body.transform.position.y - drill.transform.position.y) < InsideY;
+        //OG: DrillPod.Update 
+        return (Mathf.Abs(body.transform.position.x - drill.transform.position.x) < 1.5f && Mathf.Abs(body.transform.position.y - drill.transform.position.y) < 5f);
     }
     public static bool BodyIsStartingIt(DrillPod drill, Body body) {
         //OG: DrillPod.Update 
-        return BodyIsInside(drill, body) && body != null && body.crouching;
+        return (BodyIsInside(drill, body) && body.crouching);
     }
     public static bool CheckIfEveryoneIsInTheDrill(DrillPod drill, out int current, out int required) {
-        // only count living players the host considers loaded-in. including unloaded peers
-        // inflated `required` while they could never satisfy BodyIsInside.
-        current = 0;
-        int eligible = 0;
-        foreach (ScavPlayer item in ScavPlayer.AllLivingPlayers) {
-            if (item == null || item.body == null) {
-                continue;
-            }
-            if (Net.IsServer && (item.ServerPlayerState == null || !item.ServerPlayerState.is_loaded_in)) {
-                continue;
-            }
-            eligible++;
-            if (BodyIsInside(drill, item.body)) {
-                current++;
-            }
-        }
-        if (eligible <= 0) {
-            required = 1;
-            return false;
-        }
-        float scale = Multiplayer.rules.LayerFinishPlrPercent * 0.01f;
-        required = Mathf.Clamp(Mathf.CeilToInt(eligible * scale), 1, eligible);
-        return current >= required;
+        return ServerMain.CheckIfCanFinishLayerCustomCondition((ScavPlayer item) => {
+            return BodyIsInside(drill, item.body);
+        }, out current, out required);
     }
 
     public static bool Prefix(DrillPod __instance) {
@@ -607,25 +568,19 @@ public static class Body_HandleVisuals_MultiplayerPatch {
     }
     static void Postfix(Body __instance, ref bool __state) {
         __instance.inWater = __state;
-        // ragdoll (!standing) clears ExperimentSit here - milky riders reassert sit; others stay cleared
-        NetBody.ApplyPiggybackCarryPose(__instance);
     }
 }
 
 
 [HarmonyPatch(typeof(Body), nameof(Body.Update))]
-public static class Body_Update_MultiplayerPatch {
+public static class Body_Update_MultiplayerPatch{
     static void Prefix(Body __instance) {
         if (!Net.IsRunning) return;
-        SpeechCharContext.scope++;
         __instance.GetCoUtilsInstance().SelectForMPOverride();
     }
 
     static float lastgunangle = 0.0f;
-    static void Postfix(Body __instance) {
-        if (Net.IsRunning && SpeechCharContext.scope > 0) {
-            SpeechCharContext.scope--;
-        }
+    static void Postfix(Body __instance)  {
         CoUtilsMultiplayer.DeselectMPOverride();
 
         var body = __instance;
@@ -642,7 +597,7 @@ public static class Body_Update_MultiplayerPatch {
         }
 
         var npc = body.GetComponent<NetBody>();
-        if (npc == null) {
+        if (npc == null) { 
             return;
         }
 
@@ -750,18 +705,18 @@ public static class Body_Update_MultiplayerPatch {
 
 
                 if ((!last_standing) && !body.brainDying && body.brainHealth < 100f && body.IsAirBreathable()) { // speed up brain regen if well fed (it shouldnt matter if unconscious
-
+                    
                     float realregenmultiplier = Multiplayer.rules.AdditionalBrainRegen;
                     if (realregenmultiplier > 0f) {
-                        var hungerBrainregenMultiplier = Mathf.Clamp(body.hunger / 100f, 0, 1.3f) * Mathf.Clamp(body.thirst / 100f, 0, 1.3f) * KM.RemapClamped(body.brainHealth, 100, 70, 0, 1);
+                        var hungerBrainregenMultiplier = Mathf.Clamp(body.hunger / 100f,0, 1.3f) * Mathf.Clamp(body.thirst / 100f, 0, 1.3f) * KM.RemapClamped(body.brainHealth,100,70,0,1);
                         //if (hungerBrainregenMultiplier < 1)  hungerBrainregenMultiplier = hungerBrainregenMultiplier * hungerBrainregenMultiplier;
-
+                        
                         var finalRegen = realregenmultiplier * hungerBrainregenMultiplier - total_brainhealth_loss * 0.7f;
                         if (finalRegen > 0) {
                             body.brainHealth += 0.16f * finalRegen * Time.deltaTime;
                         }
                     }
-
+                    
                 }
 
                 // red circle is brainDying (blood pressure under 10 and consciousness under 5).
@@ -782,7 +737,7 @@ public static class Body_Update_MultiplayerPatch {
                         if (isLastAlive) {
                             timespeedup = 10f;
                         }
-
+                        
                         if (npc.piggybacking_on != null) {
                             timespeedup = 0;
                         } else if (body.succesfullyRolledLastStand && body.lastStandTime > 280) {
@@ -916,11 +871,11 @@ public static class Body_Awake_MultiplayerPatch {
     }
 }
 
+    
 
 
-
-[HarmonyPatch(typeof(Body), nameof(Body.Start))]
-public static class Body_Start_MultiplayerPatch {
+[HarmonyPatch(typeof(Body), nameof(Body.Start))] 
+public static class Body_Start_MultiplayerPatch{
 
 
     public static string BodyToString(this Body b) {
@@ -971,15 +926,16 @@ public static class Body_Start_MultiplayerPatch {
             }
 
         } catch (Exception e) {
-            log.error($"Body_Start_MultiplayerPatch SERVER READING SAVE:\nPlayerBody: {pb}\npid: {pid}\n" + e.ToString());
+            log.error($"Body_Start_MultiplayerPatch SERVER READING SAVE:\nPlayerBody: {pb}\npid: {pid}\n" + e.ToString() );
         }
 
-        Physics2D.IgnoreLayerCollision(LayerMask.GetMask("Player"), LayerMask.GetMask("Player"), true);
+        Physics2D.IgnoreLayerCollision(LayerMask.GetMask("Player"), LayerMask.GetMask("Player") , true);
 
-        foreach (var other_body in GameObject.FindObjectsOfType<Body>()) {
+        foreach (var other_body in GameObject.FindObjectsOfType<Body>())
+        {
 
-            if (other_body != __instance) {
-
+            if (other_body != __instance) { 
+            
                 var my_chara = __instance.transform.parent;
                 var other_chara = other_body.transform.parent;
 
@@ -987,9 +943,11 @@ public static class Body_Start_MultiplayerPatch {
                 var b = other_chara.GetComponentsInChildren<Collider2D>();
 
                 // ignore collisions with other players
-                for (global::System.Int32 i = 0; i < a.Length; i++) {
-                    var ca = a[i];
-                    for (global::System.Int32 e = 0; e < b.Length; e++) {
+                for (global::System.Int32 i = 0; i < a.Length; i++)
+                {
+                    var ca = a[i];  
+                    for (global::System.Int32 e = 0; e < b.Length; e++)
+                    {
                         var cb = b[e];
 
                         Physics2D.IgnoreCollision(ca, cb, true);
@@ -999,7 +957,7 @@ public static class Body_Start_MultiplayerPatch {
 
             }
 
-
+            
         }
 
 
@@ -1078,8 +1036,8 @@ static class ShuttleStartOpen_Update_MultiplayerPatch {
     static float timer = 0;
     static void Postfix(ShuttleStartOpen __instance) {
         if (Util.IsWorldGenerated() && Util.TryGetLocalBody(out var b)) {
-            if (!KM.DistanceCheck(__instance.transform.position, b.transform.position, 12)) {
-
+            if (!KM.DistanceCheck(__instance.transform.position,b.transform.position,12)) {
+                
                 timer += Time.unscaledDeltaTime;
                 if (timer > 5) {
                     if (log.verbose) log.l("ShuttleStartOpen Auto-deleted because local player is too far.");
@@ -1152,17 +1110,17 @@ public static class ScavGameStartPatch {
 
         if (Net.IsRunning) {
 
-            if (starting_game) {
+            if (starting_game)  {
                 Multiplayer.DoMultiplayerStatusMessageLog("Client is starting game by request of server.");
 
                 starting_game = false;
                 return true;
-            } else if (Net.IsClient) {
+            } else if (Net.IsClient)  {
                 Multiplayer.DoMultiplayerStatusMessageLog("You can't start the game, server can.");
                 starting_game = false;
                 __result = (new List<object>()).GetEnumerator(); // shut up the coroutine
                 return false;
-            } else {
+            }  else   {
                 starting_game = true;
                 __instance.UpdateAllSettingDisplays(); // make sure the PlayerPrefs values are there
 
@@ -1172,7 +1130,7 @@ public static class ScavGameStartPatch {
                 Multiplayer.showMultiplayerMenu = false;
             }
 
-        } else {
+        }   else     {
             // singleplayer, hide this
             Multiplayer.showMultiplayerMenu = false;
         }
@@ -1182,7 +1140,7 @@ public static class ScavGameStartPatch {
 
         return true;
     }
-
+    
 }
 
 
@@ -1279,7 +1237,7 @@ public static class TutorialHandler_Update_MarkiplierPatch {
         }
 
         if (__instance.grabInfo.grabbed != null) {
-            if (__instance.grabInfo.grabbed.TryGetComponent(out NetBody nb)) {
+            if (__instance.grabInfo.grabbed.TryGetComponent(out NetBody nb) ) {
                 nb.StopPiggyback();
             }
         }
@@ -1358,7 +1316,7 @@ public static class TutorialHandler_Update_MarkiplierPatch {
 
 
 
-// patch unchipped modifier to be properly synced in MP
+// Patch unchipped modifier to be properly synced in MP
 
 [HarmonyPatch(typeof(UnchippedModifier), nameof(UnchippedModifier.Initialize))]
 internal static class UnchippedModifier_Initialize_MultiplayerPatch {
@@ -1393,3 +1351,9 @@ static class UnchippedModifier_Disable_MultiplayerPatch {
         UnchippedModifier_Initialize_MultiplayerPatch.OriginalUnchippedStates.Clear();
     }
 }
+
+
+
+
+
+

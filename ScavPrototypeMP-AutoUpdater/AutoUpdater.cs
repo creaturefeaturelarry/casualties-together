@@ -8,7 +8,6 @@ using HarmonyLib;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using TMPro;
@@ -94,10 +93,9 @@ public class AutoUpdater : BaseUnityPlugin {
     // separate these functions so that the missing fields can be ignored 
     static bool ShouldStartImmidiately() {
         try {
-            var TARGET_GAME_VERSION = Traverse.Create(typeof(Together.Plugin)).Field(nameof(Together.Plugin.TARGET_GAME_VERSION)).GetValue<string[]>();
             return (!Together.Plugin.FORCE_DISABLE_MP_MOD && (!Together.Plugin.SUCCESFULLY_INITIALIZED ||
-                !TARGET_GAME_VERSION.Contains(Application.version)
-            ));
+                Traverse.Create(typeof(Together.Plugin)).Field(nameof(Together.Plugin.TARGET_GAME_VERSION)).GetValue<string>()
+                 != Application.version));
         } catch (Exception e) {
             return true;
         }

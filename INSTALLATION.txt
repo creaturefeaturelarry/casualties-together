@@ -25,6 +25,7 @@ Now it should look like this:
     - CasualtiesUnknown_Data/
     - MonoBleedingEdge/
     - winhttp.dll  <-  from BepInEx zip
+    - steam_appid.txt  <-  from mod zip
     - BepInEx/
     - - plugins/
     - - - Together/                    <-  from mod zip

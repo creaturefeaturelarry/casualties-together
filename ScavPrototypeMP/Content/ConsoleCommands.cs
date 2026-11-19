@@ -5,7 +5,6 @@ using KrokV5Optimization;
 using LiteEntitySystem;
 using LiteNetLib;
 using Newtonsoft.Json;
-using Steamworks;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -28,28 +27,9 @@ namespace Together;
 
 
 [HarmonyPatch(typeof(ConsoleScript), nameof(ConsoleScript.RegisterAllCommands))]
-static class ConsoleScript_RegisterAllCommands_MultiplayerPatch {
+static class ConsoleScript_RegisterAllCommands_MultiplayerPatch { 
     static void Postfix() {
-        try {
-            Con._RegisterMultiplayerConsoleCommands();
-        } catch (Exception e) {
-            log.error($"MP console RegisterAllCommands Postfix failed: {e}");
-        }
-    }
-}
-
-// registerAllCommands only runs when Commands.Count==0. if a prior Start aborted mid-register,
-// later scene loads skip it forever and MP cmds (species/telekinesis/…) never appear.
-[HarmonyPatch(typeof(ConsoleScript), "Start")]
-static class ConsoleScript_Start_EnsureMpCommands_MultiplayerPatch {
-    static void Postfix() {
-        try {
-            if (ConsoleScript.SearchExact("species") == null || ConsoleScript.SearchExact("telekinesis") == null) {
-                Con._RegisterMultiplayerConsoleCommands();
-            }
-        } catch (Exception e) {
-            log.error($"MP console Start ensure failed: {e}");
-        }
+        Con._RegisterMultiplayerConsoleCommands();
     }
 }
 
@@ -62,9 +42,7 @@ static class ConsoleScript_RegisterPlayerDetails_MultiplayerPatch {
         if (!__state) {
             {
                 Command command2 = ConsoleScript.SearchExact("setlimbfield");
-                if (command2?.argAutofill != null && command2.argAutofill.ContainsKey(1) && command2.argAutofill[1] != null) {
-                    command2.argAutofill[1].Add("all");
-                }
+                command2.argAutofill[1].Add("all");
             }
 
         }
@@ -75,7 +53,7 @@ static class ConsoleScript_RegisterPlayerDetails_MultiplayerPatch {
 
 [HarmonyPatch(typeof(ConsoleScript), nameof(ConsoleScript.TryExecuteCommand))]
 static class ConsoleScript_TryExecuteCommand_MultiplayerPatch {
-    static bool Prefix(ConsoleScript __instance, string[] args, bool addToLog) {
+    static bool Prefix(ConsoleScript __instance, string[] args, bool addToLog ) {
 
         if (addToLog && Multiplayer.IsNetworkActiveAndIsClient() && Con.client_adminmode) {
 
@@ -113,7 +91,7 @@ static class ConsoleScript_TryExecuteCommand_MultiplayerPatch {
 [HarmonyPatch(typeof(ConsoleScript), nameof(ConsoleScript.LogToConsole))]
 static class ConsoleScript_LogToConsole_MultiplayerPatch {
     static bool Prefix(ConsoleScript __instance, string text) {
-
+        
         if (Multiplayer.IsNetworkActiveAndIsServer()) {
             if (text.StartsWith("The character with Unicode value \\u")) { // cuz it spams ts
                 return true;
@@ -148,7 +126,7 @@ static class ConsoleScript_ParsePosition_MultiplayerPatch {
                 return false;
             }
         }
-
+    
         return true;
     }
 }
@@ -157,7 +135,7 @@ static class ConsoleScript_ParsePosition_MultiplayerPatch {
 static class ConsoleScript_ParseBool_MultiplayerPatch {
     static bool Prefix(ConsoleScript __instance, string s, ref bool __result) {
         s = s.ToLower();
-
+        
         if (bool.TryParse(s, out __result)) {
             return false;
         }
@@ -174,25 +152,10 @@ static class ConsoleScript_ParseBool_MultiplayerPatch {
 [HarmonyPatch(typeof(ConsoleScript), nameof(ConsoleScript.ToggleActiveState))]
 static class ConsoleScript_ToggleActiveState_MultiplayerPatch {
     static bool Prefix(ConsoleScript __instance) {
-        if (!__instance.active) { //it's going to be active
+        if (!__instance.active) { //It's going to be active
 
         }
         return true;
-    }
-}
-
-// stock Alert() opens the console (cheated-save / save-load errors / CheckForCheats).
-// in MP just log - player can open the console themselves if they care.
-[HarmonyPatch(typeof(ConsoleScript), nameof(ConsoleScript.Alert))]
-static class ConsoleScript_Alert_NoAutoOpen_MultiplayerPatch {
-    static bool Prefix(ConsoleScript __instance, string message) {
-        if (!Net.IsRunning) {
-            return true;
-        }
-        if (__instance != null) {
-            __instance.LogToConsole(message);
-        }
-        return false;
     }
 }
 
@@ -211,7 +174,7 @@ public class Con : CasualtiesTogetherSingleton {
             Con.con.ToggleActiveState();
         }
     }
-
+   
     public static bool CanCheat() {
         if (!Net.IsRunning) {
             return true;
@@ -249,7 +212,7 @@ public class Con : CasualtiesTogetherSingleton {
         if (!Net.IsRunning) {
             throw new Exception("Network system is not running!");
         }
-        if (!Net.TryGetSteamTransport(out var tsteam)) {
+        if (!Net.TryGetSteamTransport(out var tsteam )) {
             throw new Exception("You can do that only in a Steam lobby!");
         }
     }
@@ -263,7 +226,7 @@ public class Con : CasualtiesTogetherSingleton {
             throw new Exception("Local player not found!");
         }
     }
-
+    
     public static void LogToConsole(string text) {
         con.LogToConsole(text);
     }
@@ -290,7 +253,7 @@ public class Con : CasualtiesTogetherSingleton {
     }
 
     public static bool TryGetTaggedPlayerName(string s, out string name) {
-        // allow writing any player username 
+        // Allow writing any player username 
         if (s.TryTrimStart("player:", out name, true)) {
             return true;
         } else {
@@ -314,7 +277,7 @@ public class Con : CasualtiesTogetherSingleton {
                 return false;
             }
         }
-
+        
 
         if (bool.TryParse(str, out var result)) {
             return result;
@@ -329,7 +292,7 @@ public class Con : CasualtiesTogetherSingleton {
         throw new Exception("\"" + str + "\" is not a valid boolean value! (true/false)");// (0/1)
     }
 
-    public static void UnNoclip() {
+    public static void UnNoclip() { 
         if (ConsoleScript.instance.noClip) {
             PlayerCamera.main.body.rb.simulated = true;
             ConsoleScript.instance.noClip = false;
@@ -355,14 +318,14 @@ public class Con : CasualtiesTogetherSingleton {
             argDesc.Add((typeStr, typeDesc));
         }
 
-        var defaultArgs = args.ToList(); // duplicate it
-        defaultArgs.Insert(0, (name, name, name, null));
+        var defaultArgs = args.ToList(); // Duplicate it
+        defaultArgs.Insert(0,(name,name,name,null));
 
         Command c = null;
         c = new Command(name, desc, (string[] splited) => {
 
             var dargs = defaultArgs.Select(x => x.fallback).ToList();
-            //merge
+            //Merge
             for (int i = 0; i < dargs.Count(); i++) {
                 var argInfo = defaultArgs[i];
                 dargs[i] = splited[i];
@@ -381,20 +344,14 @@ public class Con : CasualtiesTogetherSingleton {
     }
 
     public static Command RegisterCommand(Command comm) {
-        if (comm == null || string.IsNullOrEmpty(comm.name)) {
-            return comm;
-        }
         if (ConsoleScript.instance == null) {
             Util.CallLambdaWhen(() => { return ConsoleScript.instance != null; }, () => {
                 RegisterCommand(comm);
-            });
+            } );
             //if (log.verbose) log.warn($"Registering command too early! {comm.name}");// This triggers but isn't a significantly negative consequence
         } else {
-            // contains is reference equality - re-register by name must replace/skip, not duplicate.
-            Command existing = ConsoleScript.SearchExact(comm.name);
-            if (existing == null) {
+            if (!ConsoleScript.Commands.Contains(comm))
                 ConsoleScript.Commands.Add(comm);
-            }
         }
         return comm;
     }
@@ -412,7 +369,7 @@ public class Con : CasualtiesTogetherSingleton {
 
     public static bool _DEV_CHATSPY = false;
     public static float _DEV_ZOOM = 1f;
-    public static bool _DEV_HIDEHUD {
+    public static bool _DEV_HIDEHUD  {
         get {// OG: ConsoleScript  ui command V6.1demo
             if (PlayerCamera.main == null) return false;
             return !PlayerCamera.main.mainCanvas.gameObject.activeSelf;
@@ -489,7 +446,7 @@ public class Con : CasualtiesTogetherSingleton {
     public static void DelayRunCommand(float delay_sec, string cmd) {
         Plugin.StartCoroutine(_DelayRunCommandCoroutine(delay_sec, cmd));
     }
-
+    
     static IEnumerator _DelayRunCommandCoroutine(float delay_sec, string cmd) {
         yield return new WaitForSecondsRealtime(delay_sec);
 
@@ -530,13 +487,13 @@ public class Con : CasualtiesTogetherSingleton {
             }
         }
         return false;
-
+    
     }
 
 
     public static void CleanWorld() {
         // remove bleed and vomit particels
-        // foreach (var item in GameObject.FindObjectsOfType<_BleedParticleStartTrackerComponent>()) {  GameObject.Destroy(item.gameObject);    }
+       // foreach (var item in GameObject.FindObjectsOfType<_BleedParticleStartTrackerComponent>()) {  GameObject.Destroy(item.gameObject);    }
         // remove block damage particles
         foreach (var item in WorldGeneration.world.blockDamages) {
             item.damage = 99999999999;
@@ -564,8 +521,8 @@ public class Con : CasualtiesTogetherSingleton {
 
 
     static ScavPlayer CommandCallerPlayer = null;
-    // can return null !
-    public static ScavPlayer GetCommandCallerPlayer() {
+    // Can return null !
+    public static ScavPlayer GetCommandCallerPlayer() { 
         if (CommandCallerPlayer == null) {
             return ScavPlayer.LocalPlayer;
         }
@@ -579,41 +536,14 @@ public class Con : CasualtiesTogetherSingleton {
         return Util.GetCursorWorldPos();
     }
 
-#if FULLGAME
-    // milky / Expie(Experiment/Exp) / Dune -> charType 0..2
-    public static bool TryParseSpeciesArg(string raw, out int chr) {
-        chr = 0;
-        if (string.IsNullOrWhiteSpace(raw)) {
-            return false;
-        }
-        string s = raw.Trim().ToLowerInvariant();
-        if (s is "expie" or "exp" or "experiment" or "0") {
-            chr = 0;
-            return true;
-        }
-        if (s is "milky" or "1") {
-            chr = 1;
-            return true;
-        }
-        if (s is "dune" or "2") {
-            chr = 2;
-            return true;
-        }
-        return false;
-    }
-#endif
-
-    static bool _mpConsoleCommandsRegistered;
-
     internal static void _RegisterMultiplayerConsoleCommands() {
         var con = ConsoleScript.instance;
 
-        // patched commands - any missing vanilla SearchExact must not abort MP RegisterCommand (species/tele/admin).
-        try {
+        // patched commands
+        {
 
 
             Command tp = ConsoleScript.SearchExact("tp");
-            if (tp == null) throw new Exception("vanilla command 'tp' missing");
             tp.action = delegate (string[] args) {
                 con.CheckForWorld();
                 ConFailIfCheatsDisabled();
@@ -628,7 +558,7 @@ public class Con : CasualtiesTogetherSingleton {
                         var foundthing = GetBodyForCommand(plrname, Con.GetCommandCallerPlayer());// this function checks mp macros 
                         if (foundthing != null) {
                             plr_being_teleported_to = foundthing.plr;
-                        }
+                        } 
 
                     }
                 }
@@ -641,17 +571,17 @@ public class Con : CasualtiesTogetherSingleton {
                     var isall = plrname == "@a";
 
                     var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
-
-                        if (!isall)
+                        
+                        if (!isall) 
                             plrname = plr.playerName;
-
-                        if (Net.IsServer) {
+                            
+                        if ( Net.IsServer ) {
                             plr.Server_TeleportCharacter(vector);
                         } else {
                             plr.netBody.SetBodyPosition(vector);
                         }
                         succ = true;
-
+                        
                     }, true, GetCommandCallerPlayer(), true, false);
 
                     if (succ && res.Item1) {
@@ -665,7 +595,7 @@ public class Con : CasualtiesTogetherSingleton {
                     }
                 } else {
                     //vanilla
-
+                    
                     PlayerCamera.main.body.transform.position = vector;
                     PlayerCamera.main.transform.position = vector;
                     con.LogToConsole($"Teleported player to {vector}.");
@@ -676,7 +606,6 @@ public class Con : CasualtiesTogetherSingleton {
 
 
             Command kill = ConsoleScript.SearchExact("kill");
-            if (kill == null) throw new Exception("vanilla command 'kill' missing");
             kill.action = delegate (string[] args) {
                 con.CheckForWorld();
 
@@ -684,7 +613,7 @@ public class Con : CasualtiesTogetherSingleton {
                     ConFailIfCheatsDisabled();
                 }
 
-                if (args.Length > 1) {
+                if (args.Length > 1 ) {
 
                     var plrname = args[1];
                     var isall = plrname == "@a";
@@ -700,7 +629,7 @@ public class Con : CasualtiesTogetherSingleton {
 
                     if (succ) {
                         if (isall) {
-                            con.LogToConsole("Killed everyone :) ");
+                            con.LogToConsole( "Killed everyone :) ");
                         }
                     } else {
                         con.LogToConsole($"{plrname} not found. ");
@@ -719,7 +648,6 @@ public class Con : CasualtiesTogetherSingleton {
 
 
             Command amputate = ConsoleScript.SearchExact("amputate");
-            if (amputate == null) throw new Exception("vanilla command 'amputate' missing");
             amputate.action = delegate (string[] args) {
                 con.CheckForWorld();
                 ConFailIfCheatsDisabled();
@@ -772,7 +700,6 @@ public class Con : CasualtiesTogetherSingleton {
 
 
             Command setbodyfield = ConsoleScript.SearchExact("setbodyfield");
-            if (setbodyfield == null) throw new Exception("vanilla command 'setbodyfield' missing");
             setbodyfield.action = delegate (string[] args) {
                 con.CheckForWorld();
                 con.CheckArgumentCount(args, 2);
@@ -788,7 +715,7 @@ public class Con : CasualtiesTogetherSingleton {
                         field.SetValue(plr.body, obj);
                         con.LogToConsole($"Set '{plr.playerName}' body field \"" + text + "\" to \"" + obj.ToString() + "\".");
 
-                    }, true, GetCommandCallerPlayer(), true, false);
+                    }, true, GetCommandCallerPlayer(),true, false);
 
                     if (result.Item1) {
                         // something was set then ok
@@ -810,7 +737,6 @@ public class Con : CasualtiesTogetherSingleton {
 
 
             Command setlimbfield = ConsoleScript.SearchExact("setlimbfield");
-            if (setlimbfield == null) throw new Exception("vanilla command 'setlimbfield' missing");
             setlimbfield.action = delegate (string[] args) {
                 con.CheckForWorld();
                 con.CheckArgumentCount(args, 3);
@@ -873,7 +799,6 @@ public class Con : CasualtiesTogetherSingleton {
 
 
             Command heal = ConsoleScript.SearchExact("heal");
-            if (heal == null) throw new Exception("vanilla command 'heal' missing");
             heal.action = delegate (string[] args) {
 
                 con.CheckForWorld();
@@ -886,10 +811,6 @@ public class Con : CasualtiesTogetherSingleton {
 
                     var result = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
 
-                        if (plr.body == null) {
-                            con.LogToConsole($"ERROR: Heal: {plr.playerName} has no body.");
-                            return;
-                        }
                         plr.body.ResetHealth();
 
                         if (!everyone) {
@@ -907,10 +828,6 @@ public class Con : CasualtiesTogetherSingleton {
                     }
 
                 } else {
-                    if (PlayerCamera.main == null || PlayerCamera.main.body == null) {
-                        con.LogToConsole("ERROR: Heal: no local body.");
-                        return;
-                    }
                     PlayerCamera.main.body.ResetHealth();
                     con.LogToConsole("Healed the player.");
                 }
@@ -921,7 +838,6 @@ public class Con : CasualtiesTogetherSingleton {
 
 
             Command addliquid = ConsoleScript.SearchExact("addliquid");
-            if (addliquid == null) throw new Exception("vanilla command 'addliquid' missing");
             addliquid.action = delegate (string[] args) {
 
                 con.CheckArgumentCount(args, 2);
@@ -998,7 +914,6 @@ public class Con : CasualtiesTogetherSingleton {
 
             {
                 Command alert = ConsoleScript.SearchExact("alert");
-                if (alert == null) throw new Exception("vanilla command 'alert' missing");
                 alert.action = delegate (string[] args) {
                     con.CheckArgumentCount(args, 2);
                     con.CheckForWorld();
@@ -1018,7 +933,6 @@ public class Con : CasualtiesTogetherSingleton {
 
             {
                 Command unchipped = ConsoleScript.SearchExact("unchipped");
-                if (unchipped == null) throw new Exception("vanilla command 'unchipped' missing");
                 unchipped.action = delegate (string[] args) {
                     con.CheckArgumentCount(args, 1);
                     con.CheckForWorld();
@@ -1032,7 +946,7 @@ public class Con : CasualtiesTogetherSingleton {
                         var result = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
 
                             plr.SetUnchipped(unchipped);
-                            con.LogToConsole($"Set unchipped of {plr.playerName} to {unchipped}.");
+                            con.LogToConsole($"Set unchipped of {plr.playerName} to { unchipped}.");
 
                         }, true, GetCommandCallerPlayer(), true, false);
 
@@ -1051,7 +965,6 @@ public class Con : CasualtiesTogetherSingleton {
 
 
             Command addxp = ConsoleScript.SearchExact("addxp");
-            if (addxp == null) throw new Exception("vanilla command 'addxp' missing");
             addxp.action = delegate (string[] args) {
                 con.CheckArgumentCount(args, 2);
                 con.CheckForWorld();
@@ -1119,7 +1032,6 @@ public class Con : CasualtiesTogetherSingleton {
             {
 
                 Command resetskills = ConsoleScript.SearchExact("resetskills");
-                if (resetskills == null) throw new Exception("vanilla command 'resetskills' missing");
                 resetskills.action = delegate (string[] args) {
                     con.CheckForWorld();
 
@@ -1174,12 +1086,11 @@ public class Con : CasualtiesTogetherSingleton {
             {
 
                 Command timescale = ConsoleScript.SearchExact("timescale");
-                if (timescale == null) throw new Exception("vanilla command 'timescale' missing");
                 timescale.action = delegate (string[] args) {
                     con.CheckArgumentCount(args, 1);
                     con.CheckForWorld();
                     ConFailIfNetworkIsRunningAndIsClient();
-                    var num = con.ParseFloat(args[1]);
+                    var num = con.ParseFloat(args[1]); 
                     if (Mathf.Abs(num) != 1 && num != 0) {
                         if (Net.IsRunning) {
                             if (Multiplayer.rules.DisableTimeManipulation) {
@@ -1196,14 +1107,12 @@ public class Con : CasualtiesTogetherSingleton {
 
             }
 
-        } catch (Exception e) {
-            log.error($"MP console vanilla-command patch aborted (MP commands still register): {e}");
         }
 
-        try {
-            {
-                HashSet<string> ogcommands = new HashSet<string>{
-                //v7.0.1 OG COMMANDS:
+
+        {
+            HashSet<string> ogcommands = new HashSet<string>{
+                //V7.0.1 OG COMMANDS:
                 "help",
                 "heal",
                 "coagulate",
@@ -1252,7 +1161,7 @@ public class Con : CasualtiesTogetherSingleton {
                 "plushies",
                 "errorlogging",
             };
-                HashSet<string> allowedcommands = new HashSet<string>{
+            HashSet<string> allowedcommands = new HashSet<string>{
                 "krok rule EnableNametags",
                 "krok rules",
                 "krok help",
@@ -1285,55 +1194,42 @@ public class Con : CasualtiesTogetherSingleton {
                 "errorlogging",
             };
 
-                foreach (var command in ConsoleScript.Commands) {
-                    if (ogcommands.Contains(command.name)) {
-                        if (!allowedcommands.Contains(command.name)) {
-                            var og_action = command.action;
-                            command.action = (string[] args) => {
-                                ConFailIfCheatsDisabled();
-#if FULLGAME
-                            // MP replaces several stock cheat actions (tp/kill/heal/…) and drops their
-                            // checkForCheats() call - invoke it here so achievements still break.
-                            // a layer change can leave the vanilla check null; that used to kill every later command.
-                            try {
-                                AccessTools.DeclaredMethod(typeof(ConsoleScript), "CheckForCheats")
-                                    ?.Invoke(ConsoleScript.instance, null);
-                            } catch (Exception cheatEx) {
-                                log.warn($"CheckForCheats: {cheatEx.GetBaseException().Message}");
-                            }
-#endif
-                                og_action(args);
-                            };
-                        }
-                    }
-                }
-
-            }
-
-
-
-
-            {
-                HashSet<string> serveronlycommands = new HashSet<string>{
-                "spawn",
-            };
-
-
-                var all_og_commands = ConsoleScript.Commands.Select(x => x.name).ToArray();
-                foreach (var command in ConsoleScript.Commands) {
-                    if (serveronlycommands.Contains(command.name)) {
+            foreach (var command in ConsoleScript.Commands) {
+                if (ogcommands.Contains(command.name)) {
+                    if (!allowedcommands.Contains(command.name)) {
                         var og_action = command.action;
                         command.action = (string[] args) => {
-                            ConFailIfNetworkIsRunningAndIsClient();
+                            ConFailIfCheatsDisabled();
 
                             og_action(args);
                         };
                     }
                 }
-
             }
-        } catch (Exception e) {
-            log.error($"MP console cheat-wrap aborted (MP commands still register): {e}");
+
+        }
+
+
+
+
+        {
+            HashSet<string> serveronlycommands = new HashSet<string>{
+                "spawn",
+            };
+
+
+            var all_og_commands = ConsoleScript.Commands.Select(x => x.name).ToArray();
+            foreach (var command in ConsoleScript.Commands) {
+                if (serveronlycommands.Contains(command.name)) {
+                    var og_action = command.action;
+                    command.action = (string[] args) => {
+                        ConFailIfNetworkIsRunningAndIsClient();
+
+                        og_action(args);
+                    };
+                }
+            }
+
         }
 
 
@@ -1341,154 +1237,154 @@ public class Con : CasualtiesTogetherSingleton {
             log.l($"all og commands: \n{String.Join("\n", ConsoleScript.Commands.Select(x => x.name).ToArray())}");
         }
 
-        try {
-            RegisterCommand(new Command("objdelete", "MP - Despawn a specific object.", (string[] splited) => {
 
-                var go = GetObjectForCommand(splited.Length > 1 ? splited[1] : "cursor", false);
+        RegisterCommand(new Command("objdelete", "MP - Despawn a specific object.", (string[] splited) => {
 
-                if (go != null) {
-                    con.LogToConsole($"Deleted: {DebugHelp.GetGameObjectFullDebugString(go)}");
-                    GameObject.Destroy(go);
-                } else {
-                    con.LogToConsole($"Object wasn't found.");
+            var go = GetObjectForCommand(splited.Length > 1 ? splited[1] : "cursor",false);
+
+            if (go != null) {
+                con.LogToConsole($"Deleted: {DebugHelp.GetGameObjectFullDebugString(go)}");
+                GameObject.Destroy(go);   
+            } else {
+                con.LogToConsole($"Object wasn't found.");
+            }
+
+        }, null, ("obj", "Object to delete")));
+
+
+        RegisterCommand(new Command("objinfo", "MP - Print object info.", (string[] splited) => {
+
+            var go = GetObjectForCommand(splited.Length > 1 ? splited[1] : "cursor", false);
+
+            if (go != null) {
+                var str = $"{DebugHelp.GetGameObjectFullDebugString(go)}";
+                if (go.TryGetComponent(out Item i)) {
+                    var container = ItemSync.ItemGetContainerInfo(i);
+                    if (container.has_container) {
+                        str += $" {container.ToString()}";
+                    }
                 }
+                str += $" pos:{(Vector2)go.transform.position}";
+                con.LogToConsole(str);
+            } else {
+                con.LogToConsole($"Object wasn't found.");
+            }
 
-            }, null, ("obj", "Object to delete")));
+        }, null, ("obj", "Object to delete")));
 
 
-            RegisterCommand(new Command("objinfo", "MP - Print object info.", (string[] splited) => {
 
-                var go = GetObjectForCommand(splited.Length > 1 ? splited[1] : "cursor", false);
+        RegisterCommand(new Command("objtalkersay", "MP - Hijack object's Talker component.", (string[] splited) => {
+            con.CheckArgumentCount(splited, 2);
 
-                if (go != null) {
-                    var str = $"{DebugHelp.GetGameObjectFullDebugString(go)}";
-                    if (go.TryGetComponent(out Item i)) {
-                        var container = ItemSync.ItemGetContainerInfo(i);
-                        if (container.has_container) {
-                            str += $" {container.ToString()}";
+            try {
+                var objname = splited[1];
+
+                string nameoftalkerobject = "";
+                GameObject foundtalker_go = GetObjectOrBodyForCommand(objname);
+                Talker foundtalker = null;
+
+                if (!Util.TryGetTalkerOnObject(foundtalker_go, out foundtalker, out nameoftalkerobject)) {
+                    var cursorpos = GetCommandCallerCursorPos();
+
+                    var collider2Darray = Physics2D.OverlapPointAll(cursorpos);
+                    for (int i = 0; i < collider2Darray.Length; i++) {
+                        var collider2D2 = collider2Darray[i];
+                        if (Util.TryGetTalkerOnObject(collider2D2.gameObject, out foundtalker, out nameoftalkerobject)) {
+                            foundtalker_go = collider2D2.gameObject;
+                            break;
                         }
                     }
-                    str += $" pos:{(Vector2)go.transform.position}";
-                    con.LogToConsole(str);
-                } else {
-                    con.LogToConsole($"Object wasn't found.");
-                }
-
-            }, null, ("obj", "Object to delete")));
+                } 
 
 
+                var msg = String.Join(" ", splited.Skip(2));
 
-            RegisterCommand(new Command("objtalkersay", "MP - Hijack object's Talker component.", (string[] splited) => {
-                con.CheckArgumentCount(splited, 2);
+                if (foundtalker != null && foundtalker_go != null) {
 
-                try {
-                    var objname = splited[1];
-
-                    string nameoftalkerobject = "";
-                    GameObject foundtalker_go = GetObjectOrBodyForCommand(objname);
-                    Talker foundtalker = null;
-
-                    if (!Util.TryGetTalkerOnObject(foundtalker_go, out foundtalker, out nameoftalkerobject)) {
-                        var cursorpos = GetCommandCallerCursorPos();
-
-                        var collider2Darray = Physics2D.OverlapPointAll(cursorpos);
-                        for (int i = 0; i < collider2Darray.Length; i++) {
-                            var collider2D2 = collider2Darray[i];
-                            if (Util.TryGetTalkerOnObject(collider2D2.gameObject, out foundtalker, out nameoftalkerobject)) {
-                                foundtalker_go = collider2D2.gameObject;
-                                break;
-                            }
-                        }
-                    }
-
-
-                    var msg = String.Join(" ", splited.Skip(2));
-
-                    if (foundtalker != null && foundtalker_go != null) {
-
-                        if (Multiplayer.IsNetworkActiveAndIsServer()) {
-                            if (NetObjectRegistry.TryGetSyncInfo(foundtalker_go, out var si)) {
-                                if (ServerMain.ForceTalkerSayAndAnnounce(si, msg, null)) {
-                                } else {
-                                    con.LogToConsole($"Failed to make {nameoftalkerobject} say \"{msg}\"");
-                                    return;
-                                }
-                            } else if (foundtalker_go.TryGetComponent(out NetBody pb)) {
-                                if (ServerMain.ForceTalkerSayAndAnnounce(pb, msg, null)) {
-                                } else {
-                                    con.LogToConsole($"Failed to make {nameoftalkerobject} say \"{msg}\"");
-                                    return;
-                                }
+                    if (Multiplayer.IsNetworkActiveAndIsServer()) {
+                        if (NetObjectRegistry.TryGetSyncInfo(foundtalker_go, out var si)) {
+                            if (ServerMain.ForceTalkerSayAndAnnounce(si, msg, null)) {
                             } else {
-                                NetObjectRegistry.AlertObjectNotRegistered(true);
+                                con.LogToConsole($"Failed to make {nameoftalkerobject} say \"{msg}\"");
+                                return;
                             }
+                        } else if (foundtalker_go.TryGetComponent(out NetBody pb)) {
+                            if (ServerMain.ForceTalkerSayAndAnnounce(pb, msg, null)) {
+                            } else {
+                                con.LogToConsole($"Failed to make {nameoftalkerobject} say \"{msg}\"");
+                                return;
+                            }
+                        } else {
+                            NetObjectRegistry.AlertObjectNotRegistered(true);
                         }
-
-                        Talker_Talk_MultiplayerPatch.ForceNoSpeechImpairment(foundtalker, msg, true);
-
-                        con.LogToConsole($"Made {nameoftalkerobject} say \"{msg}\"");
-
-                    } else {
-                        con.LogToConsole($"Specified talker wasn't found.");
-                    }
-                } catch (Exception e) {
-                    log.error(e);
-                }
-
-            }, null, ("obj", "Object with a Talker to talk")));
-
-
-
-
-
-
-            RegisterCommand(new Command("chatspy", "MP- force to show and log all chat messages", (string[] splited) => {
-
-                if (splited.Count() < 2) {
-                    Chat._DEV_LOG_CHAT = !Chat._DEV_LOG_CHAT;
-                } else {
-                    Chat._DEV_LOG_CHAT = ParseBool01(splited[1]);
-                }
-                _DEV_CHATSPY = Chat._DEV_LOG_CHAT;
-
-                if (!CanCheat()) {
-                    _DEV_CHATSPY = false;
-                    log.l($"_DEV_LOG_CHAT = {Chat._DEV_LOG_CHAT}");
-                } else {
-                    log.l($"_DEV_CHATSPY = {_DEV_CHATSPY} ");
-                }
-
-            }, null));
-
-
-
-
-            RegisterCommand(new Command("earthquake", "MP - control earthquake", (string[] args) => {
-                ConFailIfCheatsDisabled();
-                ConFailIfNetworkIsRunningAndIsClient();
-                con.CheckArgumentCount(args, 1);
-                con.CheckForWorld();
-                var world = WorldGeneration.world;
-
-                var arg = args[1].ToLower();
-                if (arg == "now") {
-                    //OG: WorldGeneration.Update  V6.0-pre4
-                    world.earthquakeDelay = UnityEngine.Random.Range(600f, 1750f);
-                    world.earthquakeTime = UnityEngine.Random.Range(3f, 25f);
-                    Time.timeScale = 1f;
-
-                    con.LogToConsole($"Started earthquake right now.");
-                } else {
-                    WorldMP.earthquake_enabled = ParseBool01(arg, true);
-
-                    if (!WorldMP.earthquake_enabled) {
-                        world.earthquakeTime = 0;
                     }
 
-                    con.LogToConsole($"Earthquake active: {WorldMP.earthquake_enabled}");
+                    Talker_Talk_MultiplayerPatch.ForceNoSpeechImpairment(foundtalker, msg, true);
+
+                    con.LogToConsole($"Made {nameoftalkerobject} say \"{msg}\"");
+
+                } else {
+                    con.LogToConsole($"Specified talker wasn't found.");
+                }
+            } catch (Exception e) {
+                log.error(e);
+            }
+
+        }, null, ("obj", "Object with a Talker to talk")));
+
+
+
+
+
+
+        RegisterCommand(new Command("chatspy", "MP- force to show and log all chat messages", (string[] splited) => {
+
+            if (splited.Count() < 2) {
+                Chat._DEV_LOG_CHAT = !Chat._DEV_LOG_CHAT;
+            } else {
+                Chat._DEV_LOG_CHAT = ParseBool01(splited[1]);
+            }
+            _DEV_CHATSPY = Chat._DEV_LOG_CHAT;
+
+            if (!CanCheat()) {
+                _DEV_CHATSPY = false;
+                log.l($"_DEV_LOG_CHAT = {Chat._DEV_LOG_CHAT}");
+            } else {
+                log.l($"_DEV_CHATSPY = {_DEV_CHATSPY} ");
+            }
+
+        }, null));
+
+
+
+
+        RegisterCommand(new Command("earthquake", "MP - control earthquake", (string[] args) => {
+            ConFailIfCheatsDisabled();
+            ConFailIfNetworkIsRunningAndIsClient();
+            con.CheckArgumentCount(args, 1);
+            con.CheckForWorld();
+            var world = WorldGeneration.world;
+
+            var arg = args[1].ToLower();
+            if (arg == "now") {
+                //OG: WorldGeneration.Update  V6.0-pre4
+                world.earthquakeDelay = UnityEngine.Random.Range(600f, 1750f);
+                world.earthquakeTime = UnityEngine.Random.Range(3f, 25f);
+                Time.timeScale = 1f;
+
+                con.LogToConsole($"Started earthquake right now.");
+            } else {
+                WorldMP.earthquake_enabled = ParseBool01(arg, true);
+
+                if (!WorldMP.earthquake_enabled) {
+                    world.earthquakeTime = 0;
                 }
 
-            }, new Dictionary<int, List<string>> { { 0, new List<string> { "now", "disable", "enable" } } }, ("string", "Action")));
+                con.LogToConsole($"Earthquake active: {WorldMP.earthquake_enabled}");
+            }
+
+        }, new Dictionary<int, List<string>> { { 0, new List<string> { "now", "disable", "enable" } } }, ("string", "Action")));
 
 
 
@@ -1496,1710 +1392,1448 @@ public class Con : CasualtiesTogetherSingleton {
 
 
 
-            var dumpbodyvars_command = new Command("dumpbodyvars", "MP - dump all fields of a body (for health desync debugging)", (string[] splited) => {
-                con.CheckForWorld();
+        var dumpbodyvars_command = new Command("dumpbodyvars", "MP - dump all fields of a body (for health desync debugging)", (string[] splited) => {
+            con.CheckForWorld();
 #if RELEASE
             ConFailIfCheatsDisabled();
 #endif
 
-                if (!Net.IsRunning) {
-                    log.l(Util.GetLocalBody().DumpBodyVars());
-                    return;
+            if (!Net.IsRunning) {
+                log.l( Util.GetLocalBody().DumpBodyVars());
+                return;
+            }
+
+
+            string plrname = "@m";
+            if ( splited.Length > 1 ) {
+                plrname = splited[1];
+            }
+
+            var isall = plrname == "@a";
+            var hasplr = false;
+            var succ = false;
+
+            var giv = (NetBody npc) => {
+                hasplr = true;
+
+                if (!isall) {
+                    plrname = npc.bodyName;
                 }
 
+                log.l(npc.ToString() + " " + npc.body.DumpBodyVars());
+            };
+            var res = PerformActionOnBodiesByName(plrname, giv, true, false, GetCommandCallerPlayer(), false);
 
-                string plrname = "@m";
-                if (splited.Length > 1) {
-                    plrname = splited[1];
-                }
-
-                var isall = plrname == "@a";
-                var hasplr = false;
-                var succ = false;
-
-                var giv = (NetBody npc) => {
-                    hasplr = true;
-
-                    if (!isall) {
-                        plrname = npc.bodyName;
-                    }
-
-                    log.l(npc.ToString() + " " + npc.body.DumpBodyVars());
-                };
-                var res = PerformActionOnBodiesByName(plrname, giv, true, false, GetCommandCallerPlayer(), false);
-
-                if (!hasplr) {
-                    con.LogToConsole($"{plrname} -> body not found. ");
-                }
-            }, new Dictionary<int, List<string>> {
+            if (!hasplr) {
+                con.LogToConsole($"{plrname} -> body not found. ");
+            }
+        }, new Dictionary<int, List<string>> {
             // get all item names
             { 1, Resources.LoadAll<GameObject>("").Where((GameObject x) => (bool)x.GetComponent<Item>()).Select((GameObject x) => x.name).ToList() }
         },
-                ("player", "to dumpbodyvars to"),
-                ("string item_id", "Item resource ID, multiple is allowed")
-            );
-            RegisterCommand(dumpbodyvars_command);
+            ("player", "to dumpbodyvars to"),
+            ("string item_id", "Item resource ID, multiple is allowed")
+        );
+        RegisterCommand(dumpbodyvars_command);
 
-            var give_command = new Command("give", "MP - give an item to a player", (string[] splited) => {
+        var give_command = new Command("give", "MP - give an item to a player", (string[] splited) => {
 
-                ConFailIfNetworkIsRunningAndIsClient();
-                ConFailIfCheatsDisabled();
-                con.CheckArgumentCount(splited, 2);
+            ConFailIfNetworkIsRunningAndIsClient();
+            ConFailIfCheatsDisabled();
+            con.CheckArgumentCount(splited, 2);
 
-                var items = splited.ToList().GetRange(2, splited.Length - 2);
-                string plrname = splited[1];
+            var items = splited.ToList().GetRange(2, splited.Length - 2);
+            string plrname = splited[1];
 
-                var isall = plrname == "@a";
-                var hasplr = false;
-                var succ = false;
+            var isall = plrname == "@a";
+            var hasplr = false;
+            var succ = false;
 
-                var giv = (NetBody npc) => {
-                    hasplr = true;
+            var giv = (NetBody npc) => {
+                hasplr = true;
 
-                    if (!isall) {
-                        plrname = npc.bodyName;
-                    }
-
-                    var givenItems = items;
-                    foreach (var itemname in items) {
-                        if (SpawnThingOnPlayer(itemname, npc.body, true)) {
-                            succ = true;
-                        } else {
-                            givenItems = new List<string>(givenItems);
-                            givenItems.Remove(itemname);
-                            con.LogToConsole($"{itemname} is not an item.");
-                        }
-                    }
-                    items = givenItems;
-                    if (succ && givenItems.Count > 0) {
-                        con.LogToConsole($"{npc.bodyName} got the {String.Join(" ", givenItems)}");
-                    }
-                };
-                var res = PerformActionOnBodiesByName(plrname, giv, true, false, GetCommandCallerPlayer(), false);
-
-                if (!hasplr) {
-                    con.LogToConsole($"{plrname} -> body not found. ");
+                if (!isall) {
+                    plrname = npc.bodyName;
                 }
-            }, new Dictionary<int, List<string>> {
+
+                var givenItems = items;
+                foreach (var itemname in items) {
+                    if (SpawnThingOnPlayer(itemname, npc.body, true)) {
+                        succ = true;
+                    } else {
+                        givenItems = new List<string>(givenItems);
+                        givenItems.Remove(itemname);
+                        con.LogToConsole($"{itemname} is not an item.");
+                    }
+                }
+                items = givenItems;
+                if (succ && givenItems.Count > 0) {
+                    con.LogToConsole($"{npc.bodyName} got the {String.Join(" ", givenItems)}");
+                }
+            };
+            var res = PerformActionOnBodiesByName(plrname, giv, true, false, GetCommandCallerPlayer(), false);
+
+            if (!hasplr) {
+                con.LogToConsole($"{plrname} -> body not found. ");
+            }
+        }, new Dictionary<int, List<string>> {
             // get all item names
-            { 1, Resources.LoadAll<GameObject>("").Where((GameObject x) => (bool)x.GetComponent<Item>()).Select((GameObject x) => x.name).ToList() }
+            { 1, Resources.LoadAll<GameObject>("").Where((GameObject x) => (bool)x.GetComponent<Item>()).Select((GameObject x) => x.name).ToList() } 
         },
-                ("player", "to give to"),
-                ("string item_id", "Item resource ID, multiple is allowed")
-            );
-            RegisterCommand(give_command);
+            ("player", "to give to"), 
+            ("string item_id", "Item resource ID, multiple is allowed")
+        );
+        RegisterCommand(give_command);
 
-            var respawn_command = RegisterCommand(new Command("respawn", "MP - respawn a player", (string[] splited) => {
+        var respawn_command = RegisterCommand(new Command("respawn", "MP - respawn a player", (string[] splited) => {
 
-                ConFailIfCheatsDisabled();
-                ConFailIfNetworkIsRunningAndIsClient();
-                con.CheckForWorld();
-                ConFailIfNetworkNotRunning();
-                con.CheckArgumentCount(splited, 1);
+            ConFailIfCheatsDisabled();
+            ConFailIfNetworkIsRunningAndIsClient();
+            con.CheckForWorld();
+            ConFailIfNetworkNotRunning();
+            con.CheckArgumentCount(splited, 1);
 
-                Vector2 goalpos = new Vector2();
-                if (splited.Length >= 3) {
-                    goalpos = con.ParsePosition(splited[2]);
+            Vector2 goalpos = new Vector2();
+            if (splited.Length >= 3) {
+                goalpos = con.ParsePosition(splited[2]);
+            } else {
+                goalpos = (Vector2)Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            }
+
+            var plrname = splited[1];
+            var isall = plrname == "@a";
+            var succ = false;
+            var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
+                if (!isall) {
+                    plrname = plr.playerName;
+                }
+                plr.Server_RespawnCharacter(goalpos, false);
+                succ = true;
+            }, true, GetCommandCallerPlayer(),true, false);
+            if (succ && res.Item1) {
+                con.LogToConsole($"Respawned: {plrname}");
+            } else {
+                if (res.Item1) {
+                    con.LogToConsole($"Failed to respawn: {plrname}");
                 } else {
-                    goalpos = (Vector2)Camera.main.ScreenToWorldPoint(Input.mousePosition);
+                    con.LogToConsole($"Failed to respawn: {plrname} {res.Item2}");
                 }
+            }
+        }, new Dictionary<int, List<string>> {},
+            ("player", "to respawn to"),
+            ("position", "optional")
+        ));
 
-                var plrname = splited[1];
+        RegisterCommand(new Command("clearinventory", "MP - clear inventory of a player", (string[] splited) => {
+
+            ConFailIfCheatsDisabled();
+            con.CheckForWorld();
+
+            var delete = false;
+            if (splited.Length > 1) {
+                delete = con.ParseBool(splited[1]);
+            }
+
+            var dothing = (Body b) => {
+                if (delete) {
+                    foreach (var item in b.GetAllItemsThorough()) {
+                        GameObject.Destroy(item.gameObject);
+                    }
+                    b.Body_DropAllItems();
+                } else { 
+                    b.Body_DropAllItems();
+                }
+            };
+
+            if (Net.IsRunning && splited.Length > 2) {
+                var plrname = splited[2];
                 var isall = plrname == "@a";
                 var succ = false;
                 var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
                     if (!isall) {
                         plrname = plr.playerName;
                     }
-                    plr.Server_RespawnCharacter(goalpos, false);
+                    dothing(plr.body);
                     succ = true;
                 }, true, GetCommandCallerPlayer(), true, false);
                 if (succ && res.Item1) {
-                    con.LogToConsole($"Respawned: {plrname}");
+                    con.LogToConsole($"Cleared inventory: {plrname}");
                 } else {
                     if (res.Item1) {
-                        con.LogToConsole($"Failed to respawn: {plrname}");
+                        con.LogToConsole($"Failed to clear inventory: {plrname}");
                     } else {
-                        con.LogToConsole($"Failed to respawn: {plrname} {res.Item2}");
+                        con.LogToConsole($"Failed to clear inventory: {plrname} {res.Item2}");
                     }
                 }
-            }, new Dictionary<int, List<string>> { },
-                ("player", "to respawn to"),
-                ("position", "optional")
-            ));
+            } else {
+                dothing(Util.GetLocalBody());
+            }
 
-#if FULLGAME
-        RegisterCommand(new Command("species", "MP-SERVER - Force-swap a player's species. Optional wipe resets XP to that species' base skills.", (string[] splited) => {
+            
+        }, new Dictionary<int, List<string>> { },
+          ("bool", "delete items"),
+          ("player", "optional")
+        ));
+
+        RegisterCommand(new Command("godmode", "MP - revive every player and keep resetting their health", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+            ref bool val = ref _DEV_GODMODE;
+            var target = !val;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
+            }
+            val = target;
+            ConsoleScript.instance.LogToConsole($"godmode {val}");
+        }, null));
+
+        RegisterCommand_LocalOnly(new Command("zoom", "MP - zoom camera", (string[] splited) => {
+            con.CheckArgumentCount(splited, 1);
+            con.CheckForWorld();
+
+            if (!float.TryParse(splited[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var target)) {
+                ConsoleScript.instance.LogToConsole("Thats not a nubmer bro");
+                return;
+            }
+            if (target < .001) {
+                throw new ArgumentOutOfRangeException("Zoom can't be 0 or your perception of reality will shatter.");
+            }
+
+            if (Mathf.Abs(target) < 1 && !CanCheat()) {
+                target = 1f;
+            }
+
+            Camera.main.orthographicSize = (Camera.main.orthographicSize * _DEV_ZOOM) / target; // default: 37,5
+
+            var ppc = PlayerCamera.main.GetComponent<PixelPerfectCamera>();
+            ppc.assetsPPU = (int)(target * 8); //default is: 8
+
+            _DEV_ZOOM = target;
+            ConsoleScript.instance.LogToConsole($"zoom {_DEV_ZOOM} orthographicSize={Camera.main.orthographicSize} PPU={ppc.assetsPPU}");
+        }, null, ("float zoom", "the bigger the number, the closer you see")));
+
+        RegisterCommand_LocalOnly(new Command("spectate", "MP - spectator mode", (string[] splited) => {
+
+            var target = !UIInGame.SpectatorModeActive;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
+            }
+
+            if (target) {
+                ConFailIfCheatsDisabled();
+                UIInGame.StartSpectatorMode();
+                
+                // User may want to spectate a specific target 
+                if (splited.Length > 2) {
+                    var targetname = splited[2];
+                    GameObject obj = GetObjectOrBodyForCommand(targetname);
+                    
+                    if (obj != null) {
+                        UIInGame.Spectator_SetTarget(obj.transform);
+                    }
+                }
+                
+            } else {
+                UIInGame.StopSpectatorMode();
+            }
+
+            con.LogToConsole($"Spectator mode: {UIInGame.SpectatorModeActive}");
+        }, null));
+
+
+
+        RegisterCommand(new Command("mpopenmenu", "MP", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+            var target = !UIMainMenu.mainmenu_open;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
+            }
+            UIMainMenu.SetOpen(target);
+            ConsoleScript.instance.LogToConsole($"UIMainMenu.SetOpen({target});");
+        }, null));
+
+        RegisterCommand(new Command("settile", "MP", (string[] splited) => {
+            ConFailIfCheatsDisabled();
+
+            ushort tileid = ushort.Parse(splited[1]);
+
+            Vector2 goalpos = new Vector2();
+            if (splited.Length < 4) {
+                goalpos = (Vector2)Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            } else {
+                goalpos.x = float.Parse(splited[2], CultureInfo.InvariantCulture);
+                goalpos.y = float.Parse(splited[3], CultureInfo.InvariantCulture);
+            }
+            Vector2Int realpos = WorldGeneration.world.WorldToBlockPos(goalpos);
+
+            WorldGeneration.world.SetBlock(realpos, tileid);
+
+            ConsoleScript.instance.LogToConsole($"Set tile {realpos.x} {realpos.y} id to {tileid} ({WorldGeneration.world.GetBlockInfo(tileid)?.name})");
+        }, null));
+        
+        RegisterCommand(new Command("setfluid", "MP", (string[] splited) => {
+            ConFailIfCheatsDisabled();
+
+            byte fluidid = byte.Parse(splited[1]);
+
+            Vector2 goalpos = new Vector2();
+            if (splited.Length < 4) {
+                goalpos = (Vector2)Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            } else {
+                goalpos.x = float.Parse(splited[2], CultureInfo.InvariantCulture);
+                goalpos.y = float.Parse(splited[3], CultureInfo.InvariantCulture);
+            }
+            Vector2Int realpos = WorldGeneration.world.WorldToBlockPos(goalpos);
+
+            FluidManager.main.fluid[realpos.x, realpos.y] = fluidid;
+
+            ConsoleScript.instance.LogToConsole($"Set fluid {realpos.x} {realpos.y} id to {fluidid} ({FluidManager.WorldFluidToLiquidID[fluidid]})");
+        }, null));
+
+        RegisterCommand_LocalOnly(new Command("spawnpoint", "MP-SERVER- Set default spawn point. (It resets after world generates)", (string[] splited) => {
             ConFailIfCheatsDisabled();
             ConFailIfNetworkIsRunningAndIsClient();
+            con.CheckArgumentCount(splited, 1);
             con.CheckForWorld();
+
+            var pos = con.ParsePosition(splited[1]);
+
+            Body_PlaceBody_MultiplayerPatch.SpawnLocation = pos;
+            Multiplayer.rules.SpawnOnPlayer = false;
+
+            log.l($"SpawnLocation set to: {pos}");
+        }, null, ("position", "New spawn point")) );
+
+        RegisterCommand_LocalOnly(new Command("vote", "MP- Call a vote.", (string[] splited) => {
+            var aaa = String.Join(" ", splited);
+
+            {
+                var writer = Multiplayer.CreateNamedWriter("CustomCommand");
+                writer.Put(aaa);
+                Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
+                // WRITER END; 
+            }
+        }, null, ("type", "kick/mutevc/mutetc"), ("player", "")));
+
+        RegisterCommand(new Command("createvote", "MP-SERVER- Call a custom vote.", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
             ConFailIfNetworkNotRunning();
-            con.CheckArgumentCount(splited, 3);
+            con.CheckArgumentCount(splited, 5);
 
-            if (!TryParseSpeciesArg(splited[1], out int chr)) {
-                throw new Exception($"\"{splited[1]}\" is not a valid species (Milky / Expie / Dune).");
+            var argcount = 1;
+
+            var toRun = (splited[argcount++]);
+            var timeout = con.ParseFloat(splited[argcount++]);
+            var percent = con.ParseFloat(splited[argcount++]);
+            //if (Mathf.Abs(percent) > 1f) 
+            {
+                percent = Mathf.Clamp(percent, -100f, 100f) / 100f;
             }
-            bool wipeXp = con.ParseBool(splited[2]);
-            string plrname = splited[3];
-            bool isall = plrname == "@a";
-            bool succ = false;
-            var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
-                if (!isall) {
-                    plrname = plr.playerName;
+
+            var textWords = splited.Skip(4);
+            var titleAndTextToUnmerge = String.Join(" ", textWords).Trim();
+
+            //createvote give_@a_shotgun 5 10 hello bye
+            //createvote explode_plr:@r 5 10 explosion gamble
+
+            var title = "vote title";
+            var text = "vote text";
+
+            {
+                var tt = splited.ElementAtOrDefault(argcount++);
+                var te = splited.ElementAtOrDefault(argcount++);
+                if (tt != null) {
+                    title = tt.Replace('_', ' ');
                 }
-                CharacterSpawn.ServerForceSwapSpecies(plr, chr, wipeXp);
-                succ = true;
-            }, true, GetCommandCallerPlayer(), true, false);
-            if (succ && res.Item1) {
-                con.LogToConsole($"Species -> {CharacterSpawn.SaveSpeciesName(chr)} wipeXp={wipeXp}: {plrname}");
-            } else if (res.Item1) {
-                con.LogToConsole($"Failed species swap: {plrname}");
-            } else {
-                con.LogToConsole($"Failed species swap: {plrname} {res.Item2}");
+                if (te != null) {
+                    text = te.Replace('_', ' ');
+                }
             }
-        // argAutofill keys are 0-based arg slots (same as argDescription). Command ctor
-        // auto-Adds true/false for shortDesc starting with "bool" - do not pre-seed that index.
-        }, new Dictionary<int, List<string>> {
-            { 0, new List<string> { "Milky", "Expie", "Dune" } },
-        },
-            ("species", "Milky / Expie / Dune"),
-            ("bool wipeXp", "true = reset skill XP to species base"),
-            ("player", "target player / @a / @s")
-        ));
-#endif
+            // Start vote
+            {
 
-            RegisterCommand(new Command("clearinventory", "MP - clear inventory of a player", (string[] splited) => {
-
-                ConFailIfCheatsDisabled();
-                con.CheckForWorld();
-
-                var delete = false;
-                if (splited.Length > 1) {
-                    delete = con.ParseBool(splited[1]);
-                }
-
-                var dothing = (Body b) => {
-                    if (delete) {
-                        foreach (var item in b.GetAllItemsThorough()) {
-                            GameObject.Destroy(item.gameObject);
-                        }
-                        b.Body_DropAllItems();
-                    } else {
-                        b.Body_DropAllItems();
-                    }
-                };
-
-                if (Net.IsRunning && splited.Length > 2) {
-                    var plrname = splited[2];
-                    var isall = plrname == "@a";
-                    var succ = false;
-                    var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
-                        if (!isall) {
-                            plrname = plr.playerName;
-                        }
-                        dothing(plr.body);
-                        succ = true;
-                    }, true, GetCommandCallerPlayer(), true, false);
-                    if (succ && res.Item1) {
-                        con.LogToConsole($"Cleared inventory: {plrname}");
-                    } else {
-                        if (res.Item1) {
-                            con.LogToConsole($"Failed to clear inventory: {plrname}");
+                VoteSystem.Server_AnnounceVote(title, text, timeout, (HashSet<ScavPlayer> voted_yes, HashSet<ScavPlayer> voted_no, HashSet<ScavPlayer> voted_ignore) => {
+                    var total = (float)(voted_yes.Count + voted_no.Count + voted_ignore.Count);
+                    var yes = (float)voted_yes.Count;
+                    var no = (float)voted_no.Count;
+                    if (total > 0) {
+                        float perc = 0;
+                        if (percent >= 0) {
+                            perc = yes / total;
                         } else {
-                            con.LogToConsole($"Failed to clear inventory: {plrname} {res.Item2}");
+                            perc = no / total;
+                        }
+
+                        Chat.Server_ChatAnnouncement($"<key:vote_result> {Mathf.RoundToInt(perc * 100f)}%/{Mathf.RoundToInt(percent * 100f)}%");
+                        if (perc >= Mathf.Abs(percent)) {
+                            con.RunCommandString(toRun);
                         }
                     }
-                } else {
-                    dothing(Util.GetLocalBody());
-                }
+                });
 
+            }
+        }, null, ("string command", "Command to run if vote is accepted."), ("float time", "Time for vote. (Default: 10)"), ("float percent", "Percentage of votes required. (Default: 50)"), ("string", "Title"), ("string", "Text")) );
 
-            }, new Dictionary<int, List<string>> { },
-              ("bool", "delete items"),
-              ("player", "optional")
-            ));
+        RegisterCommand(new Command("kick", "MP-SERVER- Forcefully disconnect player.", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+            ConFailIfNetworkNotRunning();
+            con.CheckArgumentCount(splited, 1);
 
-            RegisterCommand(new Command("godmode", "MP - revive every player and keep resetting their health", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-                ref bool val = ref _DEV_GODMODE;
-                var target = !val;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
-                }
-                val = target;
-                ConsoleScript.instance.LogToConsole($"godmode {val}");
-            }, null));
+            var reason = "Kicked!";
+            if (splited.Count() > 2) {
+                reason = "Kicked: " + string.Join(" ", splited.Skip(2));
+            }
 
-            RegisterCommand_LocalOnly(new Command("zoom", "MP - zoom camera", (string[] splited) => {
-                con.CheckArgumentCount(splited, 1);
-                con.CheckForWorld();
-
-                if (!float.TryParse(splited[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var target)) {
-                    ConsoleScript.instance.LogToConsole("Thats not a nubmer bro");
-                    return;
-                }
-                if (target < .001) {
-                    throw new ArgumentOutOfRangeException("Zoom can't be 0 or your perception of reality will shatter.");
-                }
-
-                if (Mathf.Abs(target) < 1 && !CanCheat()) {
-                    target = 1f;
-                }
-
-                Camera.main.orthographicSize = (Camera.main.orthographicSize * _DEV_ZOOM) / target; // default: 37,5
-
-                var ppc = PlayerCamera.main.GetComponent<PixelPerfectCamera>();
-                ppc.assetsPPU = (int)(target * 8); //default is: 8
-
-                _DEV_ZOOM = target;
-                ConsoleScript.instance.LogToConsole($"zoom {_DEV_ZOOM} orthographicSize={Camera.main.orthographicSize} PPU={ppc.assetsPPU}");
-            }, null, ("float zoom", "the bigger the number, the closer you see")));
-
-            RegisterCommand_LocalOnly(new Command("spectate", "MP - spectator mode", (string[] splited) => {
-
-                var target = !UIInGame.SpectatorModeActive;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
-                }
-
-                if (target) {
-                    ConFailIfCheatsDisabled();
-                    UIInGame.StartSpectatorMode();
-
-                    // user may want to spectate a specific target 
-                    if (splited.Length > 2) {
-                        var targetname = splited[2];
-                        GameObject obj = GetObjectOrBodyForCommand(targetname);
-
-                        if (obj != null) {
-                            UIInGame.Spectator_SetTarget(obj.transform);
-                        }
+            var plrname = splited[1];
+            var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
+                if (!plr.IsLocal) {
+                    Plugin.log.LogInfo($"Server entered command to kick: {plr}");
+                    plr.Server_Kick(reason);
+                    if (plrname != "@a") {
+                        plrname = plr.playerName;
                     }
+                }
+            }, false, GetCommandCallerPlayer(), false, false);
+            if (res.Item1) {
+                log.l($"Kicked: {plrname} - {reason}");
+            } else {
+                log.l($"Failed to kick: {plrname} {res.Item2}");
+            }
 
+        }, null, ("player", ""), ("string reason", "optional")));
+
+        RegisterCommand(new Command("ban", "MP-SERVER- Ban player.", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+
+            con.CheckArgumentCount(splited, 1);
+            var plrname = splited[1];
+
+            var reason = "Banned!";
+            if (splited.Count() > 2) {
+                reason = "Banned: " + string.Join(" ", splited.Skip(2));
+            }
+
+            var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
+                if (!plr.IsLocal) {
+                    Plugin.log.LogInfo($"Server entered command to ban: {plr}");
+                    BanList.Add("NULL", plr.playerName, plr.SteamId);
+                    plr.Server_Kick(reason);
+                    if (plrname != "@a") {
+                        plrname = plr.playerName;
+                    }
+                }
+            }, false, GetCommandCallerPlayer(), false, false);
+            if (res.Item1) {
+                log.l($"Banned: {plrname} - {reason}");
+            } else {
+                if (ulong.TryParse(plrname, out var parsed_as_steamid) && parsed_as_steamid != 0 && plrname.StartsWith("7656119")) {
+                    BanList.Add("NULL", "", parsed_as_steamid);
+                    log.l($"Banned Steam ID: {parsed_as_steamid} ");
                 } else {
-                    UIInGame.StopSpectatorMode();
+                    log.l($"Failed to Ban: {plrname} {res.Item2}");
                 }
+            }
 
-                con.LogToConsole($"Spectator mode: {UIInGame.SpectatorModeActive}");
-            }, null));
+        }, null, ("player", ""), ("string reason", "optional")));
+        
+        RegisterCommand(new Command("ipban", "MP-SERVER- IP Ban player. (Non-steam only)", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+
+            con.CheckArgumentCount(splited, 1);
+            var plrname = splited[1];
+
+            if (!(Net.Transport is TransportLiteNetLib lnl)) {
+                throw new Exception("Only available for direct IP connection mode.");
+            }
 
 
+            var reason = "Banned!";
+            if (splited.Count() > 2) {
+                reason = "Banned: " + string.Join(" ", splited.Skip(2));
+            }
 
-            RegisterCommand(new Command("mpopenmenu", "MP", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-                var target = !UIMainMenu.mainmenu_open;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
+            var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
+                if (!plr.IsLocal) {
+                    var peer = lnl.ClientIdToPeerDict[plr.playerId];
+                    if (peer == null) {
+                        throw new Exception($"{plr} does not have net peer object ????");
+                    }
+                    Plugin.log.LogInfo($"Server entered command to IP ban: {plr}");
+                    BanList.Add(peer.Address.ToString(), plr.playerName, plr.SteamId);
+                    plr.Server_Kick(reason);
+                    if (plrname != "@a") {
+                        plrname = plr.playerName;
+                    }
                 }
-                UIMainMenu.SetOpen(target);
-                ConsoleScript.instance.LogToConsole($"UIMainMenu.SetOpen({target});");
-            }, null));
+            }, false, GetCommandCallerPlayer(), false, false);
 
-            RegisterCommand(new Command("settile", "MP", (string[] splited) => {
+            if (res.Item1) {
+                log.l($"Banned: {plrname} - {reason}");
+            } else {
+                if (Net.TryParseIPPORT(plrname, out var realip, out var _)) {
+                    BanList.Add(realip, "", 0);
+                    log.l($"Banned IP: {realip} ");
+                } else {
+                    log.l($"Failed to Ban: {plrname} {res.Item2}");
+                }
+            }
+        }, null, ("player", ""), ("string reason", "optional")));
+        
+        RegisterCommand(new Command("banlist", "MP- Show all players you've banned. Local.", (string[] splited) => {
+            log.l($"BANLIST: {BanList.Instance.filePath}\n{String.Join("\n",BanList.Entries)} ");
+        }, null));
+        
+        RegisterCommand(new Command("unban", "MP- Remove a player from your ban list.", (string[] splited) => {
+
+            con.CheckArgumentCount(splited, 1);
+            var plrname = splited[1];
+
+            BanList.BanEntry found = null;
+            if (ulong.TryParse(plrname, out var parsed_as_steamid) && parsed_as_steamid != 0) {
+                found = BanList.Entries.FirstOrDefault(x => x.steamid == parsed_as_steamid);
+            }
+            if (found == null) {
+                found = BanList.Entries.FirstOrDefault(x => x.ip == plrname);
+            }
+            if (found == null) {
+                found = BanList.Entries.FirstOrDefault(x => x.name == plrname);
+            }
+
+            if (found != null) {
+                BanList.Remove(found);
+                log.l("Unbanned: " + found.ToString());
+                return;
+            } else {
+                log.l($"\"{plrname}\" was not found in your ban list.");
+            }
+
+        }, null, ("user", "SteamID or IP or Name")));
+
+        RegisterCommand(new Command("say", "MP - say something in chat", (string[] splited) => {
+            ConFailIfNetworkNotRunning();
+
+            var con = ConsoleScript.instance;
+
+            var msg = String.Join(" ", splited.Skip(1));
+
+            Chat.SendChatMessage(msg,true);
+
+
+            con.LogToConsole($"Chat message sent: " + msg);
+        }, null, ("string", "message")));
+
+        RegisterCommand(new Command("skybg", "MP dev", (string[] splited) => {
+            con.CheckForWorld();
+
+            bool has_params = false;
+            float r = 0;
+            Color c = Color.white;
+            if (splited.Length == 3) {
+                has_params = true;
+                c = con.ParseColor(splited[1]);
+                r = con.ParseFloat(splited[2]);
+            }
+
+            if (WorldMP.HasSkyBackground()) {
+                WorldMP.RemoveSkyBackground();
+            } else {
                 ConFailIfCheatsDisabled();
-
-                ushort tileid = ushort.Parse(splited[1]);
-
-                Vector2 goalpos = new Vector2();
-                if (splited.Length < 4) {
-                    goalpos = (Vector2)Camera.main.ScreenToWorldPoint(Input.mousePosition);
+                if (has_params) {
+                    WorldMP.CreateSkyBackground(c,r);
                 } else {
-                    goalpos.x = float.Parse(splited[2], CultureInfo.InvariantCulture);
-                    goalpos.y = float.Parse(splited[3], CultureInfo.InvariantCulture);
+                    WorldMP.CreateSkyBackground();
                 }
-                Vector2Int realpos = WorldGeneration.world.WorldToBlockPos(goalpos);
+            }
+            ConsoleScript.instance.LogToConsole($"skybg {WorldMP.HasSkyBackground()} ");
+        }, null, ("color", "skyColor"), ("float", "rainIntensity")));
 
-                WorldGeneration.world.SetBlock(realpos, tileid);
+        RegisterCommand_LocalOnly(new Command("snowbg", "MP dev", (string[] splited) => {
+            var target = !PlayerCamera.main.backgroundSnow.activeSelf;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
+            }
+            PlayerCamera.main.backgroundSnow.SetActive(target);
 
-                ConsoleScript.instance.LogToConsole($"Set tile {realpos.x} {realpos.y} id to {tileid} ({WorldGeneration.world.GetBlockInfo(tileid)?.name})");
-            }, null));
+            ConsoleScript.instance.LogToConsole($"snowbg {PlayerCamera.main.backgroundSnow.activeSelf} ");
+        }, null));
 
-            RegisterCommand(new Command("setfluid", "MP", (string[] splited) => {
-                ConFailIfCheatsDisabled();
+        RegisterCommand(new Command("map", "MP dev", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+            ConFailIfNotInMainMenu();
 
-                byte fluidid = byte.Parse(splited[1]);
+            var m = "debug";
+            if (splited.Length > 1) {
+                m = splited[1];
+            }
 
-                Vector2 goalpos = new Vector2();
-                if (splited.Length < 4) {
-                    goalpos = (Vector2)Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            var prs = PreRunScript.instance;
+
+            if (m == "debug") {
+                log.l("Loading debug world");
+                WorldMP.LoadDebugWorld();
+            } else if (m == "tutorial") {
+                log.l("Loading tutorial world");
+                prs.StartTutorial();
+            } else {
+                log.l("Loading vanilla world");
+                if (splited.Contains("loadsave")) {
+                    PlayerPrefs.SetInt("didbasiccourse", 1);
+                    prs.LoadRun();
                 } else {
-                    goalpos.x = float.Parse(splited[2], CultureInfo.InvariantCulture);
-                    goalpos.y = float.Parse(splited[3], CultureInfo.InvariantCulture);
+                    prs.StartRun();
                 }
-                Vector2Int realpos = WorldGeneration.world.WorldToBlockPos(goalpos);
-
-                FluidManager.main.fluid[realpos.x, realpos.y] = fluidid;
-
-                ConsoleScript.instance.LogToConsole($"Set fluid {realpos.x} {realpos.y} id to {fluidid} ({FluidManager.WorldFluidToLiquidID[fluidid]})");
-            }, null));
-
-            RegisterCommand_LocalOnly(new Command("spawnpoint", "MP-SERVER- Set default spawn point. (It resets after world generates)", (string[] splited) => {
-                ConFailIfCheatsDisabled();
-                ConFailIfNetworkIsRunningAndIsClient();
-                con.CheckArgumentCount(splited, 1);
-                con.CheckForWorld();
-
-                var pos = con.ParsePosition(splited[1]);
-
-                Body_PlaceBody_MultiplayerPatch.SpawnLocation = pos;
-                Multiplayer.rules.SpawnOnPlayer = false;
-
-                log.l($"SpawnLocation set to: {pos}");
-            }, null, ("position", "New spawn point")));
-
-            RegisterCommand_LocalOnly(new Command("vote", "MP- Call a vote.", (string[] splited) => {
-                var aaa = String.Join(" ", splited);
-
-                {
-                    var writer = Multiplayer.CreateNamedWriter("CustomCommand");
-                    writer.Put(aaa);
-                    Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
-                    // WRITER END; 
-                }
-            }, null, ("type", "kick/mutevc/mutetc"), ("player", "")));
-
-            RegisterCommand(new Command("createvote", "MP-SERVER- Call a custom vote.", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-                ConFailIfNetworkNotRunning();
-                con.CheckArgumentCount(splited, 5);
-
-                var argcount = 1;
-
-                var toRun = (splited[argcount++]);
-                var timeout = con.ParseFloat(splited[argcount++]);
-                var percent = con.ParseFloat(splited[argcount++]);
-                //if (Mathf.Abs(percent) > 1f) 
-                {
-                    percent = Mathf.Clamp(percent, -100f, 100f) / 100f;
-                }
-
-                var textWords = splited.Skip(4);
-                var titleAndTextToUnmerge = String.Join(" ", textWords).Trim();
-
-                //createvote give_@a_shotgun 5 10 hello bye
-                //createvote explode_plr:@r 5 10 explosion gamble
-
-                var title = "vote title";
-                var text = "vote text";
-
-                {
-                    var tt = splited.ElementAtOrDefault(argcount++);
-                    var te = splited.ElementAtOrDefault(argcount++);
-                    if (tt != null) {
-                        title = tt.Replace('_', ' ');
-                    }
-                    if (te != null) {
-                        text = te.Replace('_', ' ');
-                    }
-                }
-                // start vote
-                {
-
-                    VoteSystem.Server_AnnounceVote(title, text, timeout, (HashSet<ScavPlayer> voted_yes, HashSet<ScavPlayer> voted_no, HashSet<ScavPlayer> voted_ignore) => {
-                        var total = (float)(voted_yes.Count + voted_no.Count + voted_ignore.Count);
-                        var yes = (float)voted_yes.Count;
-                        var no = (float)voted_no.Count;
-                        if (total > 0) {
-                            float perc = 0;
-                            if (percent >= 0) {
-                                perc = yes / total;
-                            } else {
-                                perc = no / total;
-                            }
-
-                            Chat.Server_ChatAnnouncement($"<key:vote_result> {Mathf.RoundToInt(perc * 100f)}%/{Mathf.RoundToInt(percent * 100f)}%");
-                            if (perc >= Mathf.Abs(percent)) {
-                                con.RunCommandString(toRun);
-                            }
-                        }
-                    });
-
-                }
-            }, null, ("string command", "Command to run if vote is accepted."), ("float time", "Time for vote. (Default: 10)"), ("float percent", "Percentage of votes required. (Default: 50)"), ("string", "Title"), ("string", "Text")));
-
-            RegisterCommand(new Command("kick", "MP-SERVER- Forcefully disconnect player.", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-                ConFailIfNetworkNotRunning();
-                con.CheckArgumentCount(splited, 1);
-
-                var reason = "Kicked!";
-                if (splited.Count() > 2) {
-                    reason = "Kicked: " + string.Join(" ", splited.Skip(2));
-                }
-
-                var plrname = splited[1];
-                var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
-                    if (!plr.IsLocal) {
-                        Plugin.log.LogInfo($"Server entered command to kick: {plr}");
-                        plr.Server_Kick(reason);
-                        if (plrname != "@a") {
-                            plrname = plr.playerName;
-                        }
-                    }
-                }, false, GetCommandCallerPlayer(), false, false);
-                if (res.Item1) {
-                    log.l($"Kicked: {plrname} - {reason}");
-                } else {
-                    log.l($"Failed to kick: {plrname} {res.Item2}");
-                }
-
-            }, null, ("player", ""), ("string reason", "optional")));
-
-            RegisterCommand(new Command("ban", "MP-SERVER- Ban player.", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-
-                con.CheckArgumentCount(splited, 1);
-                var plrname = splited[1];
-
-                var reason = "Banned!";
-                if (splited.Count() > 2) {
-                    reason = "Banned: " + string.Join(" ", splited.Skip(2));
-                }
-
-                var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
-                    if (!plr.IsLocal) {
-                        Plugin.log.LogInfo($"Server entered command to ban: {plr}");
-                        BanList.Add("NULL", plr.playerName, plr.SteamId);
-                        plr.Server_Kick(reason);
-                        if (plrname != "@a") {
-                            plrname = plr.playerName;
-                        }
-                    }
-                }, false, GetCommandCallerPlayer(), false, false);
-                if (res.Item1) {
-                    log.l($"Banned: {plrname} - {reason}");
-                } else {
-                    if (ulong.TryParse(plrname, out var parsed_as_steamid) && parsed_as_steamid != 0 && plrname.StartsWith("7656119")) {
-                        BanList.Add("NULL", "", parsed_as_steamid);
-                        log.l($"Banned Steam ID: {parsed_as_steamid} ");
-                    } else {
-                        log.l($"Failed to Ban: {plrname} {res.Item2}");
-                    }
-                }
-
-            }, null, ("player", ""), ("string reason", "optional")));
-
-            RegisterCommand(new Command("ipban", "MP-SERVER- IP Ban player. (Non-steam only)", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-
-                con.CheckArgumentCount(splited, 1);
-                var plrname = splited[1];
-
-                if (!(Net.Transport is TransportLiteNetLib lnl)) {
-                    throw new Exception("Only available for direct IP connection mode.");
-                }
-
-
-                var reason = "Banned!";
-                if (splited.Count() > 2) {
-                    reason = "Banned: " + string.Join(" ", splited.Skip(2));
-                }
-
-                var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
-                    if (!plr.IsLocal) {
-                        var peer = lnl.ClientIdToPeerDict[plr.playerId];
-                        if (peer == null) {
-                            throw new Exception($"{plr} does not have net peer object ????");
-                        }
-                        Plugin.log.LogInfo($"Server entered command to IP ban: {plr}");
-                        BanList.Add(peer.Address.ToString(), plr.playerName, plr.SteamId);
-                        plr.Server_Kick(reason);
-                        if (plrname != "@a") {
-                            plrname = plr.playerName;
-                        }
-                    }
-                }, false, GetCommandCallerPlayer(), false, false);
-
-                if (res.Item1) {
-                    log.l($"Banned: {plrname} - {reason}");
-                } else {
-                    if (Net.TryParseIPPORT(plrname, out var realip, out var _)) {
-                        BanList.Add(realip, "", 0);
-                        log.l($"Banned IP: {realip} ");
-                    } else {
-                        log.l($"Failed to Ban: {plrname} {res.Item2}");
-                    }
-                }
-            }, null, ("player", ""), ("string reason", "optional")));
-
-            RegisterCommand(new Command("banlist", "MP- Show all players you've banned. Local.", (string[] splited) => {
-                log.l($"BANLIST: {BanList.Instance.filePath}\n{String.Join("\n", BanList.Entries)} ");
-            }, null));
-
-            RegisterCommand(new Command("unban", "MP- Remove a player from your ban list.", (string[] splited) => {
-
-                con.CheckArgumentCount(splited, 1);
-                var plrname = splited[1];
-
-                BanList.BanEntry found = null;
-                if (ulong.TryParse(plrname, out var parsed_as_steamid) && parsed_as_steamid != 0) {
-                    found = BanList.Entries.FirstOrDefault(x => x.steamid == parsed_as_steamid);
-                }
-                if (found == null) {
-                    found = BanList.Entries.FirstOrDefault(x => x.ip == plrname);
-                }
-                if (found == null) {
-                    found = BanList.Entries.FirstOrDefault(x => x.name == plrname);
-                }
-
-                if (found != null) {
-                    BanList.Remove(found);
-                    log.l("Unbanned: " + found.ToString());
-                    return;
-                } else {
-                    log.l($"\"{plrname}\" was not found in your ban list.");
-                }
-
-            }, null, ("user", "SteamID or IP or Name")));
-
-            RegisterCommand(new Command("say", "MP - say something in chat", (string[] splited) => {
-                ConFailIfNetworkNotRunning();
-
-                var con = ConsoleScript.instance;
-
-                var msg = String.Join(" ", splited.Skip(1));
-
-                Chat.SendChatMessage(msg, true);
-
-
-                con.LogToConsole($"Chat message sent: " + msg);
-            }, null, ("string", "message")));
-
-            RegisterCommand(new Command("skybg", "MP dev", (string[] splited) => {
-                con.CheckForWorld();
-
-                bool has_params = false;
-                float r = 0;
-                Color c = Color.white;
-                if (splited.Length == 3) {
-                    has_params = true;
-                    c = con.ParseColor(splited[1]);
-                    r = con.ParseFloat(splited[2]);
-                }
-
-                if (WorldMP.HasSkyBackground()) {
-                    WorldMP.RemoveSkyBackground();
-                } else {
-                    ConFailIfCheatsDisabled();
-                    if (has_params) {
-                        WorldMP.CreateSkyBackground(c, r);
-                    } else {
-                        WorldMP.CreateSkyBackground();
-                    }
-                }
-                ConsoleScript.instance.LogToConsole($"skybg {WorldMP.HasSkyBackground()} ");
-            }, null, ("color", "skyColor"), ("float", "rainIntensity")));
-
-            RegisterCommand_LocalOnly(new Command("snowbg", "MP dev", (string[] splited) => {
-                var target = !PlayerCamera.main.backgroundSnow.activeSelf;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
-                }
-                PlayerCamera.main.backgroundSnow.SetActive(target);
-
-                ConsoleScript.instance.LogToConsole($"snowbg {PlayerCamera.main.backgroundSnow.activeSelf} ");
-            }, null));
-
-            RegisterCommand(new Command("map", "MP dev", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-                ConFailIfNotInMainMenu();
-
-                var m = "debug";
-                if (splited.Length > 1) {
-                    m = splited[1];
-                }
-
-                var prs = PreRunScript.instance;
-
-                if (m == "debug") {
-                    log.l("Loading debug world");
-                    WorldMP.LoadDebugWorld();
-                } else if (m == "tutorial") {
-                    log.l("Loading tutorial world");
-                    prs.StartTutorial();
-                } else {
-                    log.l("Loading vanilla world");
-                    if (splited.Contains("loadsave")) {
-                        PlayerPrefs.SetInt("didbasiccourse", 1);
-                        prs.LoadRun();
-                    } else {
-                        prs.StartRun();
-                    }
-                }
-            }, new Dictionary<int, List<string>> { { 0,
+            }
+        }, new Dictionary<int, List<string>> { { 0,
                 new List<string> { "debug", "tutorial", "vanilla" }
             } }));
 
-            RegisterCommand_LocalOnly(new Command("novisioneffect", "MP", (string[] splited) => {
-                ref bool val = ref _DEV_NO_VISION_EFFECT;
-                var target = !val;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
-                }
-                if (target) {
-                    Con.ConFailIfCheatsDisabled();
-                }
-                val = target;
-                ConsoleScript.instance.LogToConsole($"novisioneffect {val}");
-            }, null));
+        RegisterCommand_LocalOnly(new Command("novisioneffect", "MP", (string[] splited) => {
+            ref bool val = ref _DEV_NO_VISION_EFFECT;
+            var target = !val;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
+            }
+            if (target) {
+                Con.ConFailIfCheatsDisabled();
+            }
+            val = target;
+            ConsoleScript.instance.LogToConsole($"novisioneffect {val}");
+        }, null));
 
 
 
-            RegisterCommand_LocalOnly(new Command("telekinesis", "MP dev", (string[] splited) => {
-                ref bool val = ref _DEV_TELEKINESIS;
-                var target = !val;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
-                }
-                if (target) {
-                    ConFailIfNetworkIsRunningAndIsClient();
-                    ConFailIfCheatsDisabled();
-                }
-                val = target;
-                ConsoleScript.instance.LogToConsole($"telekinesis {val}");
-            }, null));
-
-
-            RegisterCommand(new Command("gamemode", "MP dev", (string[] splited) => {
-                ConFailIfNetworkNotRunning();
+        RegisterCommand_LocalOnly(new Command("telekinesis", "MP dev", (string[] splited) => {
+            ref bool val = ref _DEV_TELEKINESIS;
+            var target = !val;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
+            }
+            if (target) {
                 ConFailIfNetworkIsRunningAndIsClient();
-                ConFailIfNotInMainMenu();
+                ConFailIfCheatsDisabled();
+            }
+            val = target;
+            ConsoleScript.instance.LogToConsole($"telekinesis {val}");
+        }, null));
 
 
-                if (GamemodeManager.HasGamemode()) {
-                    log.l($"Exited gamemode. {GamemodeManager.GetGamemode()}");
-                    GamemodeManager.DeleteGamemode();
-                } else {
-                    con.CheckArgumentCount(splited, 1);
-                    var gamemodename = splited[1];
+        RegisterCommand(new Command("gamemode", "MP dev", (string[] splited) => {
+            ConFailIfNetworkNotRunning();
+            ConFailIfNetworkIsRunningAndIsClient();
+            ConFailIfNotInMainMenu();
 
-                    var gm = GamemodeManager.GetAllAvailableGamemodes();
 
-                    foreach (var item in gm) {
-                        if (item.Name == gamemodename) {
+            if (GamemodeManager.HasGamemode()) {
+                log.l($"Exited gamemode. {GamemodeManager.GetGamemode()}");
+                GamemodeManager.DeleteGamemode();
+            } else {
+                con.CheckArgumentCount(splited, 1);
+                var gamemodename = splited[1];
 
-                            var br = GamemodeManager.SetGamemode(item);
-                            try {
-                                br.Init(splited.Skip(2).ToArray());
-                            } catch (Exception ex) {
-                                GamemodeManager.DeleteGamemode();
-                                log.error($"Failed to Init Gamemode {item.Name}: {ex.ToString()}");
-                            }
+                var gm = GamemodeManager.GetAllAvailableGamemodes();
 
-                            break;
+                foreach (var item in gm) {
+                    if (item.Name == gamemodename) {
+
+                        var br = GamemodeManager.SetGamemode(item);
+                        try {
+                            br.Init(splited.Skip(2).ToArray());
                         }
+                        catch (Exception ex) {
+                            GamemodeManager.DeleteGamemode();
+                            log.error($"Failed to Init Gamemode {item.Name}: {ex.ToString()}");
+                        }
+
+                        break;
                     }
-
-                    con.LogToConsole($"Gamemode \"{gamemodename}\" was not found.");
-
                 }
 
-            }, new Dictionary<int, List<string>> {
+                con.LogToConsole($"Gamemode \"{gamemodename}\" was not found.");
+
+            }
+
+        }, new Dictionary<int, List<string>> {
             // get all item names
             { 0, GamemodeManager.GetAllAvailableGamemodes().Select(x => x.Name).ToList() }
         },
-                ("gamemode", ""),
-                ("arg", "")
-            ));
+            ("gamemode", ""),
+            ("arg", "")
+        ));
 
-            RegisterCommand(new Command("radline", "MP - Activate/Deactivate radline", (string[] args) => {
-                con.CheckForWorld();
-                ConFailIfNetworkIsRunningAndIsClient();
+        RegisterCommand(new Command("radline", "MP - Activate/Deactivate radline", (string[] args) => {
+            con.CheckForWorld();
+            ConFailIfNetworkIsRunningAndIsClient();
 
-                var TARGET = !RadiationLine.line.active;
+            var TARGET = !RadiationLine.line.active;
 
-                if (args.Length > 1) {
-                    TARGET = ConsoleScript.instance.ParseBool(args[1]);
-                }
+            if (args.Length > 1) {
+                TARGET = ConsoleScript.instance.ParseBool(args[1]);
+            }
 
-                if (TARGET) {
-                    RadiationLine.line.Activate();
+            if (TARGET) {
+                RadiationLine.line.Activate();
+            } else {
+                RadiationLine.line.Deactivate();
+                RadiationLine.line.timeGone = -10;
+            }
+            ServerMain.timer_RareUpdateSyncClients += 1000f;
+            ConsoleScript.instance.LogToConsole("Radiation line active: " + RadiationLine.line.active);
+
+        }, null, ("bool", "Activate/Deactivate radline")));
+
+        RegisterCommand_LocalOnly(new Command("musicvolume", "MP", (string[] splited) => {
+
+            var layer = 0f;
+            if (splited.Length > 1) {
+                layer = con.ParseFloat(splited[1]);
+            }
+            MusicManager_Start_MultiplayerPatch.musicvolume = layer;
+
+            ConsoleScript.instance.LogToConsole($"custom_music_volume {MusicManager_Start_MultiplayerPatch.musicvolume}");
+        }, null, ("float", "volume level 0-1")));
+
+        RegisterCommand_LocalOnly(new Command("audio-only-on-focus", "MP - vc test", (string[] splited) => {
+            var target = !_DEV_AUDIO_ONLY_ON_FOCUS;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
+            }
+
+            if (_DEV_AUDIO_ONLY_ON_FOCUS != target) {
+                if (target) {
+                    _DEV_LAST_VOLUME = AudioListener.volume;
                 } else {
-                    RadiationLine.line.Deactivate();
-                    RadiationLine.line.timeGone = -10;
+                    AudioListener.volume = _DEV_LAST_VOLUME;
                 }
-                ServerMain.timer_RareUpdateSyncClients += 1000f;
-                ConsoleScript.instance.LogToConsole("Radiation line active: " + RadiationLine.line.active);
+            }
 
-            }, null, ("bool", "Activate/Deactivate radline")));
+            _DEV_AUDIO_ONLY_ON_FOCUS = target;
+            ConsoleScript.instance.LogToConsole($"audio_only_on_focus {_DEV_AUDIO_ONLY_ON_FOCUS}");
+        }, null));
+        RegisterCommand_LocalOnly(new Command("vclistenervolume-individual", "MP - mute or change volume of a specific player, local", (string[] splited) => {
+            con.CheckArgumentCount(splited, 2);
 
-            RegisterCommand_LocalOnly(new Command("musicvolume", "MP", (string[] splited) => {
+            var plridentifier = splited[1];
+            var newvolume = Mathf.Max(0, con.ParseFloat(splited[2]));
 
-                var layer = 0f;
-                if (splited.Length > 1) {
-                    layer = con.ParseFloat(splited[1]);
-                }
-                MusicManager_Start_MultiplayerPatch.musicvolume = layer;
-
-                ConsoleScript.instance.LogToConsole($"custom_music_volume {MusicManager_Start_MultiplayerPatch.musicvolume}");
-            }, null, ("float", "volume level 0-1")));
-
-            RegisterCommand_LocalOnly(new Command("audio-only-on-focus", "MP - vc test", (string[] splited) => {
-                var target = !_DEV_AUDIO_ONLY_ON_FOCUS;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
-                }
-
-                if (_DEV_AUDIO_ONLY_ON_FOCUS != target) {
-                    if (target) {
-                        _DEV_LAST_VOLUME = AudioListener.volume;
-                    } else {
-                        AudioListener.volume = _DEV_LAST_VOLUME;
-                    }
-                }
-
-                _DEV_AUDIO_ONLY_ON_FOCUS = target;
-                ConsoleScript.instance.LogToConsole($"audio_only_on_focus {_DEV_AUDIO_ONLY_ON_FOCUS}");
-            }, null));
-            RegisterCommand_LocalOnly(new Command("vclistenervolume-individual", "MP - mute or change volume of a specific player, local", (string[] splited) => {
-                con.CheckArgumentCount(splited, 2);
-
-                var plridentifier = splited[1];
-                var newvolume = Mathf.Max(0, con.ParseFloat(splited[2]));
-
-                try {
-                    if (TryGetPlayerFromPartialName(plridentifier, out var plr, null)) {
-                        plr.vc_output.custom_volume_set = newvolume;
-                        con.LogToConsole($"Set vc volume {plr} to {newvolume}");
-                    } else {
-                        con.LogToConsole($"Player does not exist: {plridentifier}");
-                    }
-                } catch (System.Exception e) {
-                    log.error(e);
-                }
-
-            }, null, ("player", ""), ("float", "volume level 0-1")));
-
-            RegisterCommand_LocalOnly(new Command("win32setwindowtitle", "MP dev", (string[] splited) => {
-
-                var msg = String.Join(" ", splited.Skip(1));
-
-                win32windowtitlechanger.SetTitle(msg);
-
-                con.LogToConsole($"win32windowtitlechanger.SetTitle(\"{msg}\")");
-            }, null, ("string", "message")));
-
-            RegisterCommand(new Command("loadcustommusic", "MP-SERVER- force reload all custom music right now", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-
-                MP3PlayerServerAudioStreamer.Server_ForceLoadMusic();
-            }, null));
-
-            RegisterCommand_BannedAdmin(new Command("adminpriv-password", "MP-SERVER- set admin password (ANYONE CAN USE THIS PASSWORD)", (string[] splited) => {
-                con.CheckArgumentCount(splited, 1);
-
-                server_admin_password = splited[1];
-
-                log.l("Set server admin password.");
-            }, null, ("password", "choose strong password")));
-
-            RegisterCommand_BannedAdmin(new Command("adminpriv", "MP-SERVER- give or remove admin privileges", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-                ConFailIfNetworkNotRunning();
-
-                con.CheckArgumentCount(splited, 2);
-
-                var action = splited[1].ToLower();
-
-                var plridentifier = splited[2];
-
+            try {
                 if (TryGetPlayerFromPartialName(plridentifier, out var plr, null)) {
-                    if (plr.IsLocal) {
-                        log.l("Local player already has this privilege.");
-                        return;
-                    }
-
-                    if (action == "add") {
-                        plr.ServerPlayerState.admin_privilege = true;
-                        removed_server_admins.Remove(plr.GetPersistentId());
-                        log.l($"Gave admin privilege to: {plr}");
-                    } else if (action == "remove") {
-                        plr.ServerPlayerState.admin_privilege = false;
-                        server_admins.Remove(plr);
-                        removed_server_admins.Add(plr.GetPersistentId());
-                        log.l($"Removed admin privilege from: {plr}");
-
-                        var writer = Net.CreateWriter(NetmsgId.CLIENT_Console_DenyAdminMode);
-                        writer.Put(false);
-                        Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, plr.playerId);
-                        // WRITER END;
-
-                    } else {
-                        con.LogToConsole($"{action} -> it should be \"add\" or  \"remove\"");
-                    }
+                    plr.vc_output.custom_volume_set = newvolume;
+                    con.LogToConsole($"Set vc volume {plr} to {newvolume}");
                 } else {
-                    con.LogToConsole($"{plridentifier} -> player does not exist");
+                    con.LogToConsole($"Player does not exist: {plridentifier}");
                 }
-            },
-            new Dictionary<int, List<string>> { { 0,
+            } catch (System.Exception e) {
+                log.error(e);
+            }
+
+        }, null, ("player", ""), ("float", "volume level 0-1")));
+
+        RegisterCommand_LocalOnly(new Command("win32setwindowtitle", "MP dev", (string[] splited) => {
+            
+            var msg = String.Join(" ", splited.Skip(1));
+
+            win32windowtitlechanger.SetTitle(msg);
+
+            con.LogToConsole($"win32windowtitlechanger.SetTitle(\"{msg}\")");
+        }, null, ("string", "message")));
+
+        RegisterCommand(new Command("loadcustommusic", "MP-SERVER- force reload all custom music right now", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+
+            MP3PlayerServerAudioStreamer.Server_ForceLoadMusic();
+        }, null));
+
+        RegisterCommand_BannedAdmin(new Command("adminpriv-password", "MP-SERVER- set admin password (ANYONE CAN USE THIS PASSWORD)", (string[] splited) => {
+            con.CheckArgumentCount(splited, 1);
+
+            server_admin_password = splited[1];
+
+            log.l("Set server admin password.");
+        }, null , ("password", "choose strong password")));
+
+        RegisterCommand_BannedAdmin(new Command("adminpriv", "MP-SERVER- give or remove admin privileges", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+            ConFailIfNetworkNotRunning();
+
+            con.CheckArgumentCount(splited, 2);
+
+            var action = splited[1].ToLower();
+
+            var plridentifier = splited[2];
+
+            if (TryGetPlayerFromPartialName(plridentifier, out var plr, null)) {
+                if (plr.IsLocal) {
+                    log.l("Local player already has this privilege.");
+                    return;
+                }
+
+                if (action == "add") {
+                    plr.ServerPlayerState.admin_privilege = true;
+                    removed_server_admins.Remove(plr.GetPersistentId());
+                    log.l($"Gave admin privilege to: {plr}");
+                } else if (action == "remove") {
+                    plr.ServerPlayerState.admin_privilege = false;
+                    server_admins.Remove(plr);
+                    removed_server_admins.Add(plr.GetPersistentId());
+                    log.l($"Removed admin privilege from: {plr}");
+
+                    var writer = Net.CreateWriter(NetmsgId.CLIENT_Console_DenyAdminMode);
+                    writer.Put(false);
+                    Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer,  plr.playerId);
+                    // WRITER END;
+
+                } else {
+                    con.LogToConsole($"{action} -> it should be \"add\" or  \"remove\"");
+                }
+            } else {
+                con.LogToConsole($"{plridentifier} -> player does not exist");
+            }
+        },
+        new Dictionary<int, List<string>> { { 0, 
                 new List<string> {"add", "remove"}
             } }
-            , ("action", ""), ("player", "")));
+        , ("action", ""), ("player", "")));
 
-            RegisterCommand_LocalOnly(new Command("admin", "MP-CLIENT- toggle admin mode, run commands on the server and see its log", (string[] splited) => {
-                ConFailIfNetworkNotRunning();
-                ConFailIfNetworkIsRunningAndIsServer();
+        RegisterCommand_LocalOnly(new Command("admin", "MP-CLIENT- toggle admin mode, run commands on the server and see its log", (string[] splited) => {
+            ConFailIfNetworkNotRunning();
+            ConFailIfNetworkIsRunningAndIsServer();
 
-                var pass = "";
-                if (splited.Length > 1) {
-                    pass = splited[1];
+            var pass = "";
+            if (splited.Length > 1) {
+                pass = splited[1];
+            }
+
+            client_adminmode = !client_adminmode;
+            client_isadmin = client_isadmin || client_adminmode;
+
+            log.l($"Requesting admin console: {client_adminmode}");
+
+            var writer = Net.CreateWriter(NetmsgId.SERVER_Console_ActivateAdminMode);
+            writer.Put(client_adminmode);
+            writer.Put(pass);
+            Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
+            // WRITER END;
+
+
+        }, null, ("password", "optional (u dont need password if ur whitelisted)")));
+
+        RegisterCommand_LocalOnly(new Command("printposition", "MP", (string[] splited) => {
+
+            con.CheckArgumentCount(splited, 1);
+
+            var pos = con.ParsePosition(splited[1]);
+
+            log.l($"pos {splited[1]} ->\t {pos}");
+
+        }, null, ("position", "")));
+
+        RegisterCommand(new Command("cleanworld", "MP- delete blast marks, block damages, casings, blood", (string[] splited) => {
+            ConFailIfCheatsDisabled();
+            con.CheckForWorld();
+
+            Con.CleanWorld();
+            
+            if (Net.IsServer) {
+                var writer = Multiplayer.CreateNamedWriter("CustomCommand");
+                writer.Put("cleanworld");
+                Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, ServerMain.AllClientIdsExceptHost);
+                // WRITER END; 
+            }
+
+            bool aaaaaa = false;
+            if (splited.Length > 1) {
+                aaaaaa = con.ParseBool(splited[1]);
+            }
+        }, null));
+
+        RegisterCommand(new Command("setplrname", "MP-SERVER- force rename a player", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+            ConFailIfNetworkNotRunning();
+
+            con.CheckArgumentCount(splited, 2);
+
+            var plridentifier = splited[1];
+            var newname = splited[2];
+
+            bool succ = false;
+
+
+            var renamer = (ScavPlayer plr) => {
+                succ = true;
+
+                con.LogToConsole($"Renamed {plr} to {newname}");
+                plr.nameIsCustom = true;
+                plr.ApplyNameAndColor(newname,plr.playerColor);
+                
+            };
+
+            try {
+
+                var res = PerformActionOnPlayersByName(plridentifier, renamer, true, GetCommandCallerPlayer(), false, false);
+
+                if (!res.Item1) {
+                    con.LogToConsole("Rename error: " + res.Item2);
                 }
-
-                client_adminmode = !client_adminmode;
-                client_isadmin = client_isadmin || client_adminmode;
-
-                log.l($"Requesting admin console: {client_adminmode}");
-
-                var writer = Net.CreateWriter(NetmsgId.SERVER_Console_ActivateAdminMode);
-                writer.Put(client_adminmode);
-                writer.Put(pass);
-                Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
-                // WRITER END;
+            } catch (System.Exception e) {
+                log.error(e);
+            }
 
 
-            }, null, ("password", "optional (u dont need password if ur whitelisted)")));
+        }, null, ("player", ""), ("string", "new name")));
 
-            RegisterCommand_LocalOnly(new Command("printposition", "MP", (string[] splited) => {
+        RegisterCommand(new Command("setplrcolor", "MP-SERVER- force recolor a player", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+            
+            con.CheckArgumentCount(splited, 2);
 
-                con.CheckArgumentCount(splited, 1);
+            var plridentifier = splited[1];
 
-                var pos = con.ParsePosition(splited[1]);
+            Color newcolor;
+            if (TryGetPlayerFromPartialName(splited[2],out var colorplrrrrrrrrr, null)) {
+                newcolor = colorplrrrrrrrrr.playerColor;
+            } else {
+                newcolor = con.ParseColor(splited[2]);
+            }
 
-                log.l($"pos {splited[1]} ->\t {pos}");
-
-            }, null, ("position", "")));
-
-            RegisterCommand(new Command("cleanworld", "MP- delete blast marks, block damages, casings, blood", (string[] splited) => {
-                ConFailIfCheatsDisabled();
-                con.CheckForWorld();
-
-                Con.CleanWorld();
-
-                if (Net.IsServer) {
-                    var writer = Multiplayer.CreateNamedWriter("CustomCommand");
-                    writer.Put("cleanworld");
-                    Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, ServerMain.AllClientIdsExceptHost);
-                    // WRITER END; 
-                }
-
-                bool aaaaaa = false;
-                if (splited.Length > 1) {
-                    aaaaaa = con.ParseBool(splited[1]);
-                }
-            }, null));
-
-            RegisterCommand(new Command("setplrname", "MP-SERVER- force rename a player", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-                ConFailIfNetworkNotRunning();
-
-                con.CheckArgumentCount(splited, 2);
-
-                var plridentifier = splited[1];
-                var newname = splited[2];
+            if (Net.IsRunning) {
 
                 bool succ = false;
 
-
-                var renamer = (ScavPlayer plr) => {
+                var recolorerr = (ScavPlayer plr) => {
                     succ = true;
 
-                    con.LogToConsole($"Renamed {plr} to {newname}");
-                    plr.nameIsCustom = true;
-                    plr.ApplyNameAndColor(newname, plr.playerColor);
-
+                    con.LogToConsole($"Recolored {plr} to {newcolor}");
+                    plr.ApplyNameAndColor(plr.playerName, newcolor);
+                    
                 };
 
                 try {
-
-                    var res = PerformActionOnPlayersByName(plridentifier, renamer, true, GetCommandCallerPlayer(), false, false);
+                    var res = PerformActionOnPlayersByName(plridentifier, recolorerr, true, GetCommandCallerPlayer(), false, false);
 
                     if (!res.Item1) {
-                        con.LogToConsole("Rename error: " + res.Item2);
+                        con.LogToConsole("Recolor error: " + res.Item2);
                     }
                 } catch (System.Exception e) {
                     log.error(e);
                 }
+            } else {
+                UIMainMenu.SetInputColor(newcolor);
+                con.LogToConsole($"Set local color to {UIMainMenu.LAST_VALID_INPUT_COLOR}");
+            }
+
+        }, null, ("player", ""), ("color", "new color")));
+
+        RegisterCommand_LocalOnly(new Command("mpdumplocale", "MP - dump locale of multiplayer mod", (string[] splited) => {
+            var con = ConsoleScript.instance;
+
+            var text = new StringBuilder("// KROKOSHA CO-OP MOD LOCALE DUMP:\n");
 
 
-            }, null, ("player", ""), ("string", "new name")));
+            if (splited.Length > 1) {
+                var lang = splited[1];
 
-            RegisterCommand(new Command("setplrcolor", "MP-SERVER- force recolor a player", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-
-                con.CheckArgumentCount(splited, 2);
-
-                var plridentifier = splited[1];
-
-                Color newcolor;
-                if (TryGetPlayerFromPartialName(splited[2], out var colorplrrrrrrrrr, null)) {
-                    newcolor = colorplrrrrrrrrr.playerColor;
-                } else {
-                    newcolor = con.ParseColor(splited[2]);
+                text.AppendLine("\n// " + lang.ToSafeString());
+                var lan = new Language();
+                Dictionary<string,string> copy = new(Lang.dict[lang]);
+                foreach (var i in copy) {
+                    lan.other[(Lang.LocalPrefixTag + i.Key)] = i.Value;
                 }
 
-                if (Net.IsRunning) {
-
-                    bool succ = false;
-
-                    var recolorerr = (ScavPlayer plr) => {
-                        succ = true;
-
-                        con.LogToConsole($"Recolored {plr} to {newcolor}");
-                        plr.ApplyNameAndColor(plr.playerName, newcolor);
-
-                    };
-
-                    try {
-                        var res = PerformActionOnPlayersByName(plridentifier, recolorerr, true, GetCommandCallerPlayer(), false, false);
-
-                        if (!res.Item1) {
-                            con.LogToConsole("Recolor error: " + res.Item2);
-                        }
-                    } catch (System.Exception e) {
-                        log.error(e);
-                    }
-                } else {
-                    UIMainMenu.SetInputColor(newcolor);
-                    con.LogToConsole($"Set local color to {UIMainMenu.LAST_VALID_INPUT_COLOR}");
-                }
-
-            }, null, ("player", ""), ("color", "new color")));
-
-            RegisterCommand_LocalOnly(new Command("mpdumplocale", "MP - dump locale of multiplayer mod", (string[] splited) => {
-                var con = ConsoleScript.instance;
-
-                var text = new StringBuilder("// KROKOSHA CO-OP MOD LOCALE DUMP:\n");
-
-
-                if (splited.Length > 1) {
-                    var lang = splited[1];
-
-                    text.AppendLine("\n// " + lang.ToSafeString());
+                text.Append(JsonConvert.SerializeObject(lan, Formatting.Indented));
+            } else {
+                foreach (var item in Lang.dict) {
                     var lan = new Language();
-                    Dictionary<string, string> copy = new(Lang.dict[lang]);
+                    Dictionary<string, string> copy = new(item.Value);
                     foreach (var i in copy) {
                         lan.other[(Lang.LocalPrefixTag + i.Key)] = i.Value;
                     }
+                    text.AppendLine("\n// " + item.Key);
 
                     text.Append(JsonConvert.SerializeObject(lan, Formatting.Indented));
-                } else {
-                    foreach (var item in Lang.dict) {
-                        var lan = new Language();
-                        Dictionary<string, string> copy = new(item.Value);
-                        foreach (var i in copy) {
-                            lan.other[(Lang.LocalPrefixTag + i.Key)] = i.Value;
-                        }
-                        text.AppendLine("\n// " + item.Key);
-
-                        text.Append(JsonConvert.SerializeObject(lan, Formatting.Indented));
-                    }
-                }
-
-
-                text.AppendLine("\n// END\n// COPY IT FROM LOG FILE INSTEAD OF CONSOLE BECAUSE IT CLEARS FORMATTING HERE");
-
-                log.l(text.ToString());
-            }, null));
-
-            RegisterCommand_LocalOnly(new Command("mpverbose", "MP dev - Enable verbose logging and debug screens", (string[] splited) => {
-                var target = !Multiplayer.verbose;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
-                }
-                DebugMenuSettings.is_verbose = target;
-                DebugMenuSettings._DEV_VISUALISE_NET_EVENTS = target;
-                DebugMenuSettings._DEV_ENABLE_STEAM_LOG = target;
-
-                log.l($"DEV : verbose = {Multiplayer.verbose} ");
-            }, null));
-
-#if FULLGAME
-        // host/client crystal fingerprint dump for sync validation
-        RegisterCommand_LocalOnly(new Command("dumpcrystals", "MP - dump crystal size/color/effects fingerprints", (string[] splited) => {
-            int limit = 32;
-            if (splited.Length > 1) {
-                int.TryParse(splited[1], out limit);
-                if (limit < 1) {
-                    limit = 1;
                 }
             }
-            string side = Net.IsServer ? (Net.IsClient ? "listen" : "host") : "client";
-            var crystals = UnityEngine.Object.FindObjectsOfType<CrystalBehaviour>();
-            System.Text.StringBuilder lines = new System.Text.StringBuilder();
-            lines.AppendLine($"[CRYSTALDUMP] begin side={side} count={crystals.Length} limit={limit}");
-            var rows = new List<(float dist, string line, bool special)>();
-            Vector2 origin = PlayerCamera.main != null && PlayerCamera.main.body != null
-                ? (Vector2)PlayerCamera.main.body.transform.position
-                : Vector2.zero;
-            for (int i = 0; i < crystals.Length; i++) {
-                CrystalBehaviour c = crystals[i];
-                if (c == null) {
-                    continue;
-                }
-                knetid syncId = default;
-                bool hasSync = NetObjectRegistry.TryGetSyncInfo(c.gameObject, out var si) && si != null;
-                if (hasSync) {
-                    syncId = si.syncId;
-                }
-                var effects = CrystalAuthority.GetEffects(c);
-                int effectCount = effects != null ? effects.Count : 0;
-                List<string> effectNames = new List<string>();
-                if (effects != null) {
-                    for (int e = 0; e < effects.Count; e++) {
-                        if (effects[e] != null) {
-                            effectNames.Add(effects[e].GetType().Name);
-                        }
-                    }
-                }
-                Color32 sc = c.sprite != null ? (Color32)c.sprite.color : (Color32)Color.white;
-                Color32 lc = c.light != null ? (Color32)c.light.color : sc;
-                float intensity = c.light != null ? c.light.intensity : -1f;
-                bool volume = c.light != null && c.light.volumeIntensityEnabled;
-                float vol = volume ? c.light.volumeIntensity : 0f;
-                bool heater = c.GetComponent<Heater>() != null;
-                int fireKids = 0;
-                int distortKids = 0;
-                for (int ch = 0; ch < c.transform.childCount; ch++) {
-                    string n = c.transform.GetChild(ch).name;
-                    if (n.Contains("CrystalFire")) {
-                        fireKids++;
-                    }
-                    if (n.Contains("CrystalDistort")) {
-                        distortKids++;
-                    }
-                }
-                Vector2 pos = c.transform.position;
-                float dist = Vector2.Distance(origin, pos);
-                string line =
-                    $"[CRYSTALDUMP] side={side} sync={(hasSync ? syncId.ToString() : "none")} pos={pos.x:F1},{pos.y:F1} scaleX={c.transform.localScale.x:F2} size={c.crystalSize:F3} " +
-                    $"spr=#{sc.r:X2}{sc.g:X2}{sc.b:X2}a{sc.a} light=#{lc.r:X2}{lc.g:X2}{lc.b:X2} i={intensity:F2} vol={(volume ? 1 : 0)}:{vol:F2} " +
-                    $"heater={(heater ? 1 : 0)} fire={fireKids} distort={distortKids} effects={effectCount}:[{string.Join(",", effectNames)}]";
-                rows.Add((dist, line, effectCount > 0));
-            }
-            rows.Sort((a, b) => a.dist.CompareTo(b.dist));
-            int special = 0;
-            int written = 0;
-            for (int i = 0; i < rows.Count && written < limit; i++) {
-                lines.AppendLine(rows[i].line);
-                if (rows[i].special) {
-                    special++;
-                }
-                written++;
-            }
-            lines.AppendLine($"[CRYSTALDUMP] end side={side} written={written} special={special}");
-            string text = lines.ToString();
-            // full dump -> BepInEx LogOutput + file; keep in-game console to a one-liner.
-            log.l(text, false);
-            try {
-                string dir = Path.Combine(Application.persistentDataPath, "crystal_sync");
-                Directory.CreateDirectory(dir);
-                string path = Path.Combine(dir, $"dump_{side}.txt");
-                File.WriteAllText(path, text);
-                log.l($"[CRYSTALDUMP] end side={side} written={written} special={special} file={path}", false);
-                log.l($"[CRYSTALDUMP] wrote {written} crystals → {path}");
-            } catch (System.Exception e) {
-                log.warn($"[CRYSTALDUMP] file write failed: {e.Message}");
-            }
+
+
+            text.AppendLine("\n// END\n// COPY IT FROM LOG FILE INSTEAD OF CONSOLE BECAUSE IT CLEARS FORMATTING HERE");
+
+            log.l(text.ToString());
         }, null));
 
-        // compare host+client dump_*.txt fingerprints by quantized position (survives syncId remints).
-        RegisterCommand_LocalOnly(new Command("comparecrystals", "MP - compare crystal_sync dump_host/dump_client", (string[] splited) => {
-            string dir = Path.Combine(Application.persistentDataPath, "crystal_sync");
-            string hostPath = Path.Combine(dir, "dump_host.txt");
-            string listenPath = Path.Combine(dir, "dump_listen.txt");
-            string clientPath = Path.Combine(dir, "dump_client.txt");
-            if (!File.Exists(hostPath) && File.Exists(listenPath)) {
-                hostPath = listenPath;
+        RegisterCommand_LocalOnly(new Command("mpverbose", "MP dev - Enable verbose logging and debug screens", (string[] splited) => {
+            var target = !Multiplayer.verbose;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
             }
-            if (!File.Exists(hostPath) || !File.Exists(clientPath)) {
-                log.warn($"[CRYSTALDUMP] compare missing files host={File.Exists(hostPath)} client={File.Exists(clientPath)} dir={dir}");
+            DebugMenuSettings.is_verbose = target;
+            DebugMenuSettings._DEV_VISUALISE_NET_EVENTS = target;
+            DebugMenuSettings._DEV_ENABLE_STEAM_LOG = target;
+
+            log.l($"DEV : verbose = {Multiplayer.verbose} ");
+        }, null));
+        
+        RegisterCommand_LocalOnly(new Command("syncinfo", "MP dev - Show debug sync info on objects. (DEPRECATED)", (string[] splited) => {
+            var target = !NetObjectRegistry._DEV_ENABLE_SYNCINFO_SNITCHING;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
+            }
+            NetObjectRegistry._DEV_ENABLE_SYNCINFO_SNITCHING = target;
+
+            log.l($"NetObjectRegistry._DEV_ENABLE_SYNCINFO_SNITCHING = {NetObjectRegistry._DEV_ENABLE_SYNCINFO_SNITCHING} ");
+        }, null));
+
+        RegisterCommand(new Command("servermute", "MP-SERVER- mute player chat or voice", (string[] splited) => {
+            ConFailIfNetworkNotRunning();
+            ConFailIfNetworkIsRunningAndIsClient();
+
+            con.CheckArgumentCount(splited, 2);
+
+            bool istc = false;
+            bool isvc = false;
+            var type = splited[1].ToLower();
+            var plrname = splited[2];
+            bool has_target = false;
+            bool target = true;
+            if (splited.Length > 3) {
+                has_target = true;
+                target = con.ParseBool(splited[3]);
+            }
+            if (type == "tc") {
+                istc = true;
+            } else if (type == "vc") {
+                isvc = true;
+            } else if (type == "all") {
+                isvc = true;
+                istc = true;
+                has_target = true;
+            } else {
+                throw new Exception($"Unknown chat type: {type}");
+            }
+
+            var res = PerformActionOnPlayersByName(plrname, (plr) => {
+                if (isvc) {
+                    if (has_target) {
+                        plr.server_mute_vc = target;
+                    } else {
+                        plr.server_mute_vc = !plr.server_mute_vc;
+                    }
+                    log.l($"{plr}.mute_vc = {plr.server_mute_vc}");
+                } 
+                if (istc) {
+                    if (has_target) {
+                        plr.server_mute_tc = target;
+                    } else {
+                        plr.server_mute_tc = !plr.server_mute_tc;
+                    }
+                    log.l($"{plr}.mute_tc = {plr.server_mute_tc}");
+                }
+            }, true, GetCommandCallerPlayer(), false, false);
+
+            if (!res.Item1) {
+                con.LogToConsole("servermute fail: " + res.Item2);
+            }
+
+        }, null, ("type", "tc/vc/all"), ("player", ""), ("bool", "optional")));
+
+        RegisterCommand(new Command("serverpause", "MP - Pause time.", (string[] splited) => {
+            ConFailIfNetworkNotRunning();
+            con.CheckForWorld();
+            ConFailIfNetworkIsRunningAndIsClient();
+
+            bool doPause = Time.timeScale != 0;
+            if (splited.Length > 1) {
+                doPause = con.ParseBool(splited[1]);
+            }
+            doPause = !doPause;
+
+            PlayerCamera.main.SetTimeScale(PlayerCamera.SpeedType.Paused);
+            Time.timeScale = doPause.ToByte();
+
+        }, null, ("bool", "1 pause, 0 continue")));
+
+        RegisterCommand(new Command("syncreset", "MP dev - Unregister all objects.", (string[] splited) => {
+            if (Net.IsClient) {
                 return;
             }
-            System.Text.RegularExpressions.Regex lineRe = new System.Text.RegularExpressions.Regex(
-                @"sync=(?<sync>\S+)\s+pos=(?<px>[-\d\.]+),(?<py>[-\d\.]+)\s+scaleX=(?<sx>[-\d\.]+)\s+size=(?<size>[-\d\.]+)\s+spr=(?<spr>#\w+)\s+light=(?<light>#\w+)\s+i=(?<i>[-\d\.]+).*?fire=(?<fire>\d+)\s+distort=(?<distort>\d+)\s+effects=(?<effects>\d+:\[[^\]]*\])");
-            // LES / physics can drift crystals ~1 unit host↔client after remint; exact 0.1 quant keys false-fail.
-            const float MatchRadius = 1.5f;
-            // fingerprint ignores intensity jitter; color/size/effects/fire/distort must match.
-            System.Collections.Generic.List<(float x, float y, string fp, string label, float intensity, string spr)> Parse(string path) {
-                var list = new System.Collections.Generic.List<(float x, float y, string fp, string label, float intensity, string spr)>();
-                foreach (var raw in File.ReadAllLines(path)) {
-                    var m = lineRe.Match(raw);
-                    if (!m.Success) continue;
-                    if (!float.TryParse(m.Groups["px"].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float px)) continue;
-                    if (!float.TryParse(m.Groups["py"].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float py)) continue;
-                    float.TryParse(m.Groups["i"].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float intensity);
-                    string spr = m.Groups["spr"].Value;
-                    string fp = $"spr={spr} size={m.Groups["size"].Value} fire={m.Groups["fire"].Value} distort={m.Groups["distort"].Value} effects={m.Groups["effects"].Value}";
-                    string label = Mathf.RoundToInt(px * 10f) + "_" + Mathf.RoundToInt(py * 10f);
-                    list.Add((px, py, fp, label, intensity, spr));
-                }
-                return list;
+            ConFailIfNetworkNotRunning();
+
+            if (Net.Transport != null && Net.Transport is TransportLiteNetLib tlnl) {
+                tlnl.NetManager.Statistics.Reset();
             }
-            var host = Parse(hostPath);
-            var client = Parse(clientPath);
-            int matched = 0;
-            int mismatched = 0;
-            int hostOnly = 0;
-            int clientOnly = 0;
-            int clientOnlyBarren = 0;
-            System.Text.StringBuilder report = new System.Text.StringBuilder();
-            report.AppendLine($"[CRYSTALDUMP] compare begin host={host.Count} client={client.Count} (by pos±{MatchRadius:0.#})");
-            bool[] hostUsed = new bool[host.Count];
-            bool[] clientUsed = new bool[client.Count];
-            float r2 = MatchRadius * MatchRadius;
-            // pass 1: prefer same fingerprint within radius (avoids false MISMATCH from neighbor pairing).
-            for (int hi = 0; hi < host.Count; hi++) {
-                var h = host[hi];
-                int best = -1;
-                float bestD2 = float.MaxValue;
-                for (int ci = 0; ci < client.Count; ci++) {
-                    if (clientUsed[ci]) continue;
-                    if (h.fp != client[ci].fp) continue;
-                    float dx = h.x - client[ci].x;
-                    float dy = h.y - client[ci].y;
-                    float d2 = dx * dx + dy * dy;
-                    if (d2 <= r2 && d2 < bestD2) {
-                        bestD2 = d2;
-                        best = ci;
-                    }
-                }
-                if (best >= 0) {
-                    hostUsed[hi] = true;
-                    clientUsed[best] = true;
-                    matched++;
+
+            bool deleteInventory = false;
+            if (splited.Length > 1) {
+                deleteInventory = con.ParseBool(splited[1]);
+            }
+            if (deleteInventory) {
+                NetObjectRegistry.UnregisterAllObjects();
+                log.l($"NetObjectRegistry.UnregisterAllObjects();");
+            } else {
+                NetObjectRegistry.UnregisterAllObjectsButKeepInventory();
+                log.l($"NetObjectRegistry.UnregisterAllObjectsButKeepInventory();");
+            }
+        }, null, ("bool", "1 keep inventory, 0 for simple")));
+
+        RegisterCommand(new Command("syncregisterall", "MP dev - Register all objects in the world. (IT LAGS !!!!!)", (string[] splited) => {
+            ConFailIfNetworkNotRunning();
+
+            foreach (var item in (GameObject.FindObjectsOfType<Item>().Select(x => x.gameObject).Union(GameObject.FindObjectsOfType<BuildingEntity>().Select(x => x.gameObject)))) {
+                if (NetObjectRegistry.ObjectShouldBeSynced(item)) {
+                    NetObjectRegistry.NewGO(item);
                 }
             }
-            // pass 2: remaining near pairs are real fingerprint mismatches.
-            for (int hi = 0; hi < host.Count; hi++) {
-                if (hostUsed[hi]) continue;
-                var h = host[hi];
-                int best = -1;
-                float bestD2 = float.MaxValue;
-                for (int ci = 0; ci < client.Count; ci++) {
-                    if (clientUsed[ci]) continue;
-                    float dx = h.x - client[ci].x;
-                    float dy = h.y - client[ci].y;
-                    float d2 = dx * dx + dy * dy;
-                    if (d2 <= r2 && d2 < bestD2) {
-                        bestD2 = d2;
-                        best = ci;
-                    }
-                }
-                if (best < 0) {
-                    hostOnly++;
-                    continue;
-                }
-                hostUsed[hi] = true;
-                clientUsed[best] = true;
-                mismatched++;
-                report.AppendLine($"[CRYSTALDUMP] MISMATCH pos={h.label}~{client[best].label} host=[{h.fp}] client=[{client[best].fp}]");
-            }
-            for (int ci = 0; ci < client.Count; ci++) {
-                if (clientUsed[ci]) continue;
-                // effectsless stubs, or unapplied white (no light) leftovers after host inert / missed push.
-                bool barren = client[ci].fp.Contains("effects=0:[]")
-                    || (client[ci].spr.StartsWith("#FFFFFF", System.StringComparison.OrdinalIgnoreCase) && client[ci].intensity < 0f);
-                if (barren) {
-                    clientOnlyBarren++;
-                    report.AppendLine($"[CRYSTALDUMP] CLIENT_ONLY_BARREN pos={client[ci].label} [{client[ci].fp}]");
-                } else {
-                    clientOnly++;
-                    report.AppendLine($"[CRYSTALDUMP] CLIENT_ONLY pos={client[ci].label} [{client[ci].fp}]");
-                }
-            }
-            // hostOnly is OK (client interest hasn't loaded that crystal yet / far-drop). Real failures are
-            // mismatched fingerprints or non-barren client-only crystals.
-            bool pass = mismatched == 0 && matched >= 8 && clientOnly == 0;
-            string summary = $"[CRYSTALDUMP] compare end matched={matched} mismatched={mismatched} hostOnly={hostOnly} clientOnly={clientOnly} barren={clientOnlyBarren} PASS={(pass ? 1 : 0)}";
-            report.AppendLine(summary);
-            string text = report.ToString();
-            log.l(text, false);
-            log.l(summary);
-            try {
-                File.WriteAllText(Path.Combine(dir, "compare.txt"), text);
-            } catch (System.Exception e) {
-                log.warn($"[CRYSTALDUMP] compare write failed: {e.Message}");
-            }
+            log.l($"called NetObjectRegistry.NewGO on everything");
         }, null));
-#endif
+        
+        RegisterCommand_LocalOnly(new Command("maxplayers", "MP - SERVER - Set player limit", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
 
-            RegisterCommand_LocalOnly(new Command("syncinfo", "MP dev - Show debug sync info on objects. (DEPRECATED)", (string[] splited) => {
-                var target = !NetObjectRegistry._DEV_ENABLE_SYNCINFO_SNITCHING;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
-                }
-                NetObjectRegistry._DEV_ENABLE_SYNCINFO_SNITCHING = target;
+            con.CheckArgumentCount(splited,1);
+            Multiplayer.PLAYER_COUNT_LIMIT = (byte)Mathf.Clamp(con.ParseInt(splited[1]),0,251);
 
-                log.l($"NetObjectRegistry._DEV_ENABLE_SYNCINFO_SNITCHING = {NetObjectRegistry._DEV_ENABLE_SYNCINFO_SNITCHING} ");
-            }, null));
+            con.LogToConsole($"Set player count limit to: {Multiplayer.PLAYER_COUNT_LIMIT}");
 
-            RegisterCommand(new Command("servermute", "MP-SERVER- mute player chat or voice", (string[] splited) => {
-                ConFailIfNetworkNotRunning();
-                ConFailIfNetworkIsRunningAndIsClient();
+        }, null, ("int","")));
 
-                con.CheckArgumentCount(splited, 2);
+        RegisterCommand_LocalOnly(new Command("chatboxpos", "MP - set position and size of chat box (everything is a scale in float (0-1)) (OBSOLETE)", (string[] splited) => {
+            if (splited.Count() == 1) {
+                Chat.SETTING_posX = 1;
+                Chat.SETTING_posY = 1;
+                Chat.SETTING_sizeX = 1;
+                Chat.SETTING_sizeY = 1;
+                Chat.SETTING_scale = 1;
+                con.LogToConsole($"Chatbox: Reset chatbox location.");
+                return;
+            }
 
-                bool istc = false;
-                bool isvc = false;
-                var type = splited[1].ToLower();
-                var plrname = splited[2];
-                bool has_target = false;
-                bool target = true;
-                if (splited.Length > 3) {
-                    has_target = true;
-                    target = con.ParseBool(splited[3]);
-                }
-                if (type == "tc") {
-                    istc = true;
-                } else if (type == "vc") {
-                    isvc = true;
-                } else if (type == "all") {
-                    isvc = true;
-                    istc = true;
-                    has_target = true;
-                } else {
-                    throw new Exception($"Unknown chat type: {type}");
-                }
 
-                var res = PerformActionOnPlayersByName(plrname, (plr) => {
-                    if (isvc) {
-                        if (has_target) {
-                            plr.server_mute_vc = target;
+            con.CheckArgumentCount(splited, 5);
+
+            Chat.SETTING_posX = Mathf.Clamp01(con.ParseFloat(splited[1]));
+            Chat.SETTING_posY = Mathf.Clamp01(con.ParseFloat(splited[2]));
+            Chat.SETTING_sizeX = con.ParseFloat(splited[3]);
+            Chat.SETTING_sizeY = con.ParseFloat(splited[4]);
+            Chat.SETTING_scale = con.ParseFloat(splited[5]);
+
+            con.LogToConsole($"Chatbox: SETTING NEW PARAMETERS:");
+            con.LogToConsole($"Chatbox: setting_posX  = {(Chat.SETTING_posX * 100f)}%");
+            con.LogToConsole($"Chatbox: setting_posY  = {(Chat.SETTING_posY * 100f)}%");
+            con.LogToConsole($"Chatbox: setting_sizeX = {(Chat.SETTING_sizeX * 100f)}%");
+            con.LogToConsole($"Chatbox: setting_sizeY = {(Chat.SETTING_sizeY * 100f)}%");
+            con.LogToConsole($"Chatbox: setting_scale = {(Chat.SETTING_scale * 100f)}%");
+
+        }, null, ("float", "X pos"), ("float", "Y pos"), ("float", "X size"), ("float", "Y size"), ("float", "scale")));
+
+        RegisterCommand_LocalOnly(new Command("chatpreview", "MP dev - toggle chat text preview (OBSOLETE)", (string[] splited) => {
+           
+            ref bool val = ref Chat._DEV_ENABLE_PREVIEW;
+            var target = !val;
+            if (splited.Length > 1) {
+                target = ParseBool01(splited[1]);
+            }
+            val = target;
+            con.LogToConsole($"Chat._DEV_ENABLE_PREVIEW = {val}");
+
+        }, null, ("bool", "")));
+
+        RegisterCommand(new Command("tomainmenu", "MP - go to main menu", (string[] splited) => {
+            con.CheckForWorld();
+            PlayerCamera.main.ToMainMenu();
+        }, null));
+
+        RegisterCommand_LocalOnly(new Command("currentrules", "MP - show all multiplayer game rules", (string[] splited) => {
+            var rules = "Krokosha Co-op mod game rules:\n";
+            foreach (var fld in typeof(MultiplayerGameRules).GetFields(BindingFlags.Public | BindingFlags.Instance)) {
+                rules += $"rule {fld.Name} [{fld.FieldType.Name}] // current: {fld.GetValue(Multiplayer.rules)}\n";
+            }
+            con.LogToConsole(rules);
+        }, null));
+        RegisterCommand(new Command("resetrules", "MP - reset all multiplayer game rules to default values", (string[] splited) => {
+            Multiplayer.rules = new MultiplayerGameRules();
+            con.LogToConsole("Reset all rules to default.");
+        }, null));
+        RegisterCommand(new Command("rule", "MP - set multiplayer game rule", (string[] splited) => {
+            ConFailIfNetworkIsRunningAndIsClient();
+            con.CheckArgumentCount(splited, 2);
+
+            var rulename = splited[1];
+            var rulevalstr = splited[2];
+            foreach (var fld in typeof(MultiplayerGameRules).GetFields(BindingFlags.Public | BindingFlags.Instance)) {
+                if (fld.Name == rulename) {
+                    try {
+                        object typedValue;
+                        if (fld.FieldType == typeof(bool)) {
+                            typedValue = ParseBool01(rulevalstr);
                         } else {
-                            plr.server_mute_vc = !plr.server_mute_vc;
+                            typedValue = Convert.ChangeType(rulevalstr, fld.FieldType, CultureInfo.InvariantCulture);
                         }
-                        log.l($"{plr}.mute_vc = {plr.server_mute_vc}");
+                        TypedReference rulesref = __makeref(Multiplayer.rules);
+                        fld.SetValueDirect(rulesref, typedValue);
+                        
+                        Multiplayer.ApplyGameRules();
+
+                        con.LogToConsole($"Succesfully set rule '{fld.Name}' to '{fld.GetValue(Multiplayer.rules)}'.");
+                        return;
                     }
-                    if (istc) {
-                        if (has_target) {
-                            plr.server_mute_tc = target;
-                        } else {
-                            plr.server_mute_tc = !plr.server_mute_tc;
-                        }
-                        log.l($"{plr}.mute_tc = {plr.server_mute_tc}");
+                    catch (Exception ex) {
+                        con.LogToConsole($"Failed to set rule '{fld.Name}': {ex.Message}");
+                        return;
                     }
-                }, true, GetCommandCallerPlayer(), false, false);
-
-                if (!res.Item1) {
-                    con.LogToConsole("servermute fail: " + res.Item2);
                 }
+            }
+            con.LogToConsole($"Rule '{rulename}' does not exist!");
 
-            }, null, ("type", "tc/vc/all"), ("player", ""), ("bool", "optional")));
+        }, new Dictionary<int, List<string>> { { 0, typeof(MultiplayerGameRules).GetFields(BindingFlags.Public | BindingFlags.Instance).Select(x => x.Name).ToList() } }, ("string rule", "Rule Name"), ("value", "New value")));
 
-            RegisterCommand(new Command("serverpause", "MP - Pause time.", (string[] splited) => {
-                ConFailIfNetworkNotRunning();
-                con.CheckForWorld();
-                ConFailIfNetworkIsRunningAndIsClient();
+        RegisterCommand(new Command("setlocalname", "MP - Set your multiplayer username.", delegate (string[] args) {
+            ConsoleScript.instance.CheckArgumentCount(args, 1);
+            if (PlayerCamera.main) {
+                throw new Exception("Name can only be set in main menu.");
+            }
+            ConFailIfNetworkAlreadyRunning();
+            var name = Multiplayer.SanitizeTextInput(args[1]);
+            con.LogToConsole("Set your username to: " + name);
+            UIMainMenu.USERINPUT_NAME = name;
+        }, null, ("string name", "Your new name")));
+        RegisterCommand(new Command("setlocalpassword", "MP - Set your multiplayer password.", delegate (string[] args) {
+            ConsoleScript.instance.CheckArgumentCount(args, 1);
+            if (PlayerCamera.main) {
+                throw new Exception("Password can only be set in main menu.");
+            }
+            ConFailIfNetworkAlreadyRunning();
+            var newpass = args[1];
+            con.LogToConsole("Set your password to: " + newpass);
+            Multiplayer.INPUT_PASSWORD = newpass;
+        }, null, ("string password", "")));
 
-                bool doPause = Time.timeScale != 0;
-                if (splited.Length > 1) {
-                    doPause = con.ParseBool(splited[1]);
+
+        RegisterCommand(new Command("setservername", "MP - Set your server name.", delegate (string[] args) {
+            Con.ConFailIfNetworkIsRunningAndIsClient();
+            ConsoleScript.instance.CheckArgumentCount(args, 1);
+            var name = (string.Join(" ", args.Skip(1)));
+            Multiplayer.SetServerName(name);
+            con.LogToConsole("Set server name to: " + Net.CurrentServerInfo.name);
+        }, null, ("string name", "New name")));
+        RegisterCommand(new Command("setserverdesc", "MP - Set your server description.", delegate (string[] args) {
+            Con.ConFailIfNetworkIsRunningAndIsClient();
+            ConsoleScript.instance.CheckArgumentCount(args, 1);
+            var desc = (string.Join(" ", args.Skip(1)) );
+            Multiplayer.SetServerDescription(desc);
+            con.LogToConsole("Set server desc to: " + Net.CurrentServerInfo.description);
+        }, null, ("string name", "New description")));
+        
+
+        #region STEAM_CONNECTDISCONNECT
+
+        RegisterCommand_LocalOnly(new Command("joinlobby", "MP - Client Connect to an active steam lobby.", delegate (string[] args) {
+
+            ConFailIfNetworkAlreadyRunning();
+            ConFailIfNotInMainMenu();
+
+            var lobbyId = ulong.Parse(args[1]);
+
+            TransportSteamworks.OnWantToJoinLobby(lobbyId);
+
+            con.LogToConsole("Starting client and attempting join: " + lobbyId);
+            
+        }, null, ("SteamId", "")));
+        RegisterCommand_LocalOnly(new Command("hostlobby", "MP - Host steam lobby.", delegate (string[] args) {
+
+            ConFailIfNetworkAlreadyRunning();
+            ConFailIfNotInMainMenu();
+            con.CheckArgumentCount(args, 2);
+
+            var lobbytype = con.ParseInt(args[1]);
+            Multiplayer.SERVER_TOGGLE_SHOULD_HOST_DEDICATED = con.ParseBool(args[2]);
+
+            var type = KSteam.NumToLobbyType(lobbytype);
+
+            var nettttt = Multiplayer.SERVER_TOGGLE_SHOULD_HOST_DEDICATED ? Net.NetType.DedicatedServer : Net.NetType.Host;
+
+            Multiplayer.DoMultiplayerStatusMessageLog($"Hosting Steam Lobby: {nettttt}, {type}" );
+
+            TransportSteamworks.OnWantToHostLobby(
+                nettttt,
+                type
+            );
+
+        }, null, ("int", "Lobby type (2 = public, 1 = friends only, 0 = private)"), ("bool", "dedicated")));
+        RegisterCommand_LocalOnly(new Command("getlobbyinfo", "MP - Log info about your steam lobby.", delegate (string[] args) {
+
+            ConFailIfNotInSteamLobby();
+
+            log.l("LOBBY INFO:\n" + KSteam.CURRENT_LOBBY.DebugReadableDump());
+
+        }, null));
+        RegisterCommand_LocalOnly(new Command("dumplobbysearch", "MP - Dump all lobbies shown in server browser.", delegate (string[] args) {
+            // clients are fine
+            var filtered = con.ParseBool(args[1]);
+
+            var text = new StringBuilder("// LOBBY SEARCH DUMP:\n");
+            foreach (var item in (filtered ? UIServerBrowser.CurFilteredServerList : UIServerBrowser.CurServerList)) {
+                if (item.steam_lobby_info != null) {
+                    text.AppendLine(item.steam_lobby_info.DebugReadableDump());
                 }
-                doPause = !doPause;
+            }
+            text.AppendLine("===============");
 
-                PlayerCamera.main.SetTimeScale(PlayerCamera.SpeedType.Paused);
-                Time.timeScale = doPause.ToByte();
+            log.l(text.ToString());
+        }, null, ("bool", "filtered")));
 
-            }, null, ("bool", "1 pause, 0 continue")));
+        #endregion
 
-            RegisterCommand(new Command("syncreset", "MP dev - Unregister all objects.", (string[] splited) => {
-                if (Net.IsClient) {
-                    return;
-                }
-                ConFailIfNetworkNotRunning();
 
-                if (Net.Transport != null && Net.Transport is TransportLiteNetLib tlnl) {
-                    tlnl.NetManager.Statistics.Reset();
-                }
+        #region IP_CONNECTDISCONNECT
 
-                bool deleteInventory = false;
-                if (splited.Length > 1) {
-                    deleteInventory = con.ParseBool(splited[1]);
-                }
-                if (deleteInventory) {
-                    NetObjectRegistry.UnregisterAllObjects();
-                    log.l($"NetObjectRegistry.UnregisterAllObjects();");
+        RegisterCommand_LocalOnly(new Command("connect", "MP - Client Connect to an active server.", delegate (string[] args) {
+
+            ConFailIfNetworkAlreadyRunning();
+            ConFailIfNotInMainMenu();
+            if (args.Length > 1) {
+                UIMainMenu.USERINPUT_IPPORT = args[1];
+            }
+            con.LogToConsole("Starting client and attempting connection: " + UIMainMenu.USERINPUT_IPPORT);
+            TransportLiteNetLib.OnWantToConnect(UIMainMenu.USERINPUT_IPPORT, Net.NetType.Client);
+
+        }, null, ("string ip:port", "optional, IP and PORT of target server")));
+        RegisterCommand_LocalOnly(new Command("starthost", "MP - Host the game.", delegate (string[] args) {
+
+            ConFailIfNetworkAlreadyRunning();
+            ConFailIfNotInMainMenu();
+
+            if (args.Length > 1) {
+                if (ushort.TryParse(args[1], out var portnum)) {
+                    UIMainMenu.USERINPUT_IPPORT = "0.0.0.0:" + args[1];
                 } else {
-                    NetObjectRegistry.UnregisterAllObjectsButKeepInventory();
-                    log.l($"NetObjectRegistry.UnregisterAllObjectsButKeepInventory();");
-                }
-            }, null, ("bool", "1 keep inventory, 0 for simple")));
-
-            RegisterCommand(new Command("syncregisterall", "MP dev - Register all objects in the world. (IT LAGS !!!!!)", (string[] splited) => {
-                ConFailIfNetworkNotRunning();
-
-                foreach (var item in (GameObject.FindObjectsOfType<Item>().Select(x => x.gameObject).Union(GameObject.FindObjectsOfType<BuildingEntity>().Select(x => x.gameObject)))) {
-                    if (NetObjectRegistry.ObjectShouldBeSynced(item)) {
-                        NetObjectRegistry.NewGO(item);
-                    }
-                }
-                log.l($"called NetObjectRegistry.NewGO on everything");
-            }, null));
-
-            RegisterCommand_LocalOnly(new Command("maxplayers", "MP - SERVER - Set player limit", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-
-                con.CheckArgumentCount(splited, 1);
-                Multiplayer.PLAYER_COUNT_LIMIT = (byte)Mathf.Clamp(con.ParseInt(splited[1]), 0, 251);
-
-                con.LogToConsole($"Set player count limit to: {Multiplayer.PLAYER_COUNT_LIMIT}");
-
-            }, null, ("int", "")));
-
-            RegisterCommand_LocalOnly(new Command("chatboxpos", "MP - set position and size of chat box (everything is a scale in float (0-1)) (OBSOLETE)", (string[] splited) => {
-                if (splited.Count() == 1) {
-                    Chat.SETTING_posX = 1;
-                    Chat.SETTING_posY = 1;
-                    Chat.SETTING_sizeX = 1;
-                    Chat.SETTING_sizeY = 1;
-                    Chat.SETTING_scale = 1;
-                    con.LogToConsole($"Chatbox: Reset chatbox location.");
-                    return;
-                }
-
-
-                con.CheckArgumentCount(splited, 5);
-
-                Chat.SETTING_posX = Mathf.Clamp01(con.ParseFloat(splited[1]));
-                Chat.SETTING_posY = Mathf.Clamp01(con.ParseFloat(splited[2]));
-                Chat.SETTING_sizeX = con.ParseFloat(splited[3]);
-                Chat.SETTING_sizeY = con.ParseFloat(splited[4]);
-                Chat.SETTING_scale = con.ParseFloat(splited[5]);
-
-                con.LogToConsole($"Chatbox: SETTING NEW PARAMETERS:");
-                con.LogToConsole($"Chatbox: setting_posX  = {(Chat.SETTING_posX * 100f)}%");
-                con.LogToConsole($"Chatbox: setting_posY  = {(Chat.SETTING_posY * 100f)}%");
-                con.LogToConsole($"Chatbox: setting_sizeX = {(Chat.SETTING_sizeX * 100f)}%");
-                con.LogToConsole($"Chatbox: setting_sizeY = {(Chat.SETTING_sizeY * 100f)}%");
-                con.LogToConsole($"Chatbox: setting_scale = {(Chat.SETTING_scale * 100f)}%");
-
-            }, null, ("float", "X pos"), ("float", "Y pos"), ("float", "X size"), ("float", "Y size"), ("float", "scale")));
-
-            RegisterCommand_LocalOnly(new Command("chatpreview", "MP dev - toggle chat text preview (OBSOLETE)", (string[] splited) => {
-
-                ref bool val = ref Chat._DEV_ENABLE_PREVIEW;
-                var target = !val;
-                if (splited.Length > 1) {
-                    target = ParseBool01(splited[1]);
-                }
-                val = target;
-                con.LogToConsole($"Chat._DEV_ENABLE_PREVIEW = {val}");
-
-            }, null, ("bool", "")));
-
-            RegisterCommand(new Command("tomainmenu", "MP - go to main menu", (string[] splited) => {
-                con.CheckForWorld();
-                PlayerCamera.main.ToMainMenu();
-            }, null));
-
-            RegisterCommand_LocalOnly(new Command("currentrules", "MP - show all multiplayer game rules", (string[] splited) => {
-                var rules = "Krokosha Co-op mod game rules:\n";
-                foreach (var fld in typeof(MultiplayerGameRules).GetFields(BindingFlags.Public | BindingFlags.Instance)) {
-                    rules += $"rule {fld.Name} [{fld.FieldType.Name}] // current: {fld.GetValue(Multiplayer.rules)}\n";
-                }
-                con.LogToConsole(rules);
-            }, null));
-            RegisterCommand(new Command("resetrules", "MP - reset all multiplayer game rules to default values", (string[] splited) => {
-                Multiplayer.rules = new MultiplayerGameRules();
-                con.LogToConsole("Reset all rules to default.");
-            }, null));
-            RegisterCommand(new Command("rule", "MP - set multiplayer game rule", (string[] splited) => {
-                ConFailIfNetworkIsRunningAndIsClient();
-                con.CheckArgumentCount(splited, 2);
-
-                var rulename = splited[1];
-                var rulevalstr = splited[2];
-                foreach (var fld in typeof(MultiplayerGameRules).GetFields(BindingFlags.Public | BindingFlags.Instance)) {
-                    if (fld.Name == rulename) {
-                        try {
-                            object typedValue;
-                            if (fld.FieldType == typeof(bool)) {
-                                typedValue = ParseBool01(rulevalstr);
-                            } else {
-                                typedValue = Convert.ChangeType(rulevalstr, fld.FieldType, CultureInfo.InvariantCulture);
-                            }
-                            TypedReference rulesref = __makeref(Multiplayer.rules);
-                            fld.SetValueDirect(rulesref, typedValue);
-
-                            Multiplayer.ApplyGameRules();
-
-                            con.LogToConsole($"Succesfully set rule '{fld.Name}' to '{fld.GetValue(Multiplayer.rules)}'.");
-                            return;
-                        } catch (Exception ex) {
-                            con.LogToConsole($"Failed to set rule '{fld.Name}': {ex.Message}");
-                            return;
-                        }
-                    }
-                }
-                con.LogToConsole($"Rule '{rulename}' does not exist!");
-
-            }, new Dictionary<int, List<string>> { { 0, typeof(MultiplayerGameRules).GetFields(BindingFlags.Public | BindingFlags.Instance).Select(x => x.Name).ToList() } }, ("string rule", "Rule Name"), ("value", "New value")));
-
-            RegisterCommand(new Command("setlocalname", "MP - Set your multiplayer username.", delegate (string[] args) {
-                ConsoleScript.instance.CheckArgumentCount(args, 1);
-                if (PlayerCamera.main) {
-                    throw new Exception("Name can only be set in main menu.");
-                }
-                ConFailIfNetworkAlreadyRunning();
-                var name = Multiplayer.SanitizeTextInput(args[1]);
-                con.LogToConsole("Set your username to: " + name);
-                UIMainMenu.USERINPUT_NAME = name;
-                Multiplayer.ExplicitSessionName = true;
-            }, null, ("string name", "Your new name")));
-            RegisterCommand(new Command("setlocalpassword", "MP - Set your multiplayer password.", delegate (string[] args) {
-                ConsoleScript.instance.CheckArgumentCount(args, 1);
-                if (PlayerCamera.main) {
-                    throw new Exception("Password can only be set in main menu.");
-                }
-                ConFailIfNetworkAlreadyRunning();
-                var newpass = args[1];
-                con.LogToConsole("Set your password to: " + newpass);
-                Multiplayer.INPUT_PASSWORD = newpass;
-            }, null, ("string password", "")));
-
-
-            RegisterCommand(new Command("setservername", "MP - Set your server name.", delegate (string[] args) {
-                Con.ConFailIfNetworkIsRunningAndIsClient();
-                ConsoleScript.instance.CheckArgumentCount(args, 1);
-                var name = (string.Join(" ", args.Skip(1)));
-                Multiplayer.SetServerName(name);
-                con.LogToConsole("Set server name to: " + Net.CurrentServerInfo.name);
-            }, null, ("string name", "New name")));
-            RegisterCommand(new Command("setserverdesc", "MP - Set your server description.", delegate (string[] args) {
-                Con.ConFailIfNetworkIsRunningAndIsClient();
-                ConsoleScript.instance.CheckArgumentCount(args, 1);
-                var desc = (string.Join(" ", args.Skip(1)));
-                Multiplayer.SetServerDescription(desc);
-                con.LogToConsole("Set server desc to: " + Net.CurrentServerInfo.description);
-            }, null, ("string name", "New description")));
-
-
-            #region STEAM_CONNECTDISCONNECT
-
-            RegisterCommand_LocalOnly(new Command("joinlobby", "MP - Client Connect to an active steam lobby.", delegate (string[] args) {
-
-                ConFailIfNetworkAlreadyRunning();
-                ConFailIfNotInMainMenu();
-
-                var lobbyId = ulong.Parse(args[1]);
-
-                TransportSteamworks.OnWantToJoinLobby(lobbyId);
-
-                con.LogToConsole("Starting client and attempting join: " + lobbyId);
-
-            }, null, ("SteamId", "")));
-            RegisterCommand_LocalOnly(new Command("hostlobby", "MP - Host steam lobby.", delegate (string[] args) {
-
-                ConFailIfNetworkAlreadyRunning();
-                ConFailIfNotInMainMenu();
-                con.CheckArgumentCount(args, 2);
-
-                var lobbytype = con.ParseInt(args[1]);
-                Multiplayer.SERVER_TOGGLE_SHOULD_HOST_DEDICATED = con.ParseBool(args[2]);
-
-                var type = KSteam.NumToLobbyType(lobbytype);
-
-                var nettttt = Multiplayer.SERVER_TOGGLE_SHOULD_HOST_DEDICATED ? Net.NetType.DedicatedServer : Net.NetType.Host;
-
-                Multiplayer.DoMultiplayerStatusMessageLog($"Hosting Steam Lobby: {nettttt}, {type}");
-
-                TransportSteamworks.OnWantToHostLobby(
-                    nettttt,
-                    type
-                );
-
-            }, null, ("int", "Lobby type (2 = public, 1 = friends only, 0 = private)"), ("bool", "dedicated")));
-            RegisterCommand_LocalOnly(new Command("getlobbyinfo", "MP - Log info about your steam lobby.", delegate (string[] args) {
-
-                ConFailIfNotInSteamLobby();
-
-                log.l("LOBBY INFO:\n" + KSteam.CURRENT_LOBBY.DebugReadableDump());
-
-            }, null));
-            RegisterCommand_LocalOnly(new Command("dumplobbysearch", "MP - Dump all lobbies shown in server browser.", delegate (string[] args) {
-                // clients are fine
-                var filtered = con.ParseBool(args[1]);
-
-                var text = new StringBuilder("// LOBBY SEARCH DUMP:\n");
-                foreach (var item in (filtered ? UIServerBrowser.CurFilteredServerList : UIServerBrowser.CurServerList)) {
-                    if (item.steam_lobby_info != null) {
-                        text.AppendLine(item.steam_lobby_info.DebugReadableDump());
-                    }
-                }
-                text.AppendLine("===============");
-
-                log.l(text.ToString());
-            }, null, ("bool", "filtered")));
-            RegisterCommand_LocalOnly(new Command("refreshlobbies", "MP - Worldwide steam lobby browser refresh.", delegate (string[] args) {
-                KSteam.userselected_lobbyDistanceFilter = ELobbyDistanceFilter.k_ELobbyDistanceFilterWorldwide;
-                UIServerBrowser.SortHideIncompatible = false;
-                UIServerBrowser.ReloadList();
-                Together.log.warn($"[LobbyBrowser] CMD-REFRESH worldwide myVer=\"{Multiplayer.FULL_VERSION_TAG}\"");
-                con.LogToConsole("Refreshing steam lobbies (worldwide)...");
-            }, null));
-
-            #endregion
-
-
-            #region IP_CONNECTDISCONNECT
-
-            RegisterCommand_LocalOnly(new Command("connect", "MP - Client Connect to an active server.", delegate (string[] args) {
-
-                ConFailIfNetworkAlreadyRunning();
-                ConFailIfNotInMainMenu();
-                if (args.Length > 1) {
                     UIMainMenu.USERINPUT_IPPORT = args[1];
+                    // use the already inputted  Multiplayer.input_ipport_text
                 }
-                con.LogToConsole("Starting client and attempting connection: " + UIMainMenu.USERINPUT_IPPORT);
-                TransportLiteNetLib.OnWantToConnect(UIMainMenu.USERINPUT_IPPORT, Net.NetType.Client);
+            }
 
-            }, null, ("string ip:port", "optional, IP and PORT of target server")));
-            RegisterCommand_LocalOnly(new Command("starthost", "MP - Host the game.", delegate (string[] args) {
+            con.LogToConsole("Starting Host: " + UIMainMenu.USERINPUT_IPPORT);
 
-                ConFailIfNetworkAlreadyRunning();
-                ConFailIfNotInMainMenu();
+            TransportLiteNetLib.OnWantToConnect(UIMainMenu.USERINPUT_IPPORT, Net.NetType.Host);
 
-                if (args.Length > 1) {
-                    if (ushort.TryParse(args[1], out var portnum)) {
-                        UIMainMenu.USERINPUT_IPPORT = "0.0.0.0:" + args[1];
-                    } else {
-                        UIMainMenu.USERINPUT_IPPORT = args[1];
-                        // use the already inputted  Multiplayer.input_ipport_text
-                    }
+        }, null, ("int port", "")));
+        RegisterCommand_LocalOnly(new Command("startserver", "MP - Start a dedicated server. (you'll have no player character)", delegate (string[] args) {
+
+            ConFailIfNetworkAlreadyRunning();
+            ConFailIfNotInMainMenu();
+
+            if (args.Length > 1) {
+                if (ushort.TryParse(args[1], out var portnum)) {
+                    UIMainMenu.USERINPUT_IPPORT = "0.0.0.0:" + args[1];
+                } else {
+                    UIMainMenu.USERINPUT_IPPORT = args[1];
+                    // use the already inputted  Multiplayer.input_ipport_text
                 }
+            }
 
-                con.LogToConsole("Starting Host: " + UIMainMenu.USERINPUT_IPPORT);
+            con.LogToConsole("Starting Server: " + UIMainMenu.USERINPUT_IPPORT);
 
-                TransportLiteNetLib.OnWantToConnect(UIMainMenu.USERINPUT_IPPORT, Net.NetType.Host);
+            TransportLiteNetLib.OnWantToConnect(UIMainMenu.USERINPUT_IPPORT, Net.NetType.DedicatedServer);
 
-            }, null, ("int port", "")));
-            RegisterCommand_LocalOnly(new Command("startserver", "MP - Start a dedicated server. (you'll have no player character)", delegate (string[] args) {
+        }, null, ("int port", "")));
 
-                ConFailIfNetworkAlreadyRunning();
-                ConFailIfNotInMainMenu();
-
-                if (args.Length > 1) {
-                    if (ushort.TryParse(args[1], out var portnum)) {
-                        UIMainMenu.USERINPUT_IPPORT = "0.0.0.0:" + args[1];
-                    } else {
-                        UIMainMenu.USERINPUT_IPPORT = args[1];
-                        // use the already inputted  Multiplayer.input_ipport_text
-                    }
-                }
-
-                con.LogToConsole("Starting Server: " + UIMainMenu.USERINPUT_IPPORT);
-
-                TransportLiteNetLib.OnWantToConnect(UIMainMenu.USERINPUT_IPPORT, Net.NetType.DedicatedServer);
-
-            }, null, ("int port", "")));
-
-            #endregion
+        #endregion
 
 
-            RegisterCommand(new Command("pasterunsettings", "MP - Paste run settings from a string.", delegate (string[] args) {
+        RegisterCommand(new Command("pasterunsettings", "MP - Paste run settings from a string.", delegate (string[] args) {
+            if (Util.IsInWorld()) {
+                ConFailIfCheatsDisabled();
+            }
+            ConFailIfNetworkIsRunningAndIsClient();
+
+            con.CheckArgumentCount(args, 1);
+            WorldMP.ApplyRunSettings(args[1]);
+        }, null, ("string base64", "")));
+
+        {
+            var runset = RegisterCommand(new Command("runset", "MP - Set a run setting.", delegate (string[] args) {
                 if (Util.IsInWorld()) {
                     ConFailIfCheatsDisabled();
                 }
                 ConFailIfNetworkIsRunningAndIsClient();
 
-                con.CheckArgumentCount(args, 1);
-                WorldMP.ApplyRunSettings(args[1]);
-            }, null, ("string base64", "")));
+                con.CheckArgumentCount(args, 2);
 
-            {
-                var runset = RegisterCommand(new Command("runset", "MP - Set a run setting.", delegate (string[] args) {
-                    if (Util.IsInWorld()) {
-                        ConFailIfCheatsDisabled();
+                var ruleName = args[1];
+                var valueString = args[2];
+
+                var originals = WorldMP.GetNormalRunSettings();
+                if (!originals.TryGetValue(ruleName, out var value)) {
+                    throw new Exception($"Unknown run setting: {ruleName}");
+                }
+
+                object parsedValue = TypeDescriptor.GetConverter(value.GetType()).ConvertFromInvariantString(valueString);
+
+                if (PreRunScript.instance != null) {
+                    if (PreRunScript.instance.runSettings != null) {
+                        PreRunScript.instance.runSettings[ruleName] = parsedValue;
                     }
-                    ConFailIfNetworkIsRunningAndIsClient();
+                    PreRunScript.instance.UpdateAllSettingDisplays();
+                }
+                if (WorldGeneration.runSettings != null) {
+                    WorldGeneration.runSettings[ruleName] = parsedValue;
+                }
 
-                    con.CheckArgumentCount(args, 2);
+                con.LogToConsole($"Set run setting: {ruleName} to {parsedValue}");
 
-                    var ruleName = args[1];
-                    var valueString = args[2];
+            }, null, ("string name", ""), ("value", "")));
 
-                    var originals = WorldMP.GetNormalRunSettings();
-                    if (!originals.TryGetValue(ruleName, out var value)) {
-                        throw new Exception($"Unknown run setting: {ruleName}");
-                    }
-
-                    object parsedValue = TypeDescriptor.GetConverter(value.GetType()).ConvertFromInvariantString(valueString);
-
-                    if (PreRunScript.instance != null) {
-                        if (PreRunScript.instance.runSettings != null) {
-                            PreRunScript.instance.runSettings[ruleName] = parsedValue;
-                        }
-                        PreRunScript.instance.UpdateAllSettingDisplays();
-                    }
-                    if (WorldGeneration.runSettings != null) {
-                        WorldGeneration.runSettings[ruleName] = parsedValue;
-                    }
-
-                    con.LogToConsole($"Set run setting: {ruleName} to {parsedValue}");
-
-                }, null, ("string name", ""), ("value", "")));
-
-                runset.GetArgAutofillList(0).AddRange(WorldMP.GetNormalRunSettings().Keys);
-            }
+            runset.GetArgAutofillList(0).AddRange(WorldMP.GetNormalRunSettings().Keys);
+        }
 
 
-            RegisterCommand_LocalOnly(new Command("disconnect", "MP - Disconnect from server or shutdown server.", delegate (string[] args) {
+        RegisterCommand_LocalOnly(new Command("disconnect", "MP - Disconnect from server or shutdown server.", delegate (string[] args) {
 
-                ConFailIfNetworkNotRunning();
-                log.l("Disconnect.");
+            ConFailIfNetworkNotRunning();
+            log.l("Disconnect.");
 
-                Multiplayer.ShutdownNetwork();
+            Multiplayer.ShutdownNetwork();
 
-            }, null));
+        }, null));
 
 
-            RegisterCommand_LocalOnly(new Command("screensize", "MP dev - set game window resolution", (string[] splited) => {
-                Screen.SetResolution(fullscreenMode: FullScreenMode.Windowed, width: con.ParseInt(splited[1]), height: con.ParseInt(splited[2]));
-            }, null));
+        RegisterCommand_LocalOnly(new Command("screensize", "MP dev - set game window resolution", (string[] splited) => {
+            Screen.SetResolution(fullscreenMode: FullScreenMode.Windowed, width: con.ParseInt(splited[1]), height: con.ParseInt(splited[2]));
+        }, null));
 
 
 
 #if !RELEASE
-            RegisterCommand_LocalOnly(new Command("TEMP_known_entities_with_nonunique_id_to_og", "MP DEV DEV DELETEME", (string[] splited) => {
+        RegisterCommand_LocalOnly(new Command("TEMP_known_entities_with_nonunique_id_to_og", "MP DEV DEV DELETEME", (string[] splited) => {
 
-                log.l($"TEMP_known_entities_with_nonunique_id_to_og START =============");
-                foreach (var item in ScavMPBuildingSynchronizer.TEMP_known_entities_with_nonunique_id_to_og) {
-                    log.l($"{item.Key} -> {item.Value}");
-                }
-                log.l($"TEMP_known_entities_with_nonunique_id_to_og END ==============");
-
-            }, null));
-
-            {
-                var krok = new Command("krok", "DEPRECATED- Multiplayer mod control. (legacy from before 1.12, no autocompletion)", delegate (string[] args) {
-                    con.LogToConsole(KrokoshaLegacyCommand(string.Join(" ", args), args.ToList()));
-                }, null);
-                RegisterCommand(krok);
+            log.l($"TEMP_known_entities_with_nonunique_id_to_og START =============");
+            foreach (var item in ScavMPBuildingSynchronizer.TEMP_known_entities_with_nonunique_id_to_og) {
+                log.l($"{item.Key} -> {item.Value}");
             }
+            log.l($"TEMP_known_entities_with_nonunique_id_to_og END ==============");
+
+        }, null));
+
+        {
+            var krok = new Command("krok", "DEPRECATED- Multiplayer mod control. (legacy from before 1.12, no autocompletion)", delegate (string[] args) {
+                con.LogToConsole(KrokoshaLegacyCommand(string.Join(" ", args), args.ToList()));
+            }, null);
+            RegisterCommand(krok);
+        }
 #endif
 
 
-            if (Plugin.s != null) {
-                try {
-                    Plugin.s.SendMessage("OnRegisterConsoleCommands", SendMessageOptions.DontRequireReceiver);
-                } catch (Exception e) {
-                    log.error(e);
-                }
+        if (Plugin.s != null) {
+            try {
+                Plugin.s.SendMessage("OnRegisterConsoleCommands",SendMessageOptions.DontRequireReceiver);
+            } catch(Exception e) {
+                log.error(e);
             }
-
-            _mpConsoleCommandsRegistered = ConsoleScript.SearchExact("species") != null
-                || ConsoleScript.SearchExact("telekinesis") != null
-                || ConsoleScript.SearchExact("objdelete") != null;
-            log.l($"Patched the console! mpRegistered={_mpConsoleCommandsRegistered} species={ConsoleScript.SearchExact("species") != null} telekinesis={ConsoleScript.SearchExact("telekinesis") != null} total={ConsoleScript.Commands.Count}");
-            if (Plugin.s != null && Plugin.s.TryGetComponent(out Plugin.LoadErrorNotifier wrongver)) {
-                log.error("WrongVersionNotifier:\n" + Plugin.LoadErrorNotifier.errorstr);
-            }
-
-
-            UpdatePlayerListAutocomplete();
-        } catch (Exception e) {
-            log.error($"MP console RegisterCommand block aborted (partial register possible): {e}");
         }
+
+        log.l("Patched the console!");
+        if (Plugin.s != null && Plugin.s.TryGetComponent(out Plugin.LoadErrorNotifier wrongver)) {
+            log.error("WrongVersionNotifier:\n" + Plugin.LoadErrorNotifier.errorstr);
+        }
+
+
+        UpdatePlayerListAutocomplete();
     }
 
 
@@ -3247,7 +2881,7 @@ public class Con : CasualtiesTogetherSingleton {
     };
 
 
-    public static bool Server_CheckBannedCommand(in ScavPlayer plr, in string first_arg) {
+    public static bool Server_CheckBannedCommand(in ScavPlayer plr,in string first_arg) {
         var com = first_arg;
         if (localonly_commands.Contains(com)) {
             log.sus($"{plr} tried to execute a local-only command: {com}");
@@ -3286,7 +2920,7 @@ public class Con : CasualtiesTogetherSingleton {
                 return false;
             }
 
-            // just in case keep the old parser here
+            // Just in case keep the old parser here
             try {
                 for (int i = 0; i < Math.Min(args.Length - 1, realcomm.argDescription.Length); i++) {
                     ref string arg = ref args[i + 1];
@@ -3335,7 +2969,7 @@ public class Con : CasualtiesTogetherSingleton {
             if (server_admins.Contains(plr) || plr.ServerPlayerState.admin_privilege) {
                 var args = command.Trim().Split(' ');
 
-                if (Server_CheckBannedCommand(plr, args[0])) {
+                if (Server_CheckBannedCommand(plr,args[0])) {
                     return;
                 }
 
@@ -3364,7 +2998,7 @@ public class Con : CasualtiesTogetherSingleton {
     static void ServerReceiver_Console_ActivateAdminMode(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
         reader.Get(out bool fsdfdsdfs);
         reader.Get(out string pass);
-
+        
         if (ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr)) {
             if (fsdfdsdfs && !plr.IsLocal) {
                 var is_pass = (
@@ -3414,7 +3048,7 @@ public class Con : CasualtiesTogetherSingleton {
         ConsoleScript.instance.LogToConsole("[<color=red>SERVER</color>] " + as_string);
     }
 
-
+    
 
 
 
@@ -3429,7 +3063,7 @@ public class Con : CasualtiesTogetherSingleton {
         List<string> macros_plus_plrlist = new();
 
         if (Net.IsRunning) {
-            plrlist = ScavPlayer.AllPlayers.Select(x => x.playerName).ToList();
+            plrlist = ScavPlayer.ClientIdToPlayerDict.Values.Select(x => x.playerName).ToList();
 
             player_colon_plrlist = new List<string> { "@c", "@r", "@m" };
             player_colon_plrlist.AddRange(plrlist);
@@ -3437,7 +3071,7 @@ public class Con : CasualtiesTogetherSingleton {
                 player_colon_plrlist[i] = "plr:" + player_colon_plrlist[i];
             }
 
-            List<string> allmacros = new List<string> { "@c", "@a", "@o", "@r", "@m" };
+            var allmacros = new List<string> { "@c", "@a", "@o", "@r", "@m" };
             allmacros.AddRange(plrlist);
             macros_plus_plrlist = allmacros.ToList();
         }
@@ -3452,7 +3086,7 @@ public class Con : CasualtiesTogetherSingleton {
 
                 if (com.argDescription[i].shortDesc.StartsWith("position")) {
                     //OG: Command.Command V5t5 
-                    List<string> og = new List<string> { "cursor", "player", "random", "#,#" };
+                    var og = new List<string> { "cursor", "player", "random", "#,#" };
                     og.AddRange(player_colon_plrlist);
 
                     com.GetArgAutofill()[i] = og;
@@ -3461,7 +3095,7 @@ public class Con : CasualtiesTogetherSingleton {
         }
     }
 
-    public static void Server_SendConsoleLog(in string text, ScavPlayer plr) => Server_SendConsoleLog(text, new List<knetid> { plr.playerId });
+    public static void Server_SendConsoleLog(in string text, ScavPlayer plr) => Server_SendConsoleLog(text, new List<knetid> { plr.playerId} );
     public static void Server_SendConsoleLog(in string text, IReadOnlyList<knetid> targets = null) {
         if (targets == null) {
             targets = Con.server_admins.Select(x => x.playerId).ToList();
@@ -3499,7 +3133,7 @@ public class Con : CasualtiesTogetherSingleton {
             Client_ExecuteAdminCommand(command);
         }
     }
-    public static void Client_ExecuteAdminCommand(in string command) {
+    public static void Client_ExecuteAdminCommand(in string command) { 
 
         var writer = Net.CreateWriter(NetmsgId.SERVER_Console_TryExecuteCommand);
         writer.Put(command);
@@ -3559,7 +3193,7 @@ public class Con : CasualtiesTogetherSingleton {
                         if (obj.TryGetComponent(out Rigidbody2D rb)) {
                             _DEV_TELEKINESIS_OBJECT = rb.gameObject;
                         }
-
+                        
                     }
                     if (_DEV_TELEKINESIS_OBJECT != null) {
                         if (_DEV_TELEKINESIS_OBJECT.TryGetComponent<ChunkScript>(out var c)) {
@@ -3578,18 +3212,59 @@ public class Con : CasualtiesTogetherSingleton {
         }
     }
 
-    // written by Telekinesis (tk2) while a grab is live; otherwise updated here.
-    internal static Vector2 lastworldcursorpos = new Vector2();
+    static Vector2 lastworldcursorpos = new Vector2();
     void FixedUpdate() {
-        Vector2 cursorpos = Util.GetCursorWorldPos();
+        var cursorpos = Util.GetCursorWorldPos();
+        var cursorposfixeddelta = -(lastworldcursorpos - cursorpos);
 
-        // drag / beam / impact live in Telekinesis.cs (Harmony Prefix on this method).
-        // when that Prefix handles a grab it skips the rest of FixedUpdate.
-        if (_DEV_TELEKINESIS && !CanCheat()) {
-            _DEV_TELEKINESIS = false;
-            _DEV_TELEKINESIS_OBJECT = null;
+        if (_DEV_TELEKINESIS) {
+
+            if (!Con.CanCheat()) {
+                _DEV_TELEKINESIS = false;
+                _DEV_TELEKINESIS_OBJECT = null;
+            }
+
+
+            if (_DEV_TELEKINESIS_OBJECT != null) {
+                if (((_DEV_TELEKINESIS_OBJECT.TryGetComponent(out Limb l) && l.TryGetNetBody(out NetBody npc)) || _DEV_TELEKINESIS_OBJECT.TryGetComponent(out  npc)) && !npc.IsLocal) {
+                    
+                    {
+                        npc.body.SetVelocity(Vector2.zero);
+                        npc.body.rb.gravityScale = 0;
+                        _DEV_TELEKINESIS_OBJECT.transform.position += (Vector3)cursorposfixeddelta;
+                    }
+
+                    if (Multiplayer.IsNetworkActiveAndIsServer()) {
+                        npc.body.SetVelocity(Vector2.zero);
+                        npc.Server_RemindPlayersCurrentState( false);
+                    }
+                } else {
+                    if (_DEV_TELEKINESIS_OBJECT.TryGetComponent(out Rigidbody2D rb) && rb.bodyType == RigidbodyType2D.Dynamic && rb.simulated) {
+                        var dirtogo = KM.NormalTo(rb.position, cursorpos, out var dist);
+
+                        //var force = (dirtogo * (dist * rb.mass * 5));// - Physics2D.gravity;
+
+                        rb.AddForce(-Physics2D.gravity * 0.6f);
+
+                        rb.velocity += dirtogo * 5;
+                    } else {
+                        _DEV_TELEKINESIS_OBJECT.transform.position += (Vector3)cursorposfixeddelta;
+                        if (_DEV_TELEKINESIS_OBJECT.TryGetComponent(out TraderScript ts)) {
+                            var v = (Vector2)_DEV_TELEKINESIS_OBJECT.transform.position;
+                            ts.MoveRange = new RangeF(v.x, v.x);
+                            ts.desiredPos = v;
+                        }
+
+                    }
+                    if (_DEV_TELEKINESIS_OBJECT.TryGetComponent<SyncInfoGameObjectTracker>(out var tracker)) {
+                        if (tracker.syncInfo != null) {
+                            //NetObjectRegistry.Server_QueueSync(tracker.syncInfo);
+                        }
+                    }
+                }
+            }
+
         }
-
         lastworldcursorpos = cursorpos;
     }
 
@@ -3620,7 +3295,7 @@ public class Con : CasualtiesTogetherSingleton {
     public static List<ScavPlayer> GetPlayersForCommand(string plrname, ScavPlayer caller, bool onlyOne, bool allowMacros, List<ScavPlayer> toFilter = null) {
 
         if (toFilter == null)
-            toFilter = ScavPlayer.AllPlayers.ToList();
+            toFilter = ScavPlayer.ClientIdToPlayerDict.Values.ToList();
 
         var list = new List<ScavPlayer>();
 
@@ -3632,7 +3307,7 @@ public class Con : CasualtiesTogetherSingleton {
         if (plrname.StartsWith('@') && (allowMacros || loweredPlrname == "@c")) {
 
             if (!onlyOne) {
-                if (loweredPlrname == "@a") { // all players
+                if (loweredPlrname == "@a") { // All players
                     return toFilter;
                 } else if (loweredPlrname == "@o") { // all players except caller
                     toFilter.Remove(caller);
@@ -3643,10 +3318,10 @@ public class Con : CasualtiesTogetherSingleton {
             if (loweredPlrname.StartsWith("@m") && caller != null && toFilter.Contains(caller)) { // me
                 list.Add(caller);
                 return list;
-            } else if (loweredPlrname.StartsWith("@r")) { // random
+            } else if (loweredPlrname.StartsWith("@r")) { // Random
 
                 int requiredCount = 1;
-                // allow numbers:  @r:2   - Random 2 players
+                // Allow numbers:  @r:2   - Random 2 players
                 if (!onlyOne) {
                     int colon = -1;
                     for (int i = 2; i < loweredPlrname.Length; i++) { if (char.IsDigit(loweredPlrname[i])) { colon = i; break; } }
@@ -3706,7 +3381,7 @@ public class Con : CasualtiesTogetherSingleton {
     // used for console commands 
     public static bool TryGetPlayerFromPartialName(string partialname, out ScavPlayer player, List<ScavPlayer> toSearchIn = null) {
         if (toSearchIn == null) {
-            toSearchIn = ScavPlayer.AllPlayers.ToList();
+            toSearchIn = ScavPlayer.ClientIdToPlayerDict.Values.ToList();
         }
 
         if (partialname.StartsWith("id:")) {
@@ -3799,7 +3474,7 @@ public class Con : CasualtiesTogetherSingleton {
             return Tuple.Create(false, "Empty name");
         }
 
-        var players = GetPlayersForCommand(plrname, callerPlr, onlyOne, allow_macros, (require_body ? ScavPlayer.BodyToPlayerDict.Values.ToList() : ScavPlayer.AllPlayers.ToList()));
+        var players = GetPlayersForCommand(plrname, callerPlr, onlyOne, allow_macros, (require_body ? ScavPlayer.BodyToPlayerDict.Values.ToList() : ScavPlayer.ClientIdToPlayerDict.Values.ToList()));
 
 
         if (players.Count > 0) {
@@ -3834,7 +3509,7 @@ public class Con : CasualtiesTogetherSingleton {
                 return Tuple.Create(true, "Found body");
             }
         }
-        if ((bodyId == "@m" || bodyId == "@r") && Util.TryGetLocalBody(out var b) && b.TryGetNetBody(out var netb)) {
+        if ((bodyId == "@m" || bodyId == "@r")  && Util.TryGetLocalBody(out var b) && b.TryGetNetBody(out var netb)) {
             func(netb);
             return Tuple.Create(true, "Success");
         }
@@ -3844,10 +3519,10 @@ public class Con : CasualtiesTogetherSingleton {
 
     public static SyncInfo GetSyncInfoForCommand(string objname) {
         var obj = GetObjectForCommand(objname, true);
-        if (obj == null) { return null; }
+        if (obj == null) { return null; }   
         return NetObjectRegistry.SyncRegistry[obj];
     }
-    public static GameObject GetObjectForCommand(string objname, bool require_syncinfo, Func<GameObject, bool> condition = null) {
+    public static GameObject GetObjectForCommand(string objname, bool require_syncinfo, Func<GameObject,bool> condition = null) {
         if (condition == null) condition = (x) => { return true; };
         GameObject go = null;
         objname = objname.Trim().ToLower();
@@ -3893,7 +3568,7 @@ public class Con : CasualtiesTogetherSingleton {
         return go;
     }
     public static GameObject GetObjectOrBodyForCommand(string objname) {
-        var go = GetObjectForCommand(objname, false);
+        var go = GetObjectForCommand(objname, false); 
         if (go == null) {
             var nb = GetBodyForCommand(objname, GetCommandCallerPlayer());
             if (nb == null && TryGetTaggedPlayerName(objname, out var plrname)) {
@@ -3919,7 +3594,7 @@ public class Con : CasualtiesTogetherSingleton {
 
 
 
-    #endregion // cONSOLE_ONFRAME
+    #endregion // CONSOLE_ONFRAME
 
 
 
@@ -4240,12 +3915,12 @@ public class Con : CasualtiesTogetherSingleton {
         helptext += "krok verbose // verbose\n";
         helptext += "krok cleanworld // despawn monsters and useless items\n";
         helptext += "krok objreset // unregister all objects, to test sync again\n";
-        helptext += "krok sync // Toggle specific synchronization systems (DEV ONLY):\n";
+        helptext += "krok sync // Toggle specific synchronization systems (DEV ONLY):\n" +
 #endif
 #if !RELEASE
-        helptext += "\tkrok sync tile // World tiles sync.\n";
-        helptext += "\tkrok sync fluid // World fluids sync.\n";
-        helptext += "\tkrok sync health // Player health sync.\n";
+                        "\tkrok sync tile // World tiles sync.\n" +
+                        "\tkrok sync fluid // World fluids sync.\n" +
+                        "\tkrok sync health // Player health sync.\n";
 #endif
 
 
@@ -4436,3 +4111,10 @@ public class Con : CasualtiesTogetherSingleton {
 
 
 }
+
+
+
+
+
+
+

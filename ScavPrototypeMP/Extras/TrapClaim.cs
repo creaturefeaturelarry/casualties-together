@@ -18,18 +18,11 @@ internal static class TrapClaim {
     const byte KindTurret = 5;
     const byte KindBoom = 6;
     const byte KindGun = 7;
-    const byte KindManifest = 8;
-    const byte KindCryo = 9;
-    const byte KindGlass = 10;
 
     const float ContactReach = 32f;
     const float SpikeWindow = 2f;
     const float BearWindow = 0.75f;
     const float BoomWindow = 2f;
-    const float ManifestWindow = 1.25f;
-    const float CryoWindow = 0.4f;
-    const float CryoReach = 64f;
-    const float GlassWindow = 0.75f;
 
     class Window {
         public float until;
@@ -78,8 +71,7 @@ internal static class TrapClaim {
     }
 
     static void Send(byte kind, knetid id, ushort mask) {
-        // kindGlass has no synced shard entity - id may be 0; claim is per-victim.
-        if (!Net.IsClient || (id.id == 0 && kind != KindGlass))
+        if (!Net.IsClient || id.id == 0)
             return;
         var writer = Net.CreateWriter(NetmsgId.SERVER_TrapClaim);
         writer.Put(kind);
@@ -561,7 +553,7 @@ internal static class TrapClaim {
             return;
         if (!NetObjectRegistry.TryGetSyncInfo(mine, out var si))
             return;
-        ExplosionParams param = new ExplosionParams { position = mine.transform.position + Vector3.up };
+        var param = new ExplosionParams { position = mine.transform.position + Vector3.up };
         if (!FreshBoom(param.position))
             return;
         ushort mask = ApplyBoomLocal(body, param);
@@ -578,8 +570,7 @@ internal static class TrapClaim {
         if (cam == null || cam.body == null || !Util.IsBodyLocal(cam.body))
             return;
         ushort mask = ApplyBoomLocal(cam.body, param);
-        bool standingOnIt = KM.DistanceCheck(param.position, cam.body.transform.position, Mathf.Min(4f, param.range > 0f ? param.range : 4f));
-        if ((mask == 0 && !standingOnIt) || id.id == 0)
+        if (mask == 0 || id.id == 0)
             return;
         Ignore(cam.body);
         Send(KindBoom, id, mask);
@@ -606,15 +597,7 @@ internal static class TrapClaim {
             }
             if (i > 15)
                 break;
-            // a crystal blast starts inside the ground collider. a line from that point always hits the floor, so the claim never landed.
-            Vector2 origin = param.position;
-            Vector2 toLimb = (Vector2)limb.transform.position - origin;
-            float span = toLimb.magnitude;
-            bool standingOnIt = span <= 4f;
-            if (!standingOnIt && span > 0.01f) {
-                origin += toLimb / span * 1.5f;
-            }
-            if ((!standingOnIt && Physics2D.Linecast(origin, limb.transform.position, LayerMask.GetMask("Ground"))) || !KM.DistanceCheck(param.position, limb.transform.position, param.range)) {
+            if (Physics2D.Linecast(param.position, limb.transform.position, LayerMask.GetMask("Ground")) || !KM.DistanceCheck(param.position, limb.transform.position, param.range)) {
                 i++;
                 continue;
             }
@@ -829,498 +812,10 @@ internal static class TrapClaim {
         writer.Put((Vector2)mine.transform.position);
         Net.Server_SendToClients(DeliveryMethod.ReliableUnordered, writer, clientIds: ServerMain.AllClientIdsExceptHost);
         pendingBoom = id;
-        ExplosionParams explosion = new ExplosionParams { position = mine.transform.position + Vector3.up };
+        var explosion = new ExplosionParams { position = mine.transform.position + Vector3.up };
         WorldGeneration.CreateExplosion(explosion);
         pendingBoom = default;
     }
-
-#if FULLGAME
-    // cold puff (geothermal "amogus" vent): every peer Blows for FX when health drops.
-    // body.temperature is medical / host-authoritative - only the host applies the -8 chill
-    // to every body in range (near or far from the host camera). Clients keep local snow/talk/launch.
-    // returns false to replace vanilla Blow.
-    internal static bool ColdPuffBlowLocal(ColdPuffScript puff) {
-        if (puff == null) {
-            return true;
-        }
-        var blownField = Traverse.Create(puff).Field("blown");
-        if (blownField.GetValue<bool>()) {
-            return false;
-        }
-        blownField.SetValue(true);
-
-        Vector2 puffPos = puff.transform.position;
-        const float coolRadius = 8f;
-
-        if (!Net.IsRunning || Net.IsServer) {
-            ChillBodies(puff, puffPos, coolRadius);
-        } else if (NetObjectRegistry.TryGetSyncInfo(puff.gameObject, out SyncInfo si) && si != null) {
-            LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("CustomCommand");
-            writer.Put("coldpuff_blow " + si.syncId.id.ToString());
-            Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
-        }
-
-        // local feel: snow/talk/launch even on clients (snowAmount is not medical-synced)
-        if (Util.TryGetLocalBody(out Body local)
-            && Vector2.Distance(local.transform.position, puffPos) < coolRadius) {
-            if (Net.IsRunning && Net.IsClient) {
-                local.snowAmount = 100f;
-            }
-            if (local.talker != null) {
-                local.talker.Talk("...");
-            }
-            if (local.rb != null) {
-                local.rb.velocity += Vector2.up * 12f;
-            }
-        }
-
-        BuildingEntity build = puff.GetComponent<BuildingEntity>();
-        if (build != null) {
-            build.description = Locale.GetBuilding("coldpuffdsc2");
-        }
-        Object.Destroy(Utils.Create("Special/ColdPuffParticle", puff.transform.position, 0f), 10f);
-        Sound.Play("puff", puff.transform.position);
-        var sr = puff.GetComponent<SpriteRenderer>();
-        if (sr != null && puff.openSprite != null) {
-            sr.sprite = puff.openSprite;
-        }
-        return false;
-    }
-
-    static readonly HashSet<int> chilledPuffs = new HashSet<int>();
-
-    internal static void ChillBodies(ColdPuffScript puff, Vector2 puffPos, float coolRadius) {
-        if (puff == null || !chilledPuffs.Add(puff.GetInstanceID())) {
-            return;
-        }
-        bool any = false;
-        foreach (var nb in NetBody.GetBodiesInRadius(puffPos, coolRadius)) {
-            Body coolBody = nb != null ? nb.body : null;
-            if (coolBody == null) {
-                continue;
-            }
-            any = true;
-            coolBody.temperature -= 8f;
-            coolBody.snowAmount = 100f;
-            if (Net.IsRunning && Net.IsServer) {
-                MedicalSync.Server_QueueSendCharacterHealth(nb, true);
-            }
-        }
-        if (!any) {
-            chilledPuffs.Remove(puff.GetInstanceID());
-        }
-    }
-
-    internal static void ApplyColdPuffBlown(ColdPuffScript puff) {
-        if (puff == null) {
-            return;
-        }
-        var blownField = Traverse.Create(puff).Field("blown");
-        if (blownField.GetValue<bool>()) {
-            return;
-        }
-        blownField.SetValue(true);
-        BuildingEntity build = puff.GetComponent<BuildingEntity>();
-        if (build != null) {
-            build.description = Locale.GetBuilding("coldpuffdsc2");
-        }
-        var sr = puff.GetComponent<SpriteRenderer>();
-        if (sr != null && puff.openSprite != null) {
-            sr.sprite = puff.openSprite;
-        }
-    }
-
-    // client piston: follow host `up` bit (specialdata1). Ragdoll only the local body when extended.
-    internal static void ClientPistonFollowHost(PistonScript piston) {
-        if (piston == null || !NetObjectRegistry.TryGetSyncInfo(piston, out var si) || si == null) {
-            return;
-        }
-        bool hostUp = si.specialdata1.Value != 0;
-        var upField = Traverse.Create(piston).Field("up");
-        bool wasUp = upField.GetValue<bool>();
-        upField.SetValue(hostUp);
-
-        Rigidbody2D pistonRb = Traverse.Create(piston).Field("piston").GetValue<Rigidbody2D>();
-        if (pistonRb == null && piston.transform.childCount > 0) {
-            pistonRb = piston.transform.GetChild(0).GetComponent<Rigidbody2D>();
-        }
-        if (pistonRb == null) {
-            return;
-        }
-
-        if (hostUp != wasUp) {
-            var rend = piston.GetComponent<SpriteRenderer>();
-            bool audible = rend == null || rend.isVisible;
-            if (audible) {
-                Sound.Play(hostUp ? "piston" : "unpiston", piston.transform.position, twoDimensional: false, pitchShift: false);
-            }
-        }
-
-        pistonRb.collisionDetectionMode = (hostUp && Time.timeScale <= 5f)
-            ? CollisionDetectionMode2D.Continuous
-            : CollisionDetectionMode2D.Discrete;
-
-        if (Time.deltaTime > 0.2f) {
-            pistonRb.transform.localPosition = Vector2.up * 4f * (hostUp ? 1f : 0f);
-            pistonRb.velocity = Vector2.zero;
-        } else if (hostUp && pistonRb.transform.localPosition.y < 4f) {
-            pistonRb.velocity = (Vector2)piston.transform.up * 60f;
-        } else if (!hostUp && pistonRb.transform.localPosition.y > 0f) {
-            pistonRb.velocity = (Vector2)piston.transform.up * -60f * 0.3f;
-        } else {
-            pistonRb.velocity = Vector2.zero;
-            pistonRb.transform.localPosition = Vector2.up * 4f * (hostUp ? 1f : 0f);
-        }
-
-        if (hostUp && piston.transform.up.y < 0.9f && Util.TryGetLocalBody(out Body local)) {
-            Collider2D overlap = Traverse.Create(piston).Field("overlap").GetValue<Collider2D>();
-            if (overlap == null && piston.transform.childCount > 1) {
-                overlap = piston.transform.GetChild(1).GetComponent<Collider2D>();
-            }
-            if (overlap == null) {
-                return;
-            }
-            ContactFilter2D filter = default;
-            filter.SetLayerMask(LayerMask.GetMask("Body"));
-            Collider2D[] hits = new Collider2D[4];
-            int n = overlap.OverlapCollider(filter, hits);
-            for (int i = 0; i < n; i++) {
-                if (hits[i] != null && hits[i].transform == local.transform) {
-                    local.Ragdoll();
-                    local.Scream();
-                    break;
-                }
-            }
-        }
-    }
-
-#endif
-    // manifestation: victim-authoritative. Host AI lunges; remotes are not hurt on the host.
-    // host relays KindManifest; clients apply if the ray still hits their local body, then claim.
-    static readonly Dictionary<int, float> manifestClaimed = new Dictionary<int, float>();
-
-    internal static void HostManifestLunged(CrystalEnemy enemy) {
-        if (!Net.IsServer || enemy == null) {
-            return;
-        }
-        if (!NetObjectRegistry.TryGetSyncInfo(enemy, out var si)) {
-            return;
-        }
-        Relay(KindManifest, si.syncId, 0f);
-    }
-
-    // returns true if this body should receive lunge damage on this peer (local victim only).
-    internal static bool ManifestMayHurt(CrystalEnemy enemy, Body body) {
-        if (!Net.IsRunning || enemy == null || body == null) {
-            return true;
-        }
-        return Util.IsBodyLocal(body);
-    }
-
-    internal static void ManifestHurtLocal(CrystalEnemy enemy, Body body) {
-        if (enemy == null || body == null || !Util.IsBodyLocal(body)) {
-            return;
-        }
-        if (!NetObjectRegistry.TryGetSyncInfo(enemy, out var si)) {
-            return;
-        }
-        int key = si.syncId.id ^ body.GetInstanceID();
-        float now = Time.unscaledTime;
-        if (manifestClaimed.TryGetValue(key, out float until) && now < until) {
-            return;
-        }
-        manifestClaimed[key] = now + ManifestWindow;
-        if (manifestClaimed.Count > 400) {
-            manifestClaimed.Clear();
-        }
-
-        ApplyManifestLunge(enemy, body);
-        Ignore(body);
-        if (Net.IsClient) {
-            Send(KindManifest, si.syncId, 0);
-        } else if (body.TryGetNetBody(out var nb)) {
-            Publish(nb);
-        }
-    }
-
-    static void ApplyManifestLunge(CrystalEnemy enemy, Body body) {
-        if (enemy == null || body == null || body.limbs == null || body.limbs.Length == 0) {
-            return;
-        }
-        List<Limb> live = new List<Limb>();
-        for (int i = 0; i < body.limbs.Length; i++) {
-            Limb limb = body.limbs[i];
-            if (limb != null && !limb.dismembered) {
-                live.Add(limb);
-            }
-        }
-        if (live.Count == 0) {
-            return;
-        }
-        Limb pick = live[Random.Range(0, live.Count)];
-        float armor = pick.GetArmorReduction();
-        pick.DamageWearables(0.4f);
-        pick.muscleHealth -= 35f / armor;
-        pick.skinHealth -= 50f / armor;
-        pick.pain += 35f / armor;
-        pick.bleedAmount += 15f / armor;
-        body.adrenaline += 70f;
-        body.stamina = 100f;
-        body.eyePanicTime = 0.5f;
-        body.Scream();
-        body.Ragdoll();
-        body.DoGoreSound();
-        // enemy HP is host-authored (AcceptManifest / host local hurt).
-        if (Net.IsServer) {
-            BuildingEntity build = enemy.GetComponent<BuildingEntity>();
-            if (build != null) {
-                build.SetHealth(build.GetHealth() - 100f);
-            }
-        }
-        Sound.Play("crystalenemylaugh", enemy.transform.position, twoDimensional: false, pitchShift: false);
-    }
-
-    static bool AcceptManifest(knetid id, NetBody nb) {
-        if (!NetObjectRegistry.TryGetSyncInfo(id, out var si) || si.go == null || !si.go.TryGetComponent(out CrystalEnemy enemy)) {
-            return false;
-        }
-        if (!Near(enemy, nb.body)) {
-            return false;
-        }
-        if (!TakeWindow(KindManifest, id, nb.netId, false, ManifestWindow)) {
-            return false;
-        }
-        // victim already applied locally; host just accepts health authority + enemy chip.
-        BuildingEntity build = enemy.GetComponent<BuildingEntity>();
-        if (build != null && build.GetHealth() > 0.5f) {
-            build.SetHealth(build.GetHealth() - 100f);
-        }
-        Publish(nb);
-        return true;
-    }
-
-#if FULLGAME
-    // cryodrone (LaserDroneScript): host AI + FireShot; body hits are victim-authoritative.
-    static readonly Dictionary<int, float> cryoClaimed = new Dictionary<int, float>();
-
-    internal static void ClientCryoFollowHost(LaserDroneScript drone) {
-        if (drone == null || !NetObjectRegistry.TryGetSyncInfo(drone, out var si)) {
-            return;
-        }
-        // host FixedUpdate owns the chase. the client copy was drifting, so shots landed off the host's drone.
-        Vector2 hostPos = si._position.InterpolatedValue;
-        drone.transform.position = hostPos;
-        if (drone.TryGetComponent(out Rigidbody2D rb) && rb != null) {
-            rb.simulated = false;
-            rb.position = hostPos;
-            rb.velocity = Vector2.zero;
-        }
-        bool hostOpen = si.specialdata1.Value != 0;
-        if (drone.open != hostOpen) {
-            ApplyCryoOpenVisual(drone, hostOpen);
-        }
-        drone.openAmount = Mathf.MoveTowards(drone.openAmount, hostOpen ? 1f : 0f, Time.deltaTime * 2f);
-    }
-
-    static void ApplyCryoOpenVisual(LaserDroneScript drone, bool open) {
-        if (drone == null) {
-            return;
-        }
-        if (open && drone.hidden) {
-            drone.hidden = false;
-            if (drone.render != null && drone.openSprite != null) {
-                drone.render.sprite = drone.openSprite;
-            }
-            BuildingEntity bld = drone.GetComponent<BuildingEntity>();
-            if (bld != null) {
-                bld.ignoreBodyOptimize = true;
-                bld.fullName = Locale.GetBuilding("laserdrone2");
-                bld.description = Locale.GetBuilding("laserdronedsc2");
-            }
-            LookTarget look = drone.GetComponent<LookTarget>();
-            if (look != null) {
-                look.enabled = true;
-            }
-        }
-        drone.open = open;
-    }
-
-    internal static void HostCryoFire(LaserDroneScript drone) {
-        if (drone == null || drone.barrel == null) {
-            return;
-        }
-        Traverse tr = Traverse.Create(drone);
-        if (tr.Field("overheat").GetValue<bool>()) {
-            return;
-        }
-        drone.AddHeat(30f);
-        Vector2 origin = drone.barrel.position;
-        Vector2 dir = drone.barrel.up;
-        RaycastHit2D[] hits = Physics2D.RaycastAll(origin, dir, CryoReach, LayerMask.GetMask("Ground", "Body", "Limb"));
-        Vector2 end = origin + dir * CryoReach;
-        float roll = Random.Range(0.85f, 1.15f);
-        float buildDmg = roll * 50f;
-        float limbDmg = roll * 15f;
-        Body localVictim = null;
-        for (int i = 0; i < hits.Length; i++) {
-            RaycastHit2D hit = hits[i];
-            if (hit.transform == drone.transform) {
-                continue;
-            }
-            if (hit.collider.TryGetComponent(out BuildingEntity build) && !build.cantHit) {
-                build.health -= buildDmg;
-                if (build.animal) {
-                    build.gameObject.SendMessage("AnimalHit", buildDmg);
-                    Sound.Play("gore" + Random.Range(1, 6), hit.point);
-                }
-                WorldGeneration.CreateDamageNumber(hit.point, (int)buildDmg);
-            } else if (hit.collider.gameObject.layer == 6) {
-                WorldGeneration.world.DamageBlock(hit.point + dir * 0.5f, buildDmg);
-                WorldGeneration.CreateDamageNumber(hit.point, (int)buildDmg);
-                end = hit.point;
-                break;
-            }
-            if (hit.rigidbody) {
-                hit.rigidbody.AddForceAtPosition(dir * buildDmg, hit.point, ForceMode2D.Impulse);
-            }
-            Body hitBody = null;
-            if (hit.collider.TryGetComponent(out Limb limbHit)) {
-                hitBody = limbHit.body;
-            }
-            if (hitBody == null) {
-                hit.collider.TryGetComponent(out hitBody);
-            }
-            if (hitBody != null) {
-                end = hit.point;
-                if (Util.IsBodyLocal(hitBody)) {
-                    ApplyCryoLimbHit(hitBody, hit.point, limbDmg);
-                    localVictim = hitBody;
-                }
-                break;
-            }
-        }
-        SpawnCryoLine(origin, end);
-        if (NetObjectRegistry.TryGetSyncInfo(drone, out var si)) {
-            // open a claim window; remotes re-ray and ApplyCryoHurtLocal themselves
-            OpenWindow(KindCryo, si.syncId, false, CryoWindow);
-            Relay(KindCryo, si.syncId, 0f);
-            if (localVictim != null && localVictim.TryGetNetBody(out var nb)) {
-                Publish(nb);
-            }
-        }
-    }
-
-    internal static void ApplyCryoHurtLocal(LaserDroneScript drone, Body body, Vector2 hitPoint, float limbDmg) {
-        if (drone == null || body == null || !Util.IsBodyLocal(body)) {
-            return;
-        }
-        if (!NetObjectRegistry.TryGetSyncInfo(drone, out var si)) {
-            return;
-        }
-        int key = si.syncId.id ^ body.GetInstanceID();
-        float now = Time.unscaledTime;
-        if (cryoClaimed.TryGetValue(key, out float until) && now < until) {
-            return;
-        }
-        cryoClaimed[key] = now + CryoWindow;
-        if (cryoClaimed.Count > 400) {
-            cryoClaimed.Clear();
-        }
-        ApplyCryoLimbHit(body, hitPoint, limbDmg);
-        Ignore(body);
-        if (Net.IsClient) {
-            Send(KindCryo, si.syncId, 0);
-        } else if (body.TryGetNetBody(out var nb)) {
-            Publish(nb);
-        }
-    }
-
-    static void ApplyCryoLimbHit(Body body, Vector2 hitPoint, float limbDmg) {
-        if (body == null) {
-            return;
-        }
-        body.DoGoreSound();
-        Limb closest = body.GetClosestLimb(hitPoint);
-        if (closest == null) {
-            return;
-        }
-        float armor = closest.GetArmorReduction();
-        closest.pain += limbDmg / armor;
-        body.adrenaline += 25f;
-        closest.skinHealth -= limbDmg / armor;
-        closest.muscleHealth -= limbDmg / armor * 0.25f;
-        closest.DamageWearables(0.015f);
-        body.stamina += 35f;
-        body.temperature -= 0.5f;
-        body.CreateCloudSmall(hitPoint, Vector2.zero);
-    }
-
-    static void SpawnCryoLine(Vector2 start, Vector2 end) {
-        GameObject obj = (GameObject)Object.Instantiate(Resources.Load("Special/DroneCryoLine"), Vector2.zero, Quaternion.identity);
-        if (obj == null) {
-            return;
-        }
-        LineRenderer line = obj.GetComponent<LineRenderer>();
-        if (line != null) {
-            line.SetPosition(0, start);
-            line.SetPosition(1, end);
-        }
-        Sound.Play("droneFire1", end, twoDimensional: false, pitchShift: false);
-        if (obj.GetComponent<LaserDroneCryoLine>() == null) {
-            obj.AddComponent<LaserDroneCryoLine>();
-        }
-    }
-
-    static void ClientCryoShotCue(LaserDroneScript drone) {
-        if (drone == null || drone.barrel == null) {
-            return;
-        }
-        Vector2 origin = drone.barrel.position;
-        Vector2 dir = drone.barrel.up;
-        RaycastHit2D[] hits = Physics2D.RaycastAll(origin, dir, CryoReach, LayerMask.GetMask("Ground", "Body", "Limb"));
-        Vector2 end = origin + dir * CryoReach;
-        float limbDmg = Random.Range(0.85f, 1.15f) * 15f;
-        for (int i = 0; i < hits.Length; i++) {
-            RaycastHit2D hit = hits[i];
-            if (hit.transform == drone.transform) {
-                continue;
-            }
-            if (hit.collider.gameObject.layer == 6) {
-                end = hit.point;
-                break;
-            }
-            Body hitBody = null;
-            if (hit.collider.TryGetComponent(out Limb limbHit)) {
-                hitBody = limbHit.body;
-            }
-            if (hitBody == null) {
-                hit.collider.TryGetComponent(out hitBody);
-            }
-            if (hitBody != null) {
-                end = hit.point;
-                if (Util.IsBodyLocal(hitBody)) {
-                    ApplyCryoHurtLocal(drone, hitBody, hit.point, limbDmg);
-                }
-                break;
-            }
-        }
-        SpawnCryoLine(origin, end);
-    }
-
-    static bool AcceptCryo(knetid id, NetBody nb) {
-        if (!NetObjectRegistry.TryGetSyncInfo(id, out var si) || si.go == null || !si.go.TryGetComponent(out LaserDroneScript drone)) {
-            return false;
-        }
-        if (nb.body == null || !KM.DistanceCheck(drone.transform.position, nb.body.transform.position, CryoReach)) {
-            return false;
-        }
-        if (!TakeWindow(KindCryo, id, nb.netId, false, CryoWindow)) {
-            return false;
-        }
-        Publish(nb);
-        return true;
-    }
-#endif
 
     [ServerReceiver((byte)NetmsgId.SERVER_TrapClaim)]
     static void Recv(knetid clientId, NetDataReader reader) {
@@ -1348,96 +843,9 @@ internal static class TrapClaim {
             ok = AcceptGun(id, nb, mask);
         else if (kind == KindBoom)
             ok = AcceptBoom(id, nb, mask);
-        else if (kind == KindManifest)
-            ok = AcceptManifest(id, nb);
-#if FULLGAME
-        else if (kind == KindCryo)
-            ok = AcceptCryo(id, nb);
-#endif
-        else if (kind == KindGlass)
-            ok = AcceptGlass(nb, mask);
 
         if (!ok)
             Publish(nb);
-    }
-
-    // groundGlass shards are NOT position-synced (spawned per peer from DamageBlock loot).
-    // host collisions used to stick remotes via the lagged body proxy - victim-auth only.
-    internal static void GlassHitLocal(GroundGlass shard, Body body) {
-        if (shard == null || body == null || !Util.IsBodyLocal(body)) {
-            return;
-        }
-        if (shard.transform.position.y >= body.transform.position.y) {
-            return;
-        }
-        Item boots = body.GetWearableBySlotID("feet");
-        if (boots) {
-            boots.SetCondition(boots.condition - 0.1f * boots.Stats.wearableHitDurabilityLossMultiplier);
-            Sound.Play("glassshard", shard.transform.position);
-            Sound.Play("glass", shard.transform.position);
-            Object.Destroy(shard.gameObject);
-            return;
-        }
-        Limb limb = (Random.value > 0.5f) ? body.limbs[11] : body.limbs[14];
-        while (limb != null && limb.dismembered && limb.connectedLimbs != null && limb.connectedLimbs.Length > 0) {
-            limb = limb.connectedLimbs[0];
-        }
-        if (limb == null) {
-            Object.Destroy(shard.gameObject);
-            return;
-        }
-        ApplyGlassLimb(limb);
-        ushort mask = Bit(limb);
-        Ignore(body);
-        if (Net.IsClient) {
-            Send(KindGlass, default, mask);
-        } else if (body.TryGetNetBody(out var nb)) {
-            Publish(nb);
-        }
-        Object.Destroy(shard.gameObject);
-    }
-
-    static void ApplyGlassLimb(Limb limb) {
-        if (limb == null) {
-            return;
-        }
-        limb.skinHealth -= Random.Range(25f, 40f);
-        limb.muscleHealth -= 20f;
-        limb.bleedAmount += Random.Range(5f, 20f);
-        limb.pain += 80f;
-        limb.shrapnel = 5;
-        limb.body.adrenaline = 70f;
-        limb.CreateTemporarySprite(Resources.Load<Sprite>("Special/footglass"), 0f, null, scaleLimb: false, 60f, (Limb x) => !x.hasShrapnel);
-        if (WoundView.view != null) {
-            WoundView.view.AddImageToLimb(limb, Resources.Load<Sprite>("Special/footglasshealthpanel"), flip: false, (Limb x) => !x.hasShrapnel || x.dismembered);
-        }
-        Sound.Play("glassshard", limb.transform.position);
-        limb.body.DoGoreSound();
-        if (limb.body.talker != null) {
-            limb.body.talker.Invoke("TalkGlass", 30f);
-        }
-    }
-
-    static bool AcceptGlass(NetBody nb, ushort mask) {
-        if (nb == null || nb.body == null) {
-            return false;
-        }
-        // debounce per victim - shards have no sync id
-        if (!TakeWindow(KindGlass, nb.netId, nb.netId, false, GlassWindow)) {
-            return false;
-        }
-        bool applied = false;
-        Each(nb.body, mask, limb => {
-            if (limb != null && !limb.hasShrapnel) {
-                ApplyGlassLimb(limb);
-                applied = true;
-            }
-        });
-        if (!applied) {
-            // mask missing / already shrapnel - still publish whatever the client claimed
-        }
-        Publish(nb);
-        return true;
     }
 
     static void AcceptJump(knetid id, NetBody nb) {
@@ -1465,7 +873,8 @@ internal static class TrapClaim {
             RaiseIfIdle(pad, (byte)Mathf.Clamp(Mathf.CeilToInt(cooldown), 0, 255));
             if (idle)
                 PlayJump(pad);
-        } else if (kind == KindCoil && si.go.TryGetComponent<CoilScript>(out var coil))
+        }
+        else if (kind == KindCoil && si.go.TryGetComponent<CoilScript>(out var coil))
             RaiseIfIdle(coil, (byte)Mathf.Clamp(Mathf.CeilToInt(cooldown), 0, 255));
         else if (kind == KindBear && si.go.TryGetComponent<BearTrap>(out var bear))
             SpendBear(bear);
@@ -1476,25 +885,7 @@ internal static class TrapClaim {
             RaiseGun(gun, (byte)Mathf.Clamp(Mathf.CeilToInt(cooldown), 0, 255));
             if (idle)
                 PlayGun(gun);
-        } else if (kind == KindManifest && si.go.TryGetComponent(out CrystalEnemy manifest)) {
-            // host broadcast lunge cue - victim applies if still in the ray / nearby.
-            if (Util.TryGetLocalBody(out Body local) && Near(manifest, local)) {
-                RaycastHit2D[] hits = Physics2D.RaycastAll(manifest.transform.position, manifest.transform.up);
-                for (int i = 0; i < hits.Length; i++) {
-                    if (hits[i].transform != null
-                        && Util.TryGetBodyFromObject(hits[i].transform.gameObject, out Body hitBody)
-                        && hitBody == local) {
-                        ManifestHurtLocal(manifest, local);
-                        break;
-                    }
-                }
-            }
         }
-#if FULLGAME
-        else if (kind == KindCryo && si.go.TryGetComponent(out LaserDroneScript cryo)) {
-            ClientCryoShotCue(cryo);
-        }
-#endif
     }
 
     static bool AcceptBear(knetid id, NetBody nb, ushort mask) {
@@ -1620,20 +1011,6 @@ internal static class TrapClaim {
         Each(nb.body, mask, limb => ApplyBoomLimb(limb, boom.param, false));
         Publish(nb);
         return true;
-    }
-}
-
-[HarmonyPatch(typeof(GroundGlass), "OnCollisionEnter2D")]
-static class GroundGlass_OnCollision_TrapClaim {
-    static bool Prefix(GroundGlass __instance, Collision2D collision) {
-        if (!Net.IsRunning) {
-            return true;
-        }
-        if (!TrapClaim.IsLocal(collision.collider, out Body body)) {
-            return false;
-        }
-        TrapClaim.GlassHitLocal(__instance, body);
-        return false;
     }
 }
 
