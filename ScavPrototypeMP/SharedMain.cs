@@ -250,6 +250,9 @@ namespace Together {
             ForceUpdatePlayerLists();
 
             _UpdatePlayerVisibleChunks();
+            if (LocalWorldIsGenerated) {
+                HostPhysProbe.Tick();
+            }
 
             if (!Net.IsConnected) {
                 return;

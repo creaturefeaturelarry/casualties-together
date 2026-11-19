@@ -239,25 +239,27 @@ public class WorldChunkSync : CasualtiesTogetherSingleton {
                     if (plr && !world.doingRegen && !world.generatingWorld && world.worldExists && !plr.finishedLayer) {
 
                         plr.finishedLayer = true;
-                        if (ServerMain.GetNumberOfPlayersRequiredToFinishLayer() != 1) {
+                        // the buttons are already gone on a client. this line is only the wait notice.
+                        bool hostDown = ServerMain.HostBodyIsDead() && ServerMain.CheckIfEnoughPeopleAreAtLayerFinish();
+                        if (!hostDown && ServerMain.GetNumberOfPlayersRequiredToFinishLayer() != 1) {
                             PlayerCamera.main.DoAlert(Lang.Get("layerfinish_wait_for_friends"));
-                        } else {
+                        } else if (!hostDown) {
                             PlayerCamera.main.DoAlert(Lang.Get("layerfinish_wait_for_host"));
                         }
                     }
 
                     if (Net.IsClient) {
+                        // stock opens this every Update for whoever is at the exit. host only.
                         world.savePanel.SetActive(value: false);
-                    } else {
-                        var newww = ServerMain.CheckIfEnoughPeopleAreAtLayerFinish();
-                        if (newww != world.savePanel.activeSelf) {
-                            world.savePanel.SetActive(newww);
-                        }
                     }
                 }
 
 
             }// tp player:@r @m
+
+            if (Net.IsServer) {
+                WorldGeneration_Update_DeadHostExitPanel.ApplyHostExitPanel(world);
+            }
 
 
             if (Net.IsServer) {

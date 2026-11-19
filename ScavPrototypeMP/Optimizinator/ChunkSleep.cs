@@ -15,6 +15,10 @@ public static class ChunkSleep {
     // 32 setactive calls a frame is a slice of that pass, so a few hundred ground items still wake in well under a second.
     const int WakeBudget = 32;
     const float ColdFor = 1f;
+    // a chunk that was neither hot nor shown is looked at again after this long, plus a per chunk spread so they do not all fall due in one frame.
+    // the lag is the longest an object in a far chunk waits to wake once its chunk turns hot or shown.
+    const float FarRecheckSeconds = 0.1f;
+    const float FarRecheckSpreadSeconds = 0.1f;
     static int _wakeLeft;
 
     sealed class Entry {
@@ -24,11 +28,26 @@ public static class ChunkSleep {
         public long Chunk;
         public float ColdSince = -1f;
         public bool Asleep;
+        // true once a pass saw this object awake. WakeFreshChunks skips a chunk whose objects are all settled.
+        public bool Settled;
+        public Slot Slot;
+    }
+
+    // one occupied chunk. Unsettled counts the placed objects that still need a wake try.
+    sealed class Slot {
+        public readonly List<Entry> List = new List<Entry>(4);
+        public int Unsettled;
+        // true when the last check found the chunk hot or shown. such a chunk is checked every frame.
+        public bool Near;
+        public float NextCheck;
+        public WorldGeneration World;
+        public Vector2 Center;
+        public TilemapRenderer Renderer;
     }
 
     static readonly List<Entry> Entries = new List<Entry>();
     static readonly Dictionary<int, Entry> ById = new Dictionary<int, Entry>();
-    static readonly Dictionary<long, List<Entry>> ByChunk = new Dictionary<long, List<Entry>>();
+    static readonly Dictionary<long, Slot> ByChunk = new Dictionary<long, Slot>();
     static readonly HashSet<Type> IgnoredTypes = new HashSet<Type>();
     static readonly HashSet<int> IgnoredIds = new HashSet<int>();
     static readonly HashSet<long> HotNow = new HashSet<long>();
@@ -122,6 +141,9 @@ public static class ChunkSleep {
         Vector2 pos = entry.Go.transform.position;
         long key = ChunkStamp.Pack(ChunkStamp.ChunkOf(pos));
         Place(entry, key);
+        // something else switched it off. the chunk has to try waking it again.
+        if (entry.Settled && !entry.Go.activeSelf)
+            MarkSettled(entry, false);
         // tiles already drawing. do not count a cold second and turn it back off.
         if (Hot(pos) || Shown(pos)) {
             entry.ColdSince = -1f;
@@ -189,6 +211,7 @@ public static class ChunkSleep {
             return;
         entry.Go.SetActive(false);
         entry.Asleep = true;
+        MarkSettled(entry, false);
     }
 
     static void Wake(Entry entry) {
@@ -197,8 +220,10 @@ public static class ChunkSleep {
         // closed bag rows stay off. waking them here is what bag sleep turns off again the same update.
         if (BagSleep.LeaveAsleep(entry.Go))
             return;
-        if (!entry.Asleep && entry.Go.activeSelf)
+        if (!entry.Asleep && entry.Go.activeSelf) {
+            MarkSettled(entry, true);
             return;
+        }
         if (!RendererReady(entry.Go.transform.position))
             return;
         if (!entry.Go.activeSelf) {
@@ -209,6 +234,15 @@ public static class ChunkSleep {
         }
         entry.Asleep = false;
         entry.ColdSince = -1f;
+        MarkSettled(entry, true);
+    }
+
+    static void MarkSettled(Entry entry, bool settled) {
+        if (entry.Settled == settled)
+            return;
+        entry.Settled = settled;
+        if (entry.Slot != null)
+            entry.Slot.Unsettled += settled ? -1 : 1;
     }
 
     // stock enables the camera window. a union chunk wakes even when that window leaves it dark.
@@ -233,26 +267,44 @@ public static class ChunkSleep {
     }
 
     // a shown chunk wakes every pass. the first hot frame used to be the only try, and a renderer that was still off then left the plants asleep.
+    // a chunk whose objects are all awake has nothing to wake, so the scan only pays for chunks with an unsettled object.
+    // a chunk that is not near is only checked when its timer is due, so the hot and shown lookups run for the few chunks around the players.
     static void WakeFreshChunks() {
         HotNow.Clear();
-        foreach (long key in ByChunk.Keys) {
-            bool hot = ChunkIsHot(key);
-            bool shown = ChunkShown(key);
-            if (!hot && !shown)
+        WorldGeneration world = WorldGeneration.world;
+        float now = Time.unscaledTime;
+        foreach (KeyValuePair<long, Slot> pair in ByChunk) {
+            Slot slot = pair.Value;
+            if (slot.Unsettled <= 0)
                 continue;
+            if (!slot.Near && now < slot.NextCheck)
+                continue;
+            long key = pair.Key;
+            bool hot = ChunkIsHot(world, slot, key);
+            bool shown = ChunkShown(world, slot, key);
+            slot.Near = hot || shown;
+            if (!slot.Near) {
+                slot.NextCheck = now + FarRecheckSeconds + FarRecheckSpreadSeconds * SpreadOf(key);
+                continue;
+            }
             if (hot)
                 HotNow.Add(key);
             if (shown || !HotPrev.Contains(key))
-                WakeChunk(key);
+                WakeSlot(slot);
         }
         HotPrev.Clear();
         foreach (long key in HotNow)
             HotPrev.Add(key);
     }
 
-    static void WakeChunk(long key) {
-        if (!ByChunk.TryGetValue(key, out List<Entry> list))
-            return;
+    // a fixed fraction in [0, 1) for a chunk key.
+    static float SpreadOf(long key) {
+        ulong mixed = (ulong)key * 2654435761UL;
+        return (int)((mixed >> 16) & 0xFFFFUL) / 65536f;
+    }
+
+    static void WakeSlot(Slot slot) {
+        List<Entry> list = slot.List;
         for (int i = 0; i < list.Count; i++) {
             Entry entry = list[i];
             entry.ColdSince = -1f;
@@ -260,18 +312,32 @@ public static class ChunkSleep {
         }
     }
 
-    static bool ChunkIsHot(long key) {
-        WorldGeneration world = WorldGeneration.world;
+    static bool ChunkIsHot(WorldGeneration world, Slot slot, long key) {
         if (world == null)
             return true;
         if (WorldGeneration.CHUNKSIZE < 1)
             return true;
-        return Hot(CenterOf(key));
+        FillSlot(world, slot, key);
+        return Hot(slot.Center);
     }
 
     // the tilemap the player can already see. this is not the hot flag.
-    static bool ChunkShown(long key) {
-        return Shown(CenterOf(key));
+    static bool ChunkShown(WorldGeneration world, Slot slot, long key) {
+        if (world == null || !world.worldExists)
+            return false;
+        FillSlot(world, slot, key);
+        return slot.Renderer != null && slot.Renderer.enabled;
+    }
+
+    // the centre and the renderer of a chunk do not change while the world lives, so the lookup runs once per world.
+    static void FillSlot(WorldGeneration world, Slot slot, long key) {
+        if (slot.World != world) {
+            slot.World = world;
+            slot.Center = CenterOf(key);
+            slot.Renderer = null;
+        }
+        if (slot.Renderer == null)
+            slot.Renderer = world.GetClosestChunkRenderer(world.WorldToBlockPos(slot.Center));
     }
 
     static bool Shown(Vector2 pos) {
@@ -300,18 +366,25 @@ public static class ChunkSleep {
         Unchunk(entry);
         entry.Placed = true;
         entry.Chunk = key;
-        if (!ByChunk.TryGetValue(key, out List<Entry> list))
-            ByChunk[key] = list = new List<Entry>(4);
-        list.Add(entry);
+        if (!ByChunk.TryGetValue(key, out Slot slot))
+            ByChunk[key] = slot = new Slot();
+        slot.List.Add(entry);
+        entry.Slot = slot;
+        if (!entry.Settled)
+            slot.Unsettled++;
     }
 
     static void Unchunk(Entry entry) {
         if (!entry.Placed)
             return;
-        if (ByChunk.TryGetValue(entry.Chunk, out List<Entry> list)) {
-            list.Remove(entry);
-            if (list.Count == 0)
+        Slot slot = entry.Slot;
+        if (slot != null) {
+            slot.List.Remove(entry);
+            if (!entry.Settled)
+                slot.Unsettled--;
+            if (slot.List.Count == 0)
                 ByChunk.Remove(entry.Chunk);
+            entry.Slot = null;
         }
         entry.Placed = false;
     }

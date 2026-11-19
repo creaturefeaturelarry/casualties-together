@@ -2,7 +2,7 @@
 
 <div align="center">
 <a href="https://www.nexusmods.com/scavprototype/mods/67">
-<img alt="Casualties: Together" src="https://github.com/creaturefeaturelarry/casualties-together/raw/refs/heads/main/.github/ct6.png">
+<img alt="Casualties: Together" src=".github/ct6.png">
 </a>
 </div>
 
@@ -12,7 +12,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/creaturefeaturelarry/casualties-together?style=flat-square&include_prereleases&logo=github&label=Version)](https://github.com/creaturefeaturelarry/casualties-together/releases/latest)
 [![Github Downloads](https://img.shields.io/github/downloads/creaturefeaturelarry/casualties-together/total?style=flat-square&color=blue&logo=github&label=Downloads)](https://github.com/creaturefeaturelarry/casualties-together/releases)
 [![Nexus Downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjimmyking9999999%2FMetadata-generator%2Fmain%2Fbadges%2Fcasualties-together.json&style=flat-square)](https://www.nexusmods.com/scavprototype/mods/67?tab=files)
-[![Game Version](https://img.shields.io/badge/Game_Version-v1.0.2-darkgreen?style=flat-square&logo=steam)](https://store.steampowered.com/app/4576510)
+[![Game Version](https://img.shields.io/badge/Game_Version-v1.0-darkgreen?style=flat-square&logo=steam)](https://store.steampowered.com/app/4576510)
 </div>
 
 
@@ -55,7 +55,7 @@ Download Co-op Mod: [https://www.nexusmods.com/scavprototype/mods/67](https://ww
 
 5. Now it should look like this 
    
-![alt text](https://github.com/creaturefeaturelarry/casualties-together/raw/refs/heads/main/.github/tut_1.png)
+![alt text](.github/tut_1.png)
 
 7. Go back to steam and click **Play**.
 
@@ -193,7 +193,6 @@ Credits are listed in "About" menu inside the mod.<br>
 ### Contributors:
 [Dune](https://github.com/Jyan-sei) - Sync, Optimizations<br>
 [VtLoader](https://github.com/vtloader) - Bug fixes, Locale<br>
-[Sharkmare](https://github.com/Sharkmare) - Skins, UI, Netcode, Bug fixes<br>
 [Gary the Cat](https://github.com/Garythecat89), [Dannad](https://github.com/danxnader), [Meow](https://github.com/SprightlyHawk8), [Jimmyking](https://github.com/jimmyking9999999), [Kidihh](https://github.com/Kidihh), [Dawn](https://github.com/hehdawn), [mayzmae](https://github.com/mayzmae), ItsVoidSK<br>
 ...And a bunch of playtesters
 

@@ -1176,17 +1176,13 @@ namespace Together {
     // median pull flips sign while unconscious so the lobby trends together.
     // solo sleep ramps to 3x over SoloSleepBonusRampSeconds.
     // together sleep is timescale, applied in ServerMain.HandleSleepUpdate.
-    // being carried counts as an okay sleep.
+    // riding on someone is scored Okay in Body_HandleGroundedState_PiggySleep.
     [HarmonyPatch(typeof(Body), "HandleBody")]
     static class Body_HandleBody_MpSleepSpeed {
         static void Prefix(Body __instance, out float __state) {
             __state = __instance.sleepCycleSpeed;
             if (!Net.IsRunning || __instance == null || !__instance.alive || !__instance.TryGetNetBody(out NetBody nb) || !nb.IsPlayer) {
                 return;
-            }
-
-            if (nb.piggybacking_on != null && __instance.sleeping) {
-                __instance.curSleep = Body.SleepQuality.Okay;
             }
 
             float mult = 1f;
@@ -1214,6 +1210,19 @@ namespace Together {
         static void Postfix(Body __instance, float __state) {
             if (__instance != null) {
                 __instance.sleepCycleSpeed = __state;
+            }
+        }
+    }
+
+    // ragdoll ground check scores the floor under a rider. a piggyback is a fine place to sleep.
+    [HarmonyPatch(typeof(Body), "HandleGroundedState")]
+    static class Body_HandleGroundedState_PiggySleep {
+        static void Postfix(Body __instance) {
+            if (!Net.IsRunning || __instance == null || !__instance.alive) {
+                return;
+            }
+            if (__instance.TryGetNetBody(out NetBody nb) && nb.piggybacking_on != null) {
+                __instance.curSleep = Body.SleepQuality.Okay;
             }
         }
     }

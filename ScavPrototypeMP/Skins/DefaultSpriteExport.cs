@@ -112,14 +112,9 @@ internal static class DefaultSpriteExport {
 
     internal static int ExportLoadedWoundViews() {
         int written = 0;
-        WoundView[] views = Resources.FindObjectsOfTypeAll<WoundView>();
-        for (int i = 0; i < views.Length; i++) {
-            WoundView view = views[i];
-            if (view == null || !view.gameObject.scene.IsValid()) {
-                continue;
-            }
+        WoundViewIntegration.Visit(view => {
             written += ExportWoundSpecies(view);
-        }
+        });
         return written;
     }
 

@@ -349,6 +349,10 @@ namespace Together {
             Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, ServerMain.AllClientIdsExceptHost);
         }
 
+        internal static void Forget(ushort player) {
+            armedUntil.Remove(player);
+        }
+
         static void NoteArmed(ushort id, bool on) {
             if (on) {
                 armedUntil[id] = Time.time + ArmLifetime;

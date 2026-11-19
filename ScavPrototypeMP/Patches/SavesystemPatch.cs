@@ -273,6 +273,14 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
             return false;
         }
 
+        // A lobby save transfer can choose a host who has never played this run.
+        // Its root file supplies world metadata, not another player's body. The
+        // postfix still restores each existing participant from their own folder.
+        if (!force && TransferTransport.SkipTransferredRootBody()) {
+            log.l("Host transfer: new host has no saved character; keeping their fresh character.");
+            return false;
+        }
+
         
 
         if (!force) {
@@ -310,7 +318,7 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
 
                 var mpsavedir = SavesystemPatch.mpsavefolder;
                 if (Multiplayer.IsNetworkActiveAndIsServer() && SaveSystem.loadedRun && Directory.Exists(mpsavedir)) {
-                    Multiplayer.DoMultiplayerStatusMessageLog("Attempting to load a multiplayer save.");
+                    Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("savesystem_loading_mp_save"));
                     if (SavesystemPatch.TryPeekMpWorldState(out var peek) && WorldGeneration.world != null) {
                         SavesystemPatch.ApplyPeekedWorldState(WorldGeneration.world, peek);
                         log.l($"LoadGame: applied mp_save world peek depth={peek.biomeDepth} midlevel={peek.midlevel} traveled={peek.totalTraveled}");
@@ -370,6 +378,9 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
 
                                 if (jObject.TryGetValue("RULES", out var RULES)) {
                                     Multiplayer.rules = RULES.ToObject<MultiplayerGameRules>();
+                                    if (SavesystemPatch.DebugWorldUsesSave) {
+                                        Multiplayer.rules.DebugWorldSaveSystem = true;
+                                    }
                                 }
 #if FULLGAME
                                 if (jObject.TryGetValue(AchievementBreakSync.SaveHeaderKey, out var CHEATED)
@@ -526,6 +537,8 @@ public static class SavesystemPatch {
     public static string savedatapathreplacement = "";
     // set for map debug and the tutorial. those sessions neither read nor write mp_save.
     internal static bool PreserveSave;
+    // debug map started with DebugWorldSaveSystem. the save file's rules must not turn it back off.
+    internal static bool DebugWorldUsesSave;
     // continue/LoadRun: sticky across WaitLoad→scene load so Start still treats this as a loaded run
     // even if something clears SaveSystem.loadedRun before TryLoadGame.
     internal static bool PendingLoadMpSave;

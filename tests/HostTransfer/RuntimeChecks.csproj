@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>Together.HostTransferRuntimeChecks</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <SolutionDir>$(MSBuildThisFileDirectory)../../</SolutionDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="RuntimeChecks.cs" />
+    <Reference Include="BepInEx"><HintPath>$(BepInExCoreDir)/BepInEx.dll</HintPath></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExCoreDir)/0Harmony.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameManagedDir)/UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(GameManagedDir)/UnityEngine.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(GameManagedDir)/UnityEngine.UI.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(GameManagedDir)/UnityEngine.UIModule.dll</HintPath></Reference>
+    <Reference Include="Unity.TextMeshPro"><HintPath>$(GameManagedDir)/Unity.TextMeshPro.dll</HintPath></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(GameManagedDir)/Newtonsoft.Json.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

@@ -2133,6 +2133,8 @@ internal static class CrystalEnemy_Update_MultiplayerPatch {
                 }
                 PlayerCamera.main.threatMusicTime = 2f;
             }
+            ClientHum(__instance);
+            ClientStreak(__instance);
             return false;
         }
 
@@ -2187,6 +2189,93 @@ internal static class CrystalEnemy_Update_MultiplayerPatch {
             PlayerCamera.main.threatMusicTime = 0f;
         }
     }
+
+    // the looping source only changes pitch and volume inside Update. clients skip the AI, so this is the hum.
+    static void ClientHum(CrystalEnemy enemy) {
+        Traverse fields = Traverse.Create(enemy);
+        AudioSource source = fields.Field("source").GetValue<AudioSource>();
+        Rigidbody2D rb = fields.Field("rb").GetValue<Rigidbody2D>();
+        BuildingEntity build = fields.Field("build").GetValue<BuildingEntity>();
+        if (source == null || rb == null) {
+            return;
+        }
+        bool stuck = fields.Field("stuck").GetValue<bool>();
+        float timeBeforeAttack = fields.Field("timeBeforeAttack").GetValue<float>();
+        float hurt = build != null ? 1f - build.GetHealth() / 450f : 0f;
+        float wind = Mathf.Clamp01(-timeBeforeAttack) * (stuck ? 0f : 1f);
+        float speed = rb.velocity.magnitude * 0.005f;
+        float pitch = 1f + speed + wind + hurt;
+        float volume = Mathf.Clamp01(0.3f + speed) + wind;
+        source.pitch = Mathf.Lerp(source.pitch, pitch, Time.deltaTime * 8f);
+        source.volume = Mathf.Lerp(source.volume, volume, Time.deltaTime * 8f);
+        if (!source.isPlaying) {
+            source.loop = true;
+            source.Play();
+        }
+    }
+
+    struct Streak {
+        public bool stuck;
+        public bool aimed;
+        public Vector3 from;
+        public Vector3 to;
+    }
+
+    static readonly Dictionary<int, Streak> streaks = new Dictionary<int, Streak>();
+
+    // host draws this inside Update, which clients skip. windup aims the line, the lunge leaves it behind.
+    static void ClientStreak(CrystalEnemy enemy) {
+        Traverse fields = Traverse.Create(enemy);
+        LineRenderer rend = fields.Field("rend").GetValue<LineRenderer>();
+        SpriteRenderer sprite = fields.Field("sprite").GetValue<SpriteRenderer>();
+        if (rend == null || sprite == null) {
+            return;
+        }
+        bool stuck = fields.Field("stuck").GetValue<bool>();
+        float timeBeforeAttack = fields.Field("timeBeforeAttack").GetValue<float>();
+        int id = enemy.GetInstanceID();
+        if (!streaks.TryGetValue(id, out Streak aim)) {
+            aim = new Streak();
+        }
+        if (!stuck) {
+            aim.from = enemy.transform.position;
+            if (timeBeforeAttack < 0f) {
+                Vector3 from = enemy.transform.position;
+                RaycastHit2D hit = Physics2D.Raycast(from, enemy.transform.up, 999f, LayerMask.GetMask("Ground"));
+                Vector3 to = hit.collider != null ? (Vector3)hit.point : from + enemy.transform.up * 999f;
+                rend.SetPosition(0, from);
+                rend.SetPosition(1, to);
+                rend.startColor = Color.Lerp(Color.clear, sprite.color, -timeBeforeAttack * 2f);
+                rend.widthMultiplier = timeBeforeAttack * 2f;
+                aim.aimed = true;
+                aim.to = to;
+            } else {
+                rend.endColor = Color.clear;
+                rend.startColor = Color.clear;
+                aim.aimed = false;
+            }
+        } else {
+            if (!aim.stuck) {
+                if (!aim.aimed) {
+                    Vector3 from = aim.from != Vector3.zero ? aim.from : enemy.transform.position;
+                    RaycastHit2D hit = Physics2D.Raycast(from, enemy.transform.up, 999f, LayerMask.GetMask("Ground"));
+                    aim.from = from;
+                    aim.to = hit.collider != null ? (Vector3)hit.point : enemy.transform.position;
+                }
+                rend.SetPosition(0, aim.from);
+                rend.SetPosition(1, aim.to);
+                rend.endColor = sprite.color;
+                rend.startColor = Color.clear;
+            }
+            rend.endColor = Color.Lerp(sprite.color, Color.clear, -timeBeforeAttack);
+        }
+        aim.stuck = stuck;
+        streaks[id] = aim;
+        if (streaks.Count > 64) {
+            streaks.Clear();
+            streaks[id] = aim;
+        }
+    }
 }
 
 [HarmonyPatch(typeof(CrystalEnemy), "FixedUpdate")]
@@ -2219,6 +2308,7 @@ static class CrystalEnemy_Lunge_VictimAuth_MultiplayerPatch {
         }
 
         bool hitSomeone = false;
+        knetid victim = default;
         RaycastHit2D[] hits = Physics2D.RaycastAll(__instance.transform.position, __instance.transform.up);
         for (int i = 0; i < hits.Length; i++) {
             RaycastHit2D hit = hits[i];
@@ -2227,6 +2317,9 @@ static class CrystalEnemy_Lunge_VictimAuth_MultiplayerPatch {
             }
             if (Utils.GetBody(hit.transform.gameObject, out Body body) && !hitSomeone) {
                 hitSomeone = true;
+                if (body.TryGetNetBody(out NetBody nb)) {
+                    victim = nb.netId;
+                }
                 if (TrapClaim.ManifestMayHurt(__instance, body)) {
                     TrapClaim.ManifestHurtLocal(__instance, body);
                 }
@@ -2243,7 +2336,7 @@ static class CrystalEnemy_Lunge_VictimAuth_MultiplayerPatch {
             }
         }
 
-        TrapClaim.HostManifestLunged(__instance);
+        TrapClaim.HostManifestLunged(__instance, victim);
         return false;
     }
 }
@@ -2562,9 +2655,78 @@ internal static class CrystalShy_Touched_MultiplayerPatch {
 
 [HarmonyPatch(typeof(CrystalFragile), nameof(CrystalFragile.Touched))]
 internal static class CrystalFragile_Touched_MultiplayerPatch {
+    static readonly HashSet<int> broke = new HashSet<int>();
+    static bool ran;
+
+    // health=0 goes through the fullgame property setter -> CheckDamage. host destroys; client gate is elsewhere.
+    // the glass sting used to stay on the host. clients hear the announce.
     static bool Prefix(CrystalFragile __instance, GameObject touched) {
-        // health=0 goes through the fullgame property setter -> CheckDamage. host destroys; client gate is elsewhere.
-        return CrystalMpGates.HostSimOnly(__instance);
+        ran = false;
+        if (!Net.IsRunning)
+            return true;
+        if (__instance == null || __instance.crystal == null || !Breaker(touched))
+            return false;
+        if (Net.IsServer) {
+            if (!broke.Add(__instance.crystal.gameObject.GetInstanceID()))
+                return false;
+            if (broke.Count > 256)
+                broke.Clear();
+            ran = true;
+            return true;
+        }
+        if (!LocalBreaker(touched))
+            return false;
+        if (NetObjectRegistry.TryGetSyncInfo(__instance.crystal.gameObject, out SyncInfo si) && si != null) {
+            NetDataWriter writer = Multiplayer.CreateNamedWriter("CustomCommand");
+            writer.Put("fragile_break " + si.syncId.id.ToString());
+            Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
+        }
+        return false;
+    }
+
+    static void Postfix(CrystalFragile __instance) {
+        if (!ran || !Net.IsServer || __instance == null || __instance.crystal == null)
+            return;
+        ServerMain.Server_AnnounceSound(__instance.crystal.transform.position, "glass", ServerMain.AllClientIdsExceptHost);
+    }
+
+    static bool Breaker(GameObject touched) {
+        if (touched == null)
+            return false;
+        return touched.GetComponent<Item>() != null || touched.GetComponent<Body>() != null;
+    }
+
+    static bool LocalBreaker(GameObject touched) {
+        if (touched == null)
+            return false;
+        if (touched.GetComponent<Item>() != null)
+            return true;
+        Body body = touched.GetComponent<Body>();
+        return body != null && Util.IsBodyLocal(body);
+    }
+
+    [CTPostInit]
+    static void Init() {
+        ServerMain.ServerCustomCommandsDict["fragile_break"] = (plr, cmd, args) => {
+            if (!Net.IsServer || args == null || args.Length < 2)
+                return;
+            if (!ushort.TryParse(args[1], out ushort syncId))
+                return;
+            if (!NetObjectRegistry.TryGetSyncInfo(syncId, out SyncInfo si) || si == null || si.go == null)
+                return;
+            if (!si.go.TryGetComponent(out CrystalBehaviour crystal) || crystal.effects == null)
+                return;
+            for (int i = 0; i < crystal.effects.Count; i++) {
+                if (crystal.effects[i] is not CrystalFragile fragile)
+                    continue;
+                if (!broke.Add(crystal.gameObject.GetInstanceID()))
+                    return;
+                Sound.Play("glass", crystal.transform.position);
+                ServerMain.Server_AnnounceSound(crystal.transform.position, "glass", ServerMain.AllClientIdsExceptHost);
+                crystal.build.health = 0f;
+                return;
+            }
+        };
     }
 }
 
@@ -2778,6 +2940,41 @@ public static class CrystalTemperature_Start_MultiplayerPatch {
     static void Postfix(CrystalTemperature __instance) {
         if (Net.IsRunning && __instance != null && __instance.crystal != null) {
             __instance.crystal.gameObject.GetOrAddComponent<HeaterMultiplayerRewrite>();
+        }
+    }
+}
+
+// stock ChunkScript.Update returns while the tile renderer is off, and that renderer only follows the host camera.
+// septic, gravity, drip, burn cooldown, and the unstable fuse all live in CrystalBehaviour.ChunkUpdate.
+[HarmonyPatch(typeof(ChunkScript), "Update")]
+static class ChunkScript_Update_CrystalSim_MultiplayerPatch {
+    static void Postfix(ChunkScript __instance) {
+        if (!Net.IsRunning || !Net.IsServer || __instance == null) {
+            return;
+        }
+        if (__instance.renderer != null && __instance.renderer.enabled) {
+            return;
+        }
+        List<ISimEntity> list = __instance.containedEntities;
+        if (list == null || list.Count == 0) {
+            return;
+        }
+        WorldGeneration world = WorldGeneration.world;
+        if (world == null || !world.worldExists || world.generatingWorld) {
+            return;
+        }
+        int size = WorldGeneration.CHUNKSIZE;
+        if (size < 1) {
+            return;
+        }
+        Vector2Int block = new Vector2Int(__instance.pos.x * size + size / 2, __instance.pos.y * size + size / 2);
+        if (!SharedMain.PositionIsInSimulatedChunk_BlockPos(block)) {
+            return;
+        }
+        for (int i = list.Count - 1; i >= 0; i--) {
+            if (list[i] is CrystalBehaviour crystal && crystal != null) {
+                crystal.ChunkUpdate();
+            }
         }
     }
 }

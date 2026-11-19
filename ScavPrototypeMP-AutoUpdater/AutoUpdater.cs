@@ -117,12 +117,12 @@ public class AutoUpdater : BaseUnityPlugin {
         }
         try {
             Updating = true;
-            LogMessage("Checking for updates");
+            LogMessage(UpdaterText.Get("au_checking"));
             await ParseVersions();
             if (remote != null) {
                 bool UpdatePresent = IsCurrentVersionOutdated();
                 if (UpdatePresent) {
-                    LogMessage($"Update found! Your version: {local}; New version: {remote}!");
+                    LogMessage(UpdaterText.Format("au_update_found", local, remote));
                     AutoupdaterGUI.ShowUpdateButton = true;
                     await AutoUpdater.InitiateUpdate();
                 }
@@ -171,7 +171,7 @@ public class AutoUpdater : BaseUnityPlugin {
             local = GetLocalVersion();
             latestVersionAndURL = await GetLatestTagAndDownloadURL();
             if (remote != null) {
-                LogMessage($"Local version: {local}  Remote version: {remote}");
+                LogMessage(UpdaterText.Format("au_versions", local, remote));
             }
         } catch (Exception e) {
             LogError($"Something went wrong while parsing versions! {e}");
@@ -201,7 +201,7 @@ public class AutoUpdater : BaseUnityPlugin {
             //remote=DEBUG_remote;
             return TagAndURL;
         } catch (TimeoutException) {
-            LogMessage("Github unreachable");
+            LogMessage(UpdaterText.Get("au_github_unreachable"));
             return (null, null);
         } catch (Exception ex) {
             LogMessage($"Something went wrong while trying to parse versions! {ex}");
@@ -222,14 +222,14 @@ public class AutoUpdater : BaseUnityPlugin {
 
         if (remote >= local) {
             if (remote == local && is_release) {
-                LogMessage($"You're running the latest version.");
+                LogMessage(UpdaterText.Get("au_latest"));
                 return false;
             } else {
-                LogMessage("Multiplayer version is outdated");
+                LogMessage(UpdaterText.Get("au_outdated"));
                 return true;
             }
         } else {
-            LogMessage("You're running the pre-release build.");
+            LogMessage(UpdaterText.Get("au_prerelease"));
             return false;
         }
     }
@@ -247,7 +247,7 @@ public class AutoUpdater : BaseUnityPlugin {
             (Version, string) TagAndURL = await HTTPHandler.GetLatestRelease();
             return TagAndURL;
         } catch (TimeoutException e) {
-            LogMessage("Github unreachable when retrieving version.");
+            LogMessage(UpdaterText.Get("au_github_unreachable_version"));
             throw new TimeoutException("Github unreachable when retrieving version", e);
         } catch (InvalidDataException e) {
             throw new Exception("No suitable version has been found in the release list, meaning that it's either empty, or there are somehow only blacklisted versions now.", e);
@@ -294,13 +294,13 @@ internal static class TogetherUIOverride {
         ref float num = ref SettingsMenu_Start_MultiplayerPatch.contentHeight;
 
         { // Send button
-            SettingsMenu_Start_MultiplayerPatch.CreateSettingButton(Lang.Get("mmst_button_checkupdate"), ref num, out var g, out var button, out var text);
+            SettingsMenu_Start_MultiplayerPatch.CreateSettingButton(UpdaterText.Get("mmst_button_checkupdate"), ref num, out var g, out var button, out var text);
             SettingsMenu_Start_MultiplayerPatch.UpdateButton = g;
             RealUpdateButton = g;
             if (_CHECKFORUPDATEBUTTON_IS_RESTART) {
-                SettingsMenu_Start_MultiplayerPatch.SetSettingNameAndTooltip(g, Lang.Get("mmst_button_restart"), Lang.Get("mmst_button_restart_desc"));
+                SettingsMenu_Start_MultiplayerPatch.SetSettingNameAndTooltip(g, UpdaterText.Get("mmst_button_restart"), UpdaterText.Get("mmst_button_restart_desc"));
             } else {
-                SettingsMenu_Start_MultiplayerPatch.SetSettingNameAndTooltip(g, Lang.Get("mmst_button_checkupdate"), Lang.Get("mmst_button_checkupdate_desc"));
+                SettingsMenu_Start_MultiplayerPatch.SetSettingNameAndTooltip(g, UpdaterText.Get("mmst_button_checkupdate"), UpdaterText.Get("mmst_button_checkupdate_desc"));
             }
             button.onClick.AddListener(() => {
                 button.interactable = false;
@@ -313,18 +313,18 @@ internal static class TogetherUIOverride {
                     if (!_CHECKFORUPDATEBUTTON_OnStageSuccess_isBound) {
                         _CHECKFORUPDATEBUTTON_OnStageSuccess_isBound = true;
                         Multiupdater.AutoUpdater.OnStageSuccess += () => {
-                            AutoUpdater.LogMessage("Update staging succesful.");
+                            AutoUpdater.LogMessage(UpdaterText.Get("au_stage_success"));
                             if (Plugin.IsExeSameAsInSteam()) {
                                 _CHECKFORUPDATEBUTTON_IS_RESTART = true;
                                 button.interactable = true;
-                                SettingsMenu_Start_MultiplayerPatch.SetSettingNameAndTooltip(g, Lang.Get("mmst_button_restart"), Lang.Get("mmst_button_restart_desc"));
+                                SettingsMenu_Start_MultiplayerPatch.SetSettingNameAndTooltip(g, UpdaterText.Get("mmst_button_restart"), UpdaterText.Get("mmst_button_restart_desc"));
                             }
                         };
                     }
                     Multiupdater.AutoUpdater.StartChecking();
                     CasualtiesTogetherUtils.Util.PlayUISound(PlayerCamera.UISoundType.MiniClick);
                         
-                    SettingsMenu_Start_MultiplayerPatch.SetSettingNameAndTooltip(g, Lang.Get("mmst_button_checkupdate"), Lang.Get("mmst_button_checkupdate_desc"));
+                    SettingsMenu_Start_MultiplayerPatch.SetSettingNameAndTooltip(g, UpdaterText.Get("mmst_button_checkupdate"), UpdaterText.Get("mmst_button_checkupdate_desc"));
                 }
             });
             var rect = g.GetComponent<RectTransform>();
@@ -359,18 +359,18 @@ internal static class TogetherUIOverride {
         GUILayout.BeginHorizontal();
         {
             if (_CHECKFORUPDATEBUTTON_IS_RESTART) {
-                if (GUILayout.Button(Lang.Get("mmst_button_restart"))) {
+                if (GUILayout.Button(UpdaterText.Get("mmst_button_restart"))) {
                     CasualtiesTogetherUtils.Util.DelayCallLambda(0.01f, () => {
                         Plugin.RestartGame();
                     });
                 }
-                UIMainMenu.DoTooltipOnLastGUIRect("mmst_button_restart_desc");
+                UIMainMenu.DoTooltipOnLastGUIRectNoLang(UpdaterText.Get("mmst_button_restart_desc"));
             } else {
-                if (GUILayout.Button(Lang.Get("mmst_button_checkupdate"))) {
+                if (GUILayout.Button(UpdaterText.Get("mmst_button_checkupdate"))) {
                     if (!_CHECKFORUPDATEBUTTON_OnStageSuccess_isBound) {
                         _CHECKFORUPDATEBUTTON_OnStageSuccess_isBound = true;
                         Multiupdater.AutoUpdater.OnStageSuccess += () => {
-                            AutoUpdater.LogMessage("Update staging succesful.");
+                            AutoUpdater.LogMessage(UpdaterText.Get("au_stage_success"));
                             if (Plugin.IsExeSameAsInSteam()) {
                                 _CHECKFORUPDATEBUTTON_IS_RESTART = true;
                             }
@@ -379,7 +379,7 @@ internal static class TogetherUIOverride {
                     Multiupdater.AutoUpdater.StartChecking();
                     CasualtiesTogetherUtils.Util.PlayUISound(PlayerCamera.UISoundType.MiniClick);
                 }
-                UIMainMenu.DoTooltipOnLastGUIRect("mmst_button_checkupdate_desc");
+                UIMainMenu.DoTooltipOnLastGUIRectNoLang(UpdaterText.Get("mmst_button_checkupdate_desc"));
             }
 
             GUILayout.FlexibleSpace();

@@ -53,6 +53,64 @@ public static class UIServerBrowser {
     static int _pingSampleIndex;
     static bool _pingFirstPassDone;
     static int _pingSortFingerprint = int.MinValue;
+    // rows drawn this frame. layout fills these, repaint reuses them.
+    // the bools are the bits that add or skip a control.
+    struct BrowserRowShape {
+        public bool badVersion;
+        public bool friendIcon;
+        public bool locked;
+        public bool steam;
+        public bool customMode;
+        public bool listPlayers;
+        public bool listMods;
+        public bool showDesc;
+        public bool showLayer;
+        public bool showMood;
+        public string mood;
+    }
+    static NetPublicServerInfo[] _browserRows = Array.Empty<NetPublicServerInfo>();
+    static BrowserRowShape[] _rowShapes = Array.Empty<BrowserRowShape>();
+
+    static void CaptureBrowserRows() {
+        int n = CurFilteredServerList.Count;
+        var rows = new List<NetPublicServerInfo>(n);
+        var shapes = new List<BrowserRowShape>(n);
+        string ver = Multiplayer.FULL_VERSION_TAG;
+        bool hideDesc = HideDescriptions;
+        for (int i = 0; i < n; i++) {
+            NetPublicServerInfo lobby = CurFilteredServerList[i];
+            if (lobby == null) {
+                continue;
+            }
+            BrowserRowShape shape = new BrowserRowShape();
+#if RELEASE
+            shape.badVersion = lobby.version != ver;
+#endif
+            shape.friendIcon = lobby.friends_tooltip != null;
+            shape.locked = lobby.haspassword;
+            shape.steam = lobby.steam_lobby_info != null;
+            shape.listPlayers = lobby.plr_count > 0 && shape.steam;
+            shape.listMods = lobby.modlist != null && lobby.modlist.Length > 0;
+            shape.showDesc = !hideDesc && !string.IsNullOrWhiteSpace(lobby.description);
+            shape.showLayer = lobby.cur_layer != -1;
+            int clayer1 = lobby.cur_layer + 1;
+            bool hasTitle = Locale.currentLang != null && Locale.currentLang.other != null && Locale.currentLang.other.TryGetValue("layertitle" + clayer1, out _);
+            if (hasTitle && shape.showLayer && lobby.gamemode != "tutorial") {
+                shape.customMode = lobby.gamemode != "debug_world" && lobby.gamemode != "loading" && lobby.gamemode != "vanilla";
+            }
+            if (shape.showLayer && Locale.currentLang != null && Locale.currentLang.other != null) {
+                int num = Mathf.RoundToInt(lobby.avg_happiness * 0.1f);
+                if (Locale.currentLang.other.TryGetValue("moodrange" + num.ToString(), out var moodrange)) {
+                    shape.showMood = true;
+                    shape.mood = moodrange;
+                }
+            }
+            rows.Add(lobby);
+            shapes.Add(shape);
+        }
+        _browserRows = rows.ToArray();
+        _rowShapes = shapes.ToArray();
+    }
 
     static void ResetPingSamplerFast() {
         _pingSampleIndex = 0;
@@ -127,7 +185,12 @@ public static class UIServerBrowser {
     }
 
     static void _GUI_RenderServerBrowser(Rect r) {
-        TickPingSampler();
+        // ping sort and steam updates change the list between layout and repaint.
+        // imgui then asks for a control the group never recorded.
+        if (Event.current == null || Event.current.type == EventType.Layout) {
+            TickPingSampler();
+            CaptureBrowserRows();
+        }
 
         GUI.skin.label.alignment = TextAnchor.UpperCenter;
         //uIBullshit._GUI_BiggerLabel(Lang.Get("mmtb_serverbrowser"), 1.4f);
@@ -227,28 +290,29 @@ public static class UIServerBrowser {
 
 
 
-            if (CurServerList.Count == 0) {
-                GUILayout.Label(Lang.Get("mmsb_empty"));
-            } else if (CurFilteredServerList.Count == 0) {
-                GUILayout.Label(Lang.Get("filter_found_nothing"));
+            if (_browserRows.Length == 0) {
+                GUILayout.Label(CurServerList.Count == 0 ? Lang.Get("mmsb_empty") : Lang.Get("filter_found_nothing"));
             } else {
                 try {
-                    var MY_VERSION = Multiplayer.FULL_VERSION_TAG;
                     GUI.skin.label.fontSize = ogfontsize;
                     var lobbyfontsize = (int)(ogfontsize);
                     var plrtabheight = _LOBBY_ENTRY_HEIGHT * GetMenuUIScale();
                     var og_enabled = GUI.enabled;
-                    foreach (var lobby in CurFilteredServerList) {
+                    for (int ri = 0; ri < _browserRows.Length; ri++) {
+                        var lobby = _browserRows[ri];
+                        var shape = _rowShapes[ri];
                         GUI.skin.label.alignment = TextAnchor.UpperLeft;
                         GUILayout.BeginVertical(GUI.skin.box);
+                        int rowH = 0;
                         try {
-                            var is_a_steam_lobby = lobby.steam_lobby_info != null;
+                            var is_a_steam_lobby = shape.steam;
 
                             GUI.skin.label.fontSize = lobbyfontsize;
 #if RELEASE
-                            if (lobby.version != MY_VERSION) {
+                            if (shape.badVersion) {
                                 GUI.enabled = false;
                                 GUILayout.BeginHorizontal();
+                                rowH++;
                                 {
                                     GUILayout.Space(10 * GetMenuUIScale());
 
@@ -258,6 +322,7 @@ public static class UIServerBrowser {
                                     GUILayout.Label(lobby.plr_count + "/" + lobby.plr_max);
                                 }
                                 GUILayout.EndHorizontal();
+                                rowH--;
 
                                 GUI.skin.label.alignment = TextAnchor.UpperLeft;
                                 GUI.skin.label.fontSize = (int)(GUI.skin.label.fontSize * 0.9f);
@@ -273,7 +338,6 @@ public static class UIServerBrowser {
 
                                 GUIContent gameStateContent;
                                 bool shouldDrawLayerIcon = false;
-                                bool isCustomGamemode = false;
                                 {
                                     if (
                                         !Locale.currentLang.other.TryGetValue("layertitle" + clayer1, out var lobby_layer_localed) //OG: WorldGeneration.Start V6.0DEMO
@@ -292,7 +356,6 @@ public static class UIServerBrowser {
                                             gameStateContent = FixGuiContent.Content(lobby_layer_localed, 31);
                                         } else if (true) {
                                             gameStateContent = FixGuiContent.Content(lobby.gamemode, 32);
-                                            isCustomGamemode = true;
                                         }
                                     }
                                 }
@@ -300,6 +363,7 @@ public static class UIServerBrowser {
 
 
                                 GUILayout.BeginHorizontal();
+                                rowH++;
                                 {
                                     var conttt = FixGuiContent.Content(lobby.name, 33);
                                     var sizzzz = GUI.skin.label.CalcSize(conttt);
@@ -311,7 +375,7 @@ public static class UIServerBrowser {
                                     GUI.skin.label.richText = false;
                                     GUILayout.Space(10 * GetMenuUIScale());
 
-                                    if (lobby.friends_tooltip != null) {
+                                    if (shape.friendIcon) {
                                         GUILayout.Label(CoopModAssets.happy.texture, GUILayout.Width(sizzzz.y), GUILayout.Height(sizzzz.y));
 
                                         if (UIBullshit.CheckCursorOverlap(GUIUtility.GUIToScreenRect(GUILayoutUtility.GetLastRect()))) {
@@ -319,7 +383,7 @@ public static class UIServerBrowser {
                                         }
                                     }
 
-                                    if (lobby.haspassword) {
+                                    if (shape.locked) {
                                         GUILayout.Label(CoopModAssets.@lock.texture, GUILayout.Width(sizzzz.y), GUILayout.Height(sizzzz.y));
 
                                         if (UIBullshit.CheckCursorOverlap(GUIUtility.GUIToScreenRect(GUILayoutUtility.GetLastRect()))) {
@@ -339,7 +403,7 @@ public static class UIServerBrowser {
 
                                     GUILayout.FlexibleSpace();
 
-                                    if (isCustomGamemode) {
+                                    if (shape.customMode) {
                                         GUILayout.Label(lobby.gamemode);
                                     }
 
@@ -351,25 +415,31 @@ public static class UIServerBrowser {
                                         }
                                         DoTooltipOnLastGUIRectNoLang(lobby.rules_as_string);
                                     }
-                                    if (lobby.plr_count > 0 && lobby.steam_lobby_info != null) {
+                                    if (shape.listPlayers) {
                                         if (GUILayout.Button(Lang.Get("mmsb_lobby_listplrs"))) {
 
                                         }
-                                        DoTooltipOnLastGUIRectNoLang(String.Join("\n", lobby.steam_lobby_info.members.Select(x => KSteam.GetSteamUsername(x.Key.m_SteamID))));
+                                        if (lobby.steam_lobby_info != null) {
+                                            DoTooltipOnLastGUIRectNoLang(String.Join("\n", lobby.steam_lobby_info.members.Select(x => KSteam.GetSteamUsername(x.Key.m_SteamID))));
+                                        }
                                     }
-                                    if (lobby.modlist.Length > 0) {
+                                    if (shape.listMods) {
                                         if (GUILayout.Button(Lang.Get("mmsb_lobby_listmod"))) {
 
                                         }
-                                        DoTooltipOnLastGUIRectNoLang(String.Join("\n", lobby.modlist));
+                                        if (lobby.modlist != null) {
+                                            DoTooltipOnLastGUIRectNoLang(String.Join("\n", lobby.modlist));
+                                        }
                                     }
 
                                 }
                                 GUILayout.EndHorizontal();
+                                rowH--;
 
 
-                                if (!HideDescriptions && !String.IsNullOrWhiteSpace(lobby.description)) {
+                                if (shape.showDesc) {
                                     GUILayout.BeginHorizontal();
+                                    rowH++;
                                     {
                                         GUI.skin.label.richText = true;
                                         GUI.skin.label.wordWrap = true;
@@ -379,7 +449,7 @@ public static class UIServerBrowser {
                                         GUI.color = Color.white * 0.9f;
                                         GUI.skin.label.fontSize = (int)(gggogfontsize * 0.8f);
 
-                                        var content = FixGuiContent.Content(lobby.description, 34);
+                                        var content = FixGuiContent.Content(lobby.description ?? "", 34);
 
                                         var realwidth = 800 * GetMenuUIScale();
                                         var calculatedheight = GUI.skin.label.CalcHeight(content, realwidth);
@@ -395,6 +465,7 @@ public static class UIServerBrowser {
                                         GUI.skin.label.wordWrap = false;
                                     }
                                     GUILayout.EndHorizontal();
+                                    rowH--;
                                 }
 
 
@@ -402,6 +473,7 @@ public static class UIServerBrowser {
 
 
                                 GUILayout.BeginHorizontal();
+                                rowH++;
                                 {
                                     {
                                         GUI.enabled = og_enabled && (!Multiplayer.IsNetworkActiveOrIsInGame()) && (lobby.IsJoinable() || i_am_privileged_user_idc_bout_passwords);
@@ -410,7 +482,7 @@ public static class UIServerBrowser {
                                                 Lang.Get(lobby.latejoinspectate ? "mmsb_lobbyjoinspectate" : "mmsb_lobbyjoin")
                                             , GUILayout.Width(r.width * 0.2f))
                                         ) {
-                                            if (is_a_steam_lobby) {
+                                            if (is_a_steam_lobby && lobby.steam_lobby_info != null) {
                                                 Multiplayer.DoMultiplayerStatusMessageLog($"STEAM: Join Lobby {lobby.steam_lobby_info.lobby_steamID}");
                                                 TransportSteamworks.OnWantToJoinLobby(lobby.steam_lobby_info.lobby_steamID.m_SteamID);
 
@@ -463,14 +535,11 @@ public static class UIServerBrowser {
                                     }
                                     GUI.skin.label.fontSize = (int)(GUI.skin.label.fontSize * 0.9f);
 
-                                    if (lobby.cur_layer != -1) {
+                                    if (shape.showLayer) {
                                         GUI.skin.label.alignment = TextAnchor.MiddleCenter;
 
-                                        { // OG: PlayerCamera.HandleDeathScreen  V6.1demo
-                                            int num = Mathf.RoundToInt(lobby.avg_happiness * 0.1f);
-                                            if (Locale.currentLang.other.TryGetValue("moodrange" + num.ToString(), out var moodrange)) {
-                                                GUILayout.Label(Lang.Get("mmsb_lobby_avgmood") + moodrange);
-                                            }
+                                        if (shape.showMood) {
+                                            GUILayout.Label(Lang.Get("mmsb_lobby_avgmood") + shape.mood);
                                         }
 
                                         GUILayout.Label(Lang.Get("mmsb_lobby_alivecount") + (lobby.plr_living_count + "/" + lobby.plr_count));
@@ -485,12 +554,17 @@ public static class UIServerBrowser {
 
                                 }
                                 GUILayout.EndHorizontal();
+                                rowH--;
 
 
 
                             }
 
                         } catch (Exception e) {
+                            while (rowH > 0) {
+                                GUILayout.EndHorizontal();
+                                rowH--;
+                            }
                             log.error($"_GUI_RenderServerBrowser: {lobby}\n{e.ToString()}");
                         }
                         GUI.enabled = og_enabled;

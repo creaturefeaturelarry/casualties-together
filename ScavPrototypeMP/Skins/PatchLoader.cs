@@ -18,6 +18,7 @@ internal static class PatchLoader {
         Patch(harmony, typeof(WoundView), "UpdateView", Type.EmptyTypes, typeof(WoundViewUpdatePatch), null, "Postfix");
         Patch(harmony, typeof(PlayerCamera), "Awake", Type.EmptyTypes, typeof(PlayerCameraAwakePatch), null, "Postfix");
         PatchSetter(harmony, typeof(SpriteRenderer), "sprite", typeof(SkinSpritePatch), "Prefix");
+        Patch(harmony, typeof(Body), "SwitchDir", Type.EmptyTypes, typeof(BodySwitchDirPatch), null, "Postfix");
 
         Type adaptive = typeof(Limb).Assembly.GetType("AdaptiveButton", false);
         if (adaptive != null) {

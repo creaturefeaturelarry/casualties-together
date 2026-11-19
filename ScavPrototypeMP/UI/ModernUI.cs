@@ -129,6 +129,9 @@ public static class SettingsMenu_Start_MultiplayerPatch {
             const string gap = "     ";
 
             foreach (var settingsTab in UIMainMenu.SettingsTab.tabs) {
+                // The independent language selector lives in the mod's own settings menu only.
+                if (settingsTab == UIMainMenu._language_setting_tab)
+                    continue;
                 var fields = UIMainMenu.GetSettingsFromStaticClass(settingsTab.settings_origin);
 
                 // Big label with  settingsTab.name
@@ -398,7 +401,7 @@ class MultiplayerSettingsHandler : MonoBehaviour {
             var uiTooltip = SettingsMenu_Start_MultiplayerPatch.DeactivateButton.GetComponentInChildren<UITooltip>();
 
             if (uiTooltip != null) {
-                uiTooltip.tipDesc = (activatethisbutton ? "mmst_button_deactivate_mp_desc" : "mmst_button_deactivate_mp_desc_disabled");
+                uiTooltip.tipDesc = Lang.GetNoError(activatethisbutton ? "mmst_button_deactivate_mp_desc" : "mmst_button_deactivate_mp_desc_disabled");
             }
         }
 

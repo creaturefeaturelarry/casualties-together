@@ -531,6 +531,11 @@ public class ServerMain : MonoBehaviour {
 
     internal static bool SpawnPlacementBusy(knetid clientId) => _spawnBusy.Contains(clientId);
 
+    // the spawn coroutine runs on the player, so it never reaches its own Remove when the player leaves first.
+    internal static void ForgetSpawnBusy(knetid clientId) {
+        _spawnBusy.Remove(clientId);
+    }
+
     public static IEnumerator GiveSpawnLocationToPlayer(knetid clientId) {
         if (!_spawnBusy.Add(clientId)) {
             yield break;
@@ -621,11 +626,7 @@ public class ServerMain : MonoBehaviour {
             required = 1000;
             return false;
         }
-#if FULLGAME
-        return CheckIfCanFinishLayerCustomCondition((ScavPlayer plr) => FullgameWorldCompat.IsAtLayerExit(plr.body), out current, out required);
-#else
-        return CheckIfCanFinishLayerCustomCondition((ScavPlayer plr) => { return (plr.pos.y < (float)(0L - (long)WorldGeneration.world.halfHeight) + 3.1f); }, out current, out required);
-#endif
+        return CheckIfCanFinishLayerCustomCondition((ScavPlayer plr) => plr.IsAtTheEndOfLayer(), out current, out required);
     }
     public static bool CheckIfShouldStartRadlineForStragglers(byte minimum = 1) {
         if (Multiplayer.rules.StragglerRadlinePercent < 100) {
@@ -662,6 +663,27 @@ public class ServerMain : MonoBehaviour {
         }
 
         return false;
+    }
+
+    // host player is down. the exit buttons belong to whoever is still standing there.
+    public static bool HostBodyIsDead() {
+        if (!Net.IsRunning || Net.IsDedicatedServer) {
+            return false;
+        }
+        foreach (var plr in ScavPlayer.AllPlayers) {
+            if (plr != null && plr.IsHost) {
+                return !plr.IsAlive();
+            }
+        }
+        return false;
+    }
+
+    public static bool LocalPlayerAtLayerExit() {
+        var cam = PlayerCamera.main;
+        if (cam == null || cam.body == null || !cam.body.alive) {
+            return false;
+        }
+        return DidHeFinishTheLayer(cam.body);
     }
 
 
@@ -792,16 +814,31 @@ public class ServerMain : MonoBehaviour {
         return false;
     }
     public static bool DidHeFinishTheLayer(Body body) {
+        bool raw;
+        bool left;
 #if FULLGAME
-        return FullgameWorldCompat.IsAtLayerExit(body);
+        raw = FullgameWorldCompat.IsAtLayerExit(body);
+        left = FullgameWorldCompat.HasLeftLayerExit(body);
 #else
         // OG: WorldGeneration.ContinueRun
-        if ((body.transform.position.y < (float)(0L - (long)WorldGeneration.world.halfHeight) + 3.1f)) {
-            return true;
-        }
-
-        return false;
+        raw = body != null && WorldGeneration.world != null
+            && body.transform.position.y < (float)(0L - (long)WorldGeneration.world.halfHeight) + 3.1f;
+        left = body == null || WorldGeneration.world == null
+            || body.transform.position.y >= (float)(0L - (long)WorldGeneration.world.halfHeight) + 3.1f + 8f;
 #endif
+        ScavPlayer plr = null;
+        if (body != null && body.TryGetNetBody(out NetBody nb) && nb != null) {
+            plr = nb.plr;
+        }
+        if (plr == null) {
+            return raw;
+        }
+        if (raw) {
+            plr.layerExitLatched = true;
+        } else if (left) {
+            plr.layerExitLatched = false;
+        }
+        return plr.layerExitLatched;
     }
     public static bool CheckIfEveryoneIsSleeping() {
         bool any = false;
@@ -822,6 +859,7 @@ public class ServerMain : MonoBehaviour {
         foreach (var item in ScavPlayer.AllPlayers) {
             item._tutorial_finished = false;
             item.finishedLayer = false;
+            item.layerExitLatched = false;
         }
     }
 
@@ -901,7 +939,7 @@ public class ServerMain : MonoBehaviour {
                         if (prs) {
 #if FULLGAME
                             // autostart only proceeds once everyone is Ready (CharacterSelectWait).
-                            if (!CharacterSelectWait.Waiting) {
+                            if (!LobbyHostTransfer.HasRequest && !LobbyHostTransfer.Busy && !LobbyHostTransfer.AwaitingTransferredLoad && !LobbyHostTransfer.HoldLobbyAutoStart && !CharacterSelectWait.Waiting) {
                                 Multiplayer.DoMultiplayerStatusMessageLog(Lang.GetEN("autostarting_run"));
                                 Chat.Server_ChatAnnouncement("<key:autostarting_run>");
                                 Chat.Server_ChatAnnouncement("Ready up to start...");
@@ -909,7 +947,7 @@ public class ServerMain : MonoBehaviour {
                             }
 #else
                             var msg = "autostarting_run";
-                            Multiplayer.DoMultiplayerStatusMessageLog(Lang.GetEN(msg));
+                            Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get(msg));
                             Chat.Server_ChatAnnouncement("<key:autostarting_run>");
                             prs.StartCoroutine(prs.WaitLoad());
 #endif
@@ -1008,9 +1046,9 @@ public class ServerMain : MonoBehaviour {
                         ) { // if everyone left go to main menu
                             _ded_server_switch_counter = -30;
 
-                            var msg = $"Auto-exiting to main menu because everyone left the server.";
+                            var msg = Lang.Get("auto_exit_all_left");
                             Multiplayer.DoMultiplayerStatusMessageLog(msg);
-                            Chat.Server_ChatAnnouncement(msg);
+                            Chat.Server_ChatAnnouncement("<key:auto_exit_all_left>");
 
                             PlayerCamera.main.ToMainMenu();
                             return;
@@ -1019,9 +1057,9 @@ public class ServerMain : MonoBehaviour {
                         ) { // if everyone died go to main menu
                             _ded_server_switch_counter = -5;
 
-                            var msg = $"Auto-exiting to main menu because everyone died.";
+                            var msg = Lang.Get("auto_exit_all_died");
                             Multiplayer.DoMultiplayerStatusMessageLog(msg);
-                            Chat.Server_ChatAnnouncement(msg);
+                            Chat.Server_ChatAnnouncement("<key:auto_exit_all_died>");
 
                             PlayerCamera.main.ToMainMenu();
                             return;
@@ -1134,6 +1172,7 @@ public class ServerMain : MonoBehaviour {
         };
 
         Multiplayer.RegisterCustomServerReceiver("CustomCommand", RunClientCustomCommand);
+        LayerExitWhenHostDead.Register();
 
         {
             var t = "plrdeath";
@@ -1415,17 +1454,35 @@ public class ServerMain : MonoBehaviour {
                 _lastSentRunSettings = curRunSettings;
                 _lastSentRules = curRules;
 
-                var writer = Net.CreateWriter(NetmsgId.CLIENT_RunSettings);
-                writer.Put(curRunSettings, true);
-                writer.Put(Multiplayer.rules);
-                writer.CompressWriter();
-                Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, ServerMain.AllClientIdsExceptHost);
+                SendRulesTo(ServerMain.AllClientIdsExceptHost, curRunSettings, curRules);
             }
         }
 
     }
     internal static string _lastSentRunSettings = "";
     internal static string _lastSentRules = "";
+
+    // worldgen Apply() copies the rules from when the layer started. a joiner who already got the live packet loses client cheats and the diff never sends again.
+    internal static void SendRulesTo(IReadOnlyList<knetid> who) {
+        if (who == null || who.Count == 0) {
+            return;
+        }
+        string curRunSettings = WorldMP.CompileRunSettings();
+        string curRules = JsonConvert.SerializeObject(Multiplayer.rules, Formatting.None);
+        SendRulesTo(who, curRunSettings, curRules);
+    }
+
+    static void SendRulesTo(IReadOnlyList<knetid> who, string curRunSettings, string curRules) {
+        _lastSentRunSettings = curRunSettings;
+        _lastSentRules = curRules;
+
+        var writer = Net.CreateWriter(NetmsgId.CLIENT_RunSettings);
+        writer.Put(curRunSettings, true);
+        writer.Put(Multiplayer.rules);
+        writer.CompressWriter();
+        Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, who);
+        log.l("[rules] send sv_cheats=" + Multiplayer.rules.sv_cheats + " clientcheats=" + Multiplayer.rules.AllowClientCheatCommands + " to=" + who.Count);
+    }
 
 
     private void RareUpdateSyncClients() {
@@ -1488,7 +1545,8 @@ public class ServerMain : MonoBehaviour {
 
 
                 if (ServerMain.CheckIfEnoughPeopleAreAtLayerFinish(out int current, out int required)) {
-                    world.savePanel.SetActive(value: true);
+                    // the exit panel is applied every frame. opening it here and letting stock
+                    // close it on the host's own y made the buttons flash.
                     can_autocontinue = true;
                 } else if (CheckIfShouldStartRadlineForStragglers()) {
                     if (Util.IsWorldGenerated() && !RadiationLine.line.active) {
@@ -1513,7 +1571,7 @@ public class ServerMain : MonoBehaviour {
                     }
                 }
 
-                if (can_autocontinue && Multiplayer.rules.AutoContinue) {
+                if (can_autocontinue && Multiplayer.rules.AutoContinue && !LobbyHostTransfer.PauseAutoContinue) {
 
                     //OG: WorldGeneration.ContinueRun
 
@@ -1601,7 +1659,7 @@ public class ServerMain : MonoBehaviour {
                     log.l($"RequestPiggyback success: {plr} -> {guybody}");
                 return;
             }
-            plr.Server_DoAlertSingle("SERVER: Denied Piggyback.");
+            plr.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey("serverdeny_piggyback"));
 
 
             log.serverdeny($"RequestPiggyback {plr} -> {guybody}");
@@ -1717,8 +1775,7 @@ public class ServerMain : MonoBehaviour {
                     return;
                 }
             }
-            plr.Server_DoAlertSingle("SERVER: Denied Carry.");
-
+            plr.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey("serverdeny_carry"));
 
             log.serverdeny($"RequestCarryPerson {plr} -> {nb2}");
         }
@@ -1942,6 +1999,15 @@ public class ServerMain : MonoBehaviour {
         }
     }
 
+    static readonly AccessTools.FieldRef<Body, Vector2> BodyOrigColSize =
+        AccessTools.FieldRefAccess<Body, Vector2>("origColSize");
+
+    // the cell Body.Update drinks from. it sits below the standing collider, so it depends on the body size.
+    static Vector2Int DrinkBlockPos(Body body) {
+        Vector3 feet = body.transform.position - Vector3.up * (BodyOrigColSize(body).y * 0.5f - 0.5f);
+        return WorldGeneration.world.WorldToBlockPos(feet);
+    }
+
     [ServerReceiver((byte)NetmsgId.SERVER_PlayerDrinkLiquid)]
     static void ServerReceiver__PlayerDrinkLiquid(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {
         if (ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr)) {
@@ -1952,8 +2018,7 @@ public class ServerMain : MonoBehaviour {
                     DebugHelp.OnNetEvent(plr.body.transform.position,
                                           $"S: PlayerDrinkLiquid {plr}");
 
-                var drinkblockpos = WorldGeneration.world.WorldToBlockPos(
-                    plr.body.transform.position - Vector3.up * 2.5f);
+                var drinkblockpos = DrinkBlockPos(plr.body);
 
                 var there_is_a_fluid =
                     FluidManager.main.GetLiquid(drinkblockpos.x, drinkblockpos.y);

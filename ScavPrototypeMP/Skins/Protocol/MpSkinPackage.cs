@@ -7,7 +7,7 @@ using System.Text;
 using UnityEngine;
 
 // textures from a received zip stay alive until the session ends.
-internal sealed class MpSkinPackage {
+internal sealed partial class MpSkinPackage {
     internal string SetName;
     internal int Species;
     internal string Hash;
@@ -26,10 +26,17 @@ internal sealed class MpSkinPackage {
         using MemoryStream memory = new MemoryStream();
         using (ZipArchive zip = new ZipArchive(memory, ZipArchiveMode.Create, true)) {
             using SHA256 content = SHA256.Create();
-            // head files win when the same name sits in both folders, matching the local loader.
-            AddFolder(zip, Path.Combine(root, "Head"), "Head", content);
-            AddFolder(zip, Path.Combine(root, "Body"), "Body", content);
-            AddFolder(zip, Path.Combine(root, "WoundView"), "WoundView", content);
+            WriteProtocolMarker(zip);
+
+            if (SkinJsonFile.Exists(root)) {
+                // sent as PNGs, so peers need no json reader.
+                AddJsonEntries(zip, root, content);
+            } else {
+                // head files win when the same name sits in both folders, matching the local loader.
+                AddFolder(zip, Path.Combine(root, "Head"), "Head", content);
+                AddFolder(zip, Path.Combine(root, "Body"), "Body", content);
+                AddFolder(zip, Path.Combine(root, "WoundView"), "WoundView", content);
+            }
         }
 
         byte[] bytes = memory.ToArray();
@@ -69,8 +76,12 @@ internal sealed class MpSkinPackage {
             int total = 0;
             long pixels = 0;
 
+            if (!package.ReadProtocolMarker(zip)) {
+                return Reject(package);
+            }
+
             foreach (ZipArchiveEntry entry in zip.Entries) {
-                if (!MpSkinRules.EntryCountOk(++entries)) {
+                if (!MpSkinRules.EntryCountOk(++entries, package.SupportsLeft)) {
                     return Reject(package);
                 }
 
@@ -95,7 +106,12 @@ internal sealed class MpSkinPackage {
                     continue;
                 }
 
-                if (package.Sprites.ContainsKey(name)) {
+                bool isLeft = SkinJson.IsLeftName(name);
+                if (isLeft && !package.AcceptsLeftEntry(folder)) {
+                    continue;
+                }
+
+                if (package.HasSprite(name, isLeft)) {
                     continue;
                 }
 
@@ -141,13 +157,17 @@ internal sealed class MpSkinPackage {
                     continue;
                 }
 
+                if (isLeft) {
+                    package.AddLeftSprite(name, texture);
+                    continue;
+                }
+
                 Sprite sprite = Sprite.Create(texture,
                     new Rect(0, 0, texture.width, texture.height),
                     new Vector2(0.5f, 0.5f), 8f);
                 sprite.name = name;
-
-                package.Sprites[name] = sprite;
                 package.Textures.Add(texture);
+                package.Sprites[name] = sprite;
 
                 if (folder == "WoundView" && HasColorPixels(texture)) {
                     package.ColoredWoundSprites.Add(name);
@@ -158,12 +178,15 @@ internal sealed class MpSkinPackage {
             return Reject(package);
         }
 
+        package.LinkLeftSprites();
         content.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
         package.ContentHash = Hex(content.Hash);
         return package.Sprites.Count == 0 ? Reject(package) : package;
     }
 
     internal void Dispose() {
+        DisposeLeft();
+
         if (Sprites != null) {
             foreach (Sprite sprite in Sprites.Values) {
                 if (sprite != null) {
@@ -188,59 +211,13 @@ internal sealed class MpSkinPackage {
         return null;
     }
 
-    private static void AddFolder(ZipArchive zip, string folder, string entryFolder, SHA256 content) {
-        if (!Directory.Exists(folder)) {
-            return;
-        }
-
-        string[] files = Directory.GetFiles(folder, "*.png");
-        Array.Sort(files, StringComparer.Ordinal);
-
-        int dropped = 0;
-        System.Text.StringBuilder droppedNames = new System.Text.StringBuilder();
-        foreach (string file in files) {
-            string name = Path.GetFileNameWithoutExtension(file);
-            if (!SkinImporter.IsPackableSpriteName(name)) {
-                dropped++;
-                if (dropped <= 8) {
-                    if (droppedNames.Length > 0) {
-                        droppedNames.Append(',');
-                    }
-                    droppedNames.Append(name);
-                }
-                continue;
-            }
-
-            byte[] data = File.ReadAllBytes(file);
-            string entryName = entryFolder + "/" + Path.GetFileName(file);
-            HashPart(content, entryName, data);
-
-            ZipArchiveEntry entry = zip.CreateEntry(entryName);
+    private static void AddJsonEntries(ZipArchive zip, string slotRoot, SHA256 content) {
+        foreach (KeyValuePair<string, byte[]> pair in SkinJsonFile.ToPngEntries(slotRoot, SpriteReplacerPlugin.ActiveSpecies)) {
+            HashPart(content, pair.Key, pair.Value);
+            ZipArchiveEntry entry = zip.CreateEntry(pair.Key);
             using Stream target = entry.Open();
-            target.Write(data, 0, data.Length);
+            target.Write(pair.Value, 0, pair.Value.Length);
         }
-
-        if (dropped > 0) {
-            SkinTrace.Problem("zip-dropped", "folder=" + entryFolder
-                + " dropped=" + dropped
-                + " names=" + droppedNames);
-        }
-    }
-
-    private static bool HasColorPixels(Texture2D tex) {
-        Color32[] pixels = tex.GetPixels32();
-        for (int i = 0; i < pixels.Length; i++) {
-            Color32 p = pixels[i];
-            if (p.a < 128) {
-                continue;
-            }
-
-            if (p.r != p.g || p.g != p.b) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static void HashPart(SHA256 sha, string name, byte[] data) {

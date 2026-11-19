@@ -18,6 +18,7 @@ internal static class Report
 		+ " " + FixSyringeHold.Evidence()
 		+ " " + EvidenceTmpMemoryLeak.Evidence()
 		+ " " + EvidenceBag.Evidence()
+		+ " " + EvidenceCache.Evidence()
 		+ " " + FixScrapDesc.Evidence()
 		+ " " + FixItemTooltip.Evidence()
 		+ " " + FixInvDrag.Evidence()

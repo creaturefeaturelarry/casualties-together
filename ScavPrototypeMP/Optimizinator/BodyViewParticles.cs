@@ -20,6 +20,7 @@ internal static class BodyViewParticles
 	static readonly Dictionary<int, Slot> Slots = new Dictionary<int, Slot>(8);
 	static readonly List<Body> Order = new List<Body>(8);
 	static int _index;
+	static int _prunePendingAt = StaleIds.FirstThreshold;
 
 	internal static void Tick()
 	{
@@ -71,6 +72,7 @@ internal static class BodyViewParticles
 		if (!Slots.TryGetValue(id, out Slot slot))
 		{
 			slot = new Slot();
+			StaleIds.Prune<Body, Slot>(Slots, ref _prunePendingAt);
 			Slots[id] = slot;
 		}
 		if (Time.unscaledTime >= slot.Refresh)

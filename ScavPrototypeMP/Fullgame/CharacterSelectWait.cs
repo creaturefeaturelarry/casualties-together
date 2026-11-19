@@ -283,12 +283,33 @@ public static class CharacterSelectWait {
     }
 
     static void OnCharSelectBackClicked() {
-        if (!Waiting || LateJoinPicking) {
+        if (LateJoinPicking) {
             // mid-run join: stuck on species until Join (no presets to return to)
             return;
         }
-        // back to presets, or back to the title if Tutorial opened this screen
+        if (!Waiting) {
+            return;
+        }
+        // back to presets, or back to the title if Tutorial opened this screen.
+        // host has to tell the lobby. a local Reset left them in the gate with no bodies.
+        if (Net.IsServer) {
+            AbortLobbyGate();
+            return;
+        }
         Reset();
+        ReleaseMenuDim();
+    }
+
+    // tutorial / new-run gate was still open. drop it before a world load or a Back,
+    // or CreateCharacter skips every lobby player and the fade stays up.
+    public static void AbortLobbyGate() {
+        if (!Net.IsServer || (!Waiting && !LateJoinPicking)) {
+            return;
+        }
+        Reset();
+        ReleaseMenuDim();
+        BroadcastAbort();
+        Multiplayer.DoMultiplayerStatusMessageLog("Left character select.");
     }
 
     public static void EnsureHostLobbyGate() {
@@ -363,6 +384,7 @@ public static class CharacterSelectWait {
     }
 
     public static void HostBeginNewRun(bool loadSave) {
+        if (!LobbyHostTransfer.AllowRun(loadSave)) return;
         if (!Net.IsRunning || !Net.IsServer) {
             return;
         }
@@ -446,6 +468,7 @@ public static class CharacterSelectWait {
 
     // startRun -> ready gate; LoadRun / Continue -> direct load
     public static void OnStartOrLoadClicked(bool loadSave) {
+        if (!LobbyHostTransfer.AllowRun(loadSave)) return;
         if (!Net.IsRunning) {
             return;
         }
@@ -564,6 +587,12 @@ public static class CharacterSelectWait {
     }
 
     public static void Client_UpdateProgress(int ready, int max) {
+        // host backed out of the gate. a normal progress packet is never negative.
+        if (ready < 0) {
+            Reset();
+            ReleaseMenuDim();
+            return;
+        }
         ReadyCount = ready;
         MaxCount = Mathf.Max(1, max);
         ForceCharSelectReadyVisual(PreRunScript.instance);
@@ -582,6 +611,13 @@ public static class CharacterSelectWait {
         if (LateJoinPicking) {
             ApplyLocalWaitUi();
             ForceCharSelectReadyVisual(prs);
+            return;
+        }
+
+        // stock Back can hide the page without our listener. Waiting would stay set
+        // and the next world would spawn nobody.
+        if (Net.IsServer && Waiting && Util.IsInMainMenu() && !IsSpeciesSelectPageVisible(prs)) {
+            AbortLobbyGate();
             return;
         }
 
@@ -713,6 +749,7 @@ public static class CharacterSelectWait {
     }
 
     static void HostProceed() {
+        if (LobbyHostTransfer.Busy) return;
         if (!Net.IsServer) {
             return;
         }
@@ -767,6 +804,31 @@ public static class CharacterSelectWait {
         _pendingLoadSave = false;
         _pendingTutorial = false;
         _speciesLocked = false;
+    }
+
+    static void ReleaseMenuDim() {
+        WorldMP.ReleaseTitleFade();
+        PreRunScript prs = PreRunScript.instance;
+        if (prs == null) {
+            return;
+        }
+        if (prs.cover != null) {
+            Color c = prs.cover.color;
+            c.a = 0f;
+            prs.cover.color = c;
+            prs.cover.raycastTarget = false;
+        }
+        try {
+            Traverse.Create(prs).Field("startedLoading").SetValue(false);
+        } catch {
+        }
+    }
+
+    static void BroadcastAbort() {
+        LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.CLIENT_CharSelectProgress);
+        writer.Put(-1);
+        writer.Put(0);
+        Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, clientIds: ServerMain.AllClientIdsExceptHost);
     }
 
     static void BroadcastWaitBegin() {
