@@ -299,7 +299,13 @@ public static class UIMainMenu {
                     GUI.DrawTexture(rect, CoopModAssets.cross.texture, ScaleMode.StretchToFill, true, 1, Color.red, 0, 0);
                 }
             } else {
-
+                if (plr.body != null && !plr.body.alive && Multiplayer.rules.TrackPlayerDeaths) {
+                    // get an empty rect in place of a pfp
+                    GUILayoutUtility.GetRect(GUIContent.none, GUI.skin.label, GUILayout.Width(textsize.y), GUILayout.Height(textsize.y));
+                    var rect = GUILayoutUtility.GetLastRect().ShrinkBorder(-1 * GetMenuUIScale());
+                    // draw the death cross
+                    GUI.DrawTexture(rect, CoopModAssets.cross.texture, ScaleMode.StretchToFill, true, 1, Color.red, 0, 0);
+                }
             }
             if (Voicechat.VCRULE_enabled && plr.vc_output != null && CoopModAssets.voicechaticon != null) {
                 var voicechat_transp_color = plr.vc_output.CalculateVoiceChatIconColor(out var realcurvcvol);
@@ -371,6 +377,7 @@ public static class UIMainMenu {
         GUI.skin.label.alignment = ogalign;
 
         _GUI__PanelInfo();
+        HostTransferUI.DrawLobbyAction();
 
         var should_do_buttons_usable = Util.IsInWorld() && !UIMainMenu.IsOpen();
 
@@ -1286,8 +1293,8 @@ public static class UIMainMenu {
                         ), GUILayout.MinWidth(bigheight * 3), GUILayout.Height(bigheight))
                     ) {
                         Multiplayer.ShutdownNetwork();
-                        Chat.LogMessage(Chat.NAMELABEL_LOCALSYSTEM, "Disconnected by the user.");
-                        Multiplayer.DoMultiplayerStatusMessageLog("Disconnected by the user.");
+                        Chat.LogMessage(Chat.NAMELABEL_LOCALSYSTEM, Lang.Get("chat_disconnected_by_user"));
+                        Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("chat_disconnected_by_user"));
                         Util.PlayUISound(PlayerCamera.UISoundType.Close);
                     }
 
@@ -1599,6 +1606,12 @@ public static class UIMainMenu {
 
         GUILayout.BeginHorizontal();
         {
+            if (GUILayout.Button(Lang.Get("mmct_rules_expand_all", true) ?? "Expand all", GUILayout.ExpandWidth(false))) {
+                RuleCategories.SetAllExpanded(true);
+            }
+            if (GUILayout.Button(Lang.Get("mmct_rules_collapse_all", true) ?? "Collapse all", GUILayout.ExpandWidth(false))) {
+                RuleCategories.SetAllExpanded(false);
+            }
             GUILayout.FlexibleSpace();
             GUILayout.Label(Lang.Get("mmct_search"));
             _GUI____RenderRuleField_search = GUILayout.TextField(_GUI____RenderRuleField_search, GUILayout.ExpandWidth(false), GUILayout.Width(r2.width * 0.3f));
@@ -1611,24 +1624,43 @@ public static class UIMainMenu {
 
         var rule_fields = typeof(MultiplayerGameRules).GetFields(BindingFlags.Instance | BindingFlags.Public).ToList();
 
-        if (!String.IsNullOrWhiteSpace(_GUI____RenderRuleField_search)) {
-            rule_fields = rule_fields.Where(f => f.Name.ContainsInsensitive(_GUI____RenderRuleField_search)
-                || (Lang.Get("rule_name_" + f.Name, true) ?? f.Name).ContainsInsensitive(_GUI____RenderRuleField_search)).ToList();
+        var searching = !String.IsNullOrWhiteSpace(_GUI____RenderRuleField_search);
+        var groups = RuleCategories.Group(rule_fields);
+        if (searching) {
+            // a category whose own title matches keeps all its rules; otherwise only the matching rules stay
+            groups = groups.Select(g => (g.category, fields: g.category.Title.ContainsInsensitive(_GUI____RenderRuleField_search)
+                ? g.fields
+                : g.fields.Where(f => f.Name.ContainsInsensitive(_GUI____RenderRuleField_search)
+                    || (Lang.Get("rule_name_" + f.Name, true) ?? f.Name).ContainsInsensitive(_GUI____RenderRuleField_search)).ToList()))
+                .Where(g => g.fields.Count > 0).ToList();
         }
 
-        if (rule_fields.Count == 0) {
+        if (groups.Count == 0) {
             GUI.skin.label.alignment = TextAnchor.UpperCenter;
             GUILayout.Label(Lang.Get("filter_found_nothing"));
         } else {
             _GUI____RenderRuleField_cur_max_width = 0;
-            foreach (var fld in rule_fields) {
-                GUILayout.BeginHorizontal();
-                try {
-                    _GUI____RenderRuleField(fld, can_edit, r2);
-                } catch (Exception e) {
-                    log.error($"_GUI___ConnectionSecondPanel_ContentRender_RenderRulesList: \nFLD: {fld} \n{e.ToString()}");
+            foreach (var (category, fields) in groups) {
+                // searching shows every match, so the header is a plain label then
+                var open = searching || RuleCategories.IsExpanded(category);
+                var changed = fields.Count(f => !RuleCategories.IsDefault(f, f.GetValue(Multiplayer.rules)));
+                var title = $"{(open ? "[-]" : "[+]")} {category.Title} ({fields.Count}" +
+                    (changed > 0 ? $", {Lang.Get("mmct_rules_changed", true) ?? "changed"}: {changed})" : ")");
+                GUI.skin.label.alignment = TextAnchor.MiddleLeft;
+                if (GUILayout.Button(title) && !searching) {
+                    Util.PlayUISound(PlayerCamera.UISoundType.MiniClick);
+                    RuleCategories.SetExpanded(category, !open);
                 }
-                GUILayout.EndHorizontal();
+                if (!open) continue;
+                foreach (var fld in fields) {
+                    GUILayout.BeginHorizontal();
+                    try {
+                        _GUI____RenderRuleField(fld, can_edit, r2);
+                    } catch (Exception e) {
+                        log.error($"_GUI___ConnectionSecondPanel_ContentRender_RenderRulesList: \nFLD: {fld} \n{e.ToString()}");
+                    }
+                    GUILayout.EndHorizontal();
+                }
             }
             _GUI____RenderRuleField_last_max_width = Mathf.Min(r2.width * 0.5f, _GUI____RenderRuleField_cur_max_width);
 
@@ -1708,8 +1740,10 @@ public static class UIMainMenu {
             GUI.skin.label.alignment = TextAnchor.MiddleLeft;
 
             if (fld.FieldType == typeof(bool)) {
-                bool newvalue = GUILayout.Toggle((bool)ogvalue, "");
+                bool newvalue = GUILayout.Toggle((bool)ogvalue, "", GUILayout.ExpandWidth(false));
                 fld.SetValueDirect(rulesref, newvalue);
+                GUILayout.FlexibleSpace();
+                GUILayout.Label(Lang.Get(newvalue ? "mmct_rules_on" : "mmct_rules_off", true) ?? (newvalue ? "on" : "off"), GUILayout.ExpandWidth(false), GUILayout.Width(r2.width * 0.1f));
 
                 did_change = newvalue != (bool)ogvalue;
 
@@ -1767,6 +1801,14 @@ public static class UIMainMenu {
             } else {
                 GUILayout.Label($"[{fld.FieldType.Name}]: {ogvalue} ");
             }
+            var atDefault = RuleCategories.IsDefault(fld, fld.GetValue(Multiplayer.rules));
+            var og_enabled_reset = GUI.enabled;
+            GUI.enabled = og_enabled_reset && !atDefault;
+            if (GUILayout.Button(Lang.Get("mmct_rules_reset_one", true) ?? "R", GUILayout.ExpandWidth(false), GUILayout.Width(r2.width * 0.06f))) {
+                fld.SetValueDirect(rulesref, RuleCategories.DefaultValue(fld));
+                did_change = true;
+            }
+            GUI.enabled = og_enabled_reset;
             if (did_change) {
                 if (Multiplayer.IsNetworkActiveAndIsClient()) {
                     if (Con.client_isadmin) {
@@ -2246,6 +2288,8 @@ public static class UIMainMenu {
             DoTooltipOnLastGUIRect("mmst_resettodefault_desc");
 
             if (GUILayout.Button(Lang.Get("mmst_apply"))) {
+                Lang.SaveSelectedLocale();
+                languageSettingsDirty = !Lang.IsSelectedLocaleSaved;
                 SettingsJsonThing.json.Save();
                 Util.PlayUISound(PlayerCamera.UISoundType.MiniClick);
             }
@@ -2277,6 +2321,16 @@ public static class UIMainMenu {
         name = "mmst_gui",
         gui_func = _GUI___SettingsGUI,
         settings_origin = typeof(UIBullshit)
+    };
+    internal static SettingsTab _language_setting_tab = new SettingsTab {
+        name = "mmst_language",
+        gui_func = _GUI___SettingsLanguage,
+        on_reset = () => {
+            SetSettingsLanguage("");
+            // Reset must also clear the saved override for the next launch.
+            Lang.SaveSelectedLocale();
+            languageSettingsDirty = !Lang.IsSelectedLocaleSaved;
+        },
     };
     internal static SettingsTab _voip_setting_tab = new SettingsTab {
         name = "mmst_voip",
@@ -2310,8 +2364,68 @@ public static class UIMainMenu {
         _chat_setting_tab,
         _voip_setting_tab,
         _gui_setting_tab,
+        _language_setting_tab,
         _skins_setting_tab,
     };
+
+    // The language page starts in the preview state; only an explicit Save/Reset marks it saved.
+    static bool languageSettingsDirty = true;
+
+    static void SetSettingsLanguage(string locale) {
+        Lang.SetSelectedLocale(locale);
+        languageSettingsDirty = !Lang.IsSelectedLocaleSaved;
+        GUILayout_DropdownMenu.CloseAll();
+
+        // IMGUI text updates on the next draw; the main menu's TMP button needs an explicit refresh.
+        if (UIManager.MP_MENU_BUTTON != null) {
+            var text = UIManager.MP_MENU_BUTTON.GetComponentInChildren<TextMeshProUGUI>();
+            if (text != null)
+                text.text = Lang.Get(IsOpen() ? "mainmenu_mainbutton_close" : "mainmenu_mainbutton");
+        }
+    }
+
+    static void _GUI___SettingsLanguage(Rect r) {
+        var locales = Lang.AvailableLocales;
+        var choices = new string[locales.Length + 1];
+        choices[0] = Lang.Get("mmst_language_follow_game");
+        for (int i = 0; i < locales.Length; i++)
+            choices[i + 1] = Lang.GetLocaleDisplayName(locales[i]);
+
+        var selected = Array.IndexOf(locales, Lang.SelectedLocale) + 1;
+        var labelWidth = r.width * ASJOUFMIGHDSYDSGFMKFSDKYGJUFSYGJFSDGKVYJSFDKJGYFSDGKVJHBFJKVFDJVMBYFJDYG;
+        var fieldSpacing = Mathf.Max(GUI.skin.label.margin.right, GUI.skin.button.margin.left);
+        var dropdownWidth = Mathf.Max(1f, r.width - labelWidth - fieldSpacing);
+        var contentWidth = Mathf.Max(1f, r.width - 8f * GetMenuUIScale());
+        GUI.skin.label.alignment = TextAnchor.MiddleRight;
+        GUILayout.BeginHorizontal(GUILayout.Width(r.width), GUILayout.ExpandWidth(false));
+        {
+            GUILayout.Label(Lang.Get("mmst_language"), GUILayout.Width(labelWidth));
+            var choice = GUILayout_DropdownMenu.Dropdown(selected, choices, GUILayout.Width(dropdownWidth), GUILayout.ExpandWidth(false));
+            if (choice != selected)
+                SetSettingsLanguage(choice == 0 ? "" : locales[choice - 1]);
+        }
+        GUILayout.EndHorizontal();
+
+        var wordWrap = GUI.skin.label.wordWrap;
+        var alignment = GUI.skin.label.alignment;
+        GUI.skin.label.alignment = TextAnchor.UpperLeft;
+        GUI.skin.label.wordWrap = true;
+        GUILayout.Space(10 * GetMenuUIScale());
+        // IMGUI needs an explicit height for wrapped labels or long Chinese text is clipped.
+        var descriptionStyle = new GUIStyle(GUI.skin.label) {
+            wordWrap = true,
+            alignment = TextAnchor.UpperLeft,
+        };
+        var descriptionContent = FixGuiContent.Content(Lang.Get("mmst_language_desc"), 7001);
+        var descriptionHeight = Mathf.Max(1f, descriptionStyle.CalcHeight(descriptionContent, contentWidth));
+        GUILayout.Label(descriptionContent, descriptionStyle, GUILayout.Width(contentWidth), GUILayout.Height(descriptionHeight));
+        GUI.skin.label.alignment = TextAnchor.MiddleRight;
+        GUILayout.Label(
+            Lang.Get(languageSettingsDirty ? "mmst_language_unsaved" : "mmst_language_saved"),
+            GUILayout.Width(contentWidth), GUILayout.ExpandWidth(false));
+        GUI.skin.label.wordWrap = wordWrap;
+        GUI.skin.label.alignment = alignment;
+    }
 
     static float MicVolumePreviewPixHeight = 20f;
     static float ASJOUFMIGHDSYDSGFMKFSDKYGJUFSYGJFSDGKVYJSFDKJGYFSDGKVJHBFJKVFDJVMBYFJDYG = 0.38f;
@@ -2648,7 +2762,6 @@ public static class UIMainMenu {
             foreach (var f in fields) {
                 var attr = f.GetAttribute<SettingDeclarerThingyBaseAttribute>();
                 attr.default_value = f.GetValue(null);
-
                 attr.Get(f);
             }
 

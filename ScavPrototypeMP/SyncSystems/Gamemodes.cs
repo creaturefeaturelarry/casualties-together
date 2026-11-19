@@ -112,6 +112,14 @@ public class BattleRoyale : GamemodeBase {
         WorldMP.SetRadlinePlayerPrefs(false);
     }
 
+    void OnDestroy() {
+        WorldMP.OnWorldgenFinish -= OnWorldgenFinish;
+        NetBody.OnPlayerDeath -= OnPlayerDeath;
+        ScavPlayer.OnPlayerJoined -= OnPlayerJoined;
+        ScavPlayer.OnPlayerLeft -= OnPlayerLeft;
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
     void Start() {
 
         WorldMP.OnWorldgenFinish += OnWorldgenFinish;

@@ -81,6 +81,7 @@ public static class CharacterSpawn {
         if (chr == 0 && ServerMain.CHARACTER_PREFAB != null) {
             Body stash = ServerMain.CHARACTER_PREFAB.GetComponentInChildren<Body>(true);
             if (stash != null && ClampChar(stash.charType) == 0) {
+                MpBody.ResetBodyToStock(stash);
                 PrefabCache[0] = ServerMain.CHARACTER_PREFAB;
                 return PrefabCache[0];
             }
@@ -93,6 +94,7 @@ public static class CharacterSpawn {
         CaptureHingeState(live);
         GameObject cached = Object.Instantiate(live);
         cached.SetActive(false);
+        MpBody.ResetBodyToStock(cached.GetComponentInChildren<Body>(true));
         PrefabCache[chr] = cached;
         if (chr == 0) {
             ServerMain.CHARACTER_PREFAB = cached;
@@ -151,7 +153,7 @@ public static class CharacterSpawn {
 
     // host console: force species for a living player, optionally wipe XP to that species' base skills,
     // sync to their client via characterSelected, then checkpoint-save their player file.
-    public static void ServerForceSwapSpecies(ScavPlayer plr, int chr, bool wipeXp) {
+    public static void ServerForceSwapSpecies(ScavPlayer plr, int chr, bool wipeXp, bool dropInventory = true) {
         if (!Net.IsServer || plr == null) {
             return;
         }
@@ -182,7 +184,7 @@ public static class CharacterSpawn {
         }
 
         if (plr.body != null && plr.body.charType != chr) {
-            RebuildBodyMesh(plr, chr, dropInventory: true);
+            RebuildBodyMesh(plr, chr, dropInventory);
         } else if (plr.body != null) {
             plr.body.charType = chr;
             ItemSync.RefreshWearableSpeciesSprites(plr.body);

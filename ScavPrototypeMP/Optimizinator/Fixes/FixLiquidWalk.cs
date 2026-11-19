@@ -82,6 +82,7 @@ internal static class FixLiquidWalk
 		if (num <= 0f)
 		{
 			__result = 0f;
+			Together.FindTheBugReports.NoteAdd(__instance, liquidId, amount, 0f);
 			return false;
 		}
 		LiquidStack found = null;
@@ -101,6 +102,7 @@ internal static class FixLiquidWalk
 		__instance.UpdateCondition();
 		__result = num;
 		Hits++;
+		Together.FindTheBugReports.NoteAdd(__instance, liquidId, amount, num);
 		return false;
 	}
 }

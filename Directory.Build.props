@@ -3,7 +3,7 @@
   
 	<PropertyGroup>
 
-		<ModVersion>5.5.1</ModVersion>
+		<ModVersion>5.5.4</ModVersion>
 		<FullModVersion>$(ModVersion)</FullModVersion>
 
 		<SlnRoot>$(SolutionDir)</SlnRoot>

@@ -72,6 +72,7 @@
 		<EmbeddedResource Include="assets\cooltextshader.bundle" />
 		<EmbeddedResource Include="assets\locale\EN.json" />
 		<EmbeddedResource Include="assets\locale\es-ES.json" />
+		<EmbeddedResource Include="assets\locale\ru-RU.json" />
 		<EmbeddedResource Include="assets\locale\zh-CN.json" />
 		<EmbeddedResource Include="assets\locale\zh-TW.json" />
 		<EmbeddedResource Include="assets\nsfw-server-filter.json" />

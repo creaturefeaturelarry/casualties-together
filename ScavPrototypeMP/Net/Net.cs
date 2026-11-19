@@ -481,6 +481,8 @@ namespace Together {
 
                 RPCManager_Initialize_MultiplayerPatch.QuickReset();
 
+                bool wasRunning = IsRunning;
+                bool wasClient = IsClient && wasRunning;
                 if (IsClient) {
                     MP3Menu.dropdownList = null;
                     if (!String.IsNullOrEmpty(_clientRunSettingsBeforeConnect)) {
@@ -494,7 +496,14 @@ namespace Together {
                 _clientRunSettingsBeforeConnect = null;
 
                 IsRunningSteam = false;
-                Type = NetType.Host;
+                // a client used to be stamped Host here while IsRunning was still true.
+                // IsServer is !IsClient, so the menu kept running host item deletes until the next join.
+                IsRunning = false;
+                Type = NetType.Client;
+                if (wasClient) {
+                    WorldMP.ClientReturned = true;
+                }
+                log.l("[join] shutdown, role cleared");
                 ClientMain.LOCAL_PING = 0;
 
                 ClientMain.SERVER_FPS = 60;
@@ -504,7 +513,7 @@ namespace Together {
 
                 ClientMain.MY_CONNECTION_QUALITY = 100;
                 ServerMain.AVG_CONNECTION_QUALITY = 100;
-                if (IsRunning) {
+                if (wasRunning) {
                     log.l("Network Shutdown Reset called.");
 
                     try {
@@ -514,7 +523,6 @@ namespace Together {
                     }
                 }
 
-                IsRunning = false;
                 SERVER_MESSAGE_HANDLERS.Clear();
                 CLIENT_MESSAGE_HANDLERS.Clear();
 
@@ -991,20 +999,20 @@ namespace Together {
         static bool _DoOnWantToConnect(string ipport_input, Net.NetType type) {
             try {
                 if (UIMainMenu.USERINPUT_NAME.Length < 3) {
-                    Multiplayer.DoMultiplayerStatusMessageLog("Name too short.");
+                    Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("net_name_too_short"));
                     return false;
                 }
                 if (UIMainMenu.USERINPUT_NAME != Multiplayer.SanitizeTextInput(UIMainMenu.USERINPUT_NAME)) {
-                    Multiplayer.DoMultiplayerStatusMessageLog("Invalid Name.");
+                    Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("net_invalid_name"));
                     return false;
                 }
                 if (!Net.TryParseIPPORT(ipport_input, out string ip, out ushort port)) {
-                    Multiplayer.DoMultiplayerStatusMessageLog("Invalid IP:PORT format.");
+                    Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("net_invalid_ipport"));
                     return false;
                 }
                 if (type != Net.NetType.Client && !Net.VerifyMyServerName()) {
                     if (!NsfwContentFilter.LastCreateWasRejected) {
-                        Multiplayer.DoMultiplayerStatusMessageLog("Invalid Server name.");
+                        Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("net_invalid_server_name"));
                     }
 
                     return false;
@@ -1021,7 +1029,7 @@ namespace Together {
 
                     bool success = transport.NetManager.Start();
                     if (!success) {
-                        Multiplayer.DoMultiplayerStatusMessageLog("LiteNetLib: CLIENT: NetManager.Start() failed.");
+                        Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("net_lnl_client_start_failed"));
                         return false;
                     }
 
@@ -1033,7 +1041,7 @@ namespace Together {
 
                         bool success = transport.NetManager.Start(port);
                         if (!success) {
-                            Multiplayer.DoMultiplayerStatusMessageLog("LiteNetLib: SERVER: NetManager.Start() failed.");
+                            Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("net_lnl_server_start_failed"));
                             return false;
                         }
 
@@ -1046,7 +1054,7 @@ namespace Together {
                 }
 
 
-                Multiplayer.DoMultiplayerStatusMessageError("TransportLiteNetLib.OnWantToConnect: What the fuck?");
+                Multiplayer.DoMultiplayerStatusMessageError(Lang.Get("net_wanttoconnect_wtf"));
 
             } catch (Exception e) {
                 Multiplayer.DoMultiplayerStatusMessageError("TransportLiteNetLib.OnWantToConnect:\n" + e.ToString());
@@ -1059,7 +1067,7 @@ namespace Together {
             Net.ShutdownReset();
 
             if (_DoOnWantToConnect(ipport_input, type)) {
-                Multiplayer.DoMultiplayerStatusMessageLog("Succesfully started: " + type.ToString());
+                Multiplayer.DoMultiplayerStatusMessageLog(string.Format(Lang.Get("net_started"), type.ToString()));
                 return true;
             } else {
                 Net.ShutdownReset();
@@ -1154,7 +1162,7 @@ namespace Together {
             }
 #endif
             if (Net.IsClient) {
-                Multiplayer.DoMultiplayerStatusMessageLog("Connected!  :3");
+                Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("net_connected"));
 
                 Net.OnTransportConnected();
             } else {
@@ -1176,21 +1184,21 @@ namespace Together {
                     Multiplayer.ShutdownNetwork(); // to go back to main menu and shutdown
 
                     if (disconnectInfo.Reason == DisconnectReason.UnknownHost) {
-                        Multiplayer.DoMultiplayerStatusMessageLog("Unknown Host");
+                        Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("net_unknown_host"));
                     } else if (disconnectInfo.Reason == DisconnectReason.Timeout) {
-                        Multiplayer.DoMultiplayerStatusMessageLog("Timed Out");
+                        Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("net_timed_out"));
                     } else if (disconnectInfo.Reason == DisconnectReason.ConnectionRejected) {
                         disconnectInfo.AdditionalData.TryGetString(out string str);
-                        Multiplayer.DoMultiplayerStatusMessageLog($"Connection Rejected: {str}");
+                        Multiplayer.DoMultiplayerStatusMessageLog(string.Format(Lang.Get("net_connection_rejected"), Lang.ParseDisconnectReason(str ?? "")));
                     } else if (disconnectInfo.Reason == DisconnectReason.DisconnectPeerCalled) {
                         disconnectInfo.AdditionalData.TryGetString(out string str);
-                        Multiplayer.DoMultiplayerStatusMessageLog($"Disconnected: {str}");
+                        Multiplayer.DoMultiplayerStatusMessageLog(string.Format(Lang.Get("net_disconnected"), Lang.ParseDisconnectReason(str ?? "")));
                     } else if (disconnectInfo.Reason == DisconnectReason.RemoteConnectionClose) {
                         disconnectInfo.AdditionalData.TryGetString(out string str);
-                        Multiplayer.DoMultiplayerStatusMessageLog($"Disconnected: {str}");
+                        Multiplayer.DoMultiplayerStatusMessageLog(string.Format(Lang.Get("net_disconnected"), Lang.ParseDisconnectReason(str ?? "")));
                     } else {
                         disconnectInfo.AdditionalData.TryGetString(out string str);
-                        Multiplayer.DoMultiplayerStatusMessageLog($"Disconnected: {disconnectInfo.Reason} : {disconnectInfo.SocketErrorCode} : {str}");
+                        Multiplayer.DoMultiplayerStatusMessageLog(string.Format(Lang.Get("net_disconnected_detail"), disconnectInfo.Reason, disconnectInfo.SocketErrorCode, Lang.ParseDisconnectReason(str ?? "")));
                     }
                 }
 

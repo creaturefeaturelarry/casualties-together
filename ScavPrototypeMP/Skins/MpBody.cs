@@ -11,6 +11,8 @@ internal static class MpBody {
     private static Body _localBody;
     private static float _nextRefresh;
     private static bool _needsApply;
+    private static readonly Dictionary<long, IReadOnlyDictionary<string, Sprite>> _rejected =
+        new Dictionary<long, IReadOnlyDictionary<string, Sprite>>();
 
     internal static bool IsActive {
         get {
@@ -102,6 +104,7 @@ internal static class MpBody {
         Refresh();
         // species cache decides the folder before the binding runs.
         SpriteReplacerPlugin.SyncSpeciesCache();
+        ScanRemoteDefaults();
         if (!_needsApply) {
             return;
         }
@@ -196,7 +199,7 @@ internal static class MpBody {
         binding.Bind(_localBody, sprites, SlotFolders.DisplayName(SpriteReplacerPlugin.ActiveSlot));
         FacialExpression face = FindFace(_localBody);
         if (face != null) {
-            SpriteReplacerPlugin.ApplyReplacementToFace(face, sprites);
+            SkinFace.ApplyReplacementToFace(face, sprites);
         }
     }
 
@@ -226,10 +229,55 @@ internal static class MpBody {
 
         FacialExpression face = FindFace(body);
         if (face != null) {
-            SpriteReplacerPlugin.RestoreFaceToStock(face);
+            SkinFace.RestoreFaceToStock(face);
         }
 
+        // cloned from the live body after the slot bind. those renderers already point at the
+        // local slot, and the copied replacer has no stock sprite to put back.
+        RestoreBakedSprites(body);
+
         WoundViewIntegration.RefreshForBody(body);
+        SkinTrace.NoteDefaultLeak("reset", body);
+    }
+
+    static void RestoreBakedSprites(Body body) {
+        SpriteRenderer[] renderers = body.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++) {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || renderer.sprite == null) {
+                continue;
+            }
+
+            if (!DefaultSpriteExport.TryGetStock(renderer.sprite.name, out Sprite stock) || stock == null) {
+                continue;
+            }
+
+            if (ReferenceEquals(renderer.sprite, stock)) {
+                continue;
+            }
+
+            renderer.sprite = stock;
+        }
+    }
+
+    static void ScanRemoteDefaults() {
+        try {
+            Dictionary<Body, Together.ScavPlayer> map = Together.ScavPlayer.BodyToPlayerDict;
+            if (map == null) {
+                return;
+            }
+
+            foreach (KeyValuePair<Body, Together.ScavPlayer> pair in map) {
+                Body body = pair.Key;
+                if (body == null || body == _localBody) {
+                    continue;
+                }
+
+                SkinTrace.NoteDefaultLeak("tick", body);
+            }
+        } catch (Exception ex) {
+            LogDebug("default skin scan failed: " + ex.Message);
+        }
     }
 
     static FacialExpression FindFace(Body body) {
@@ -431,12 +479,13 @@ internal static class MpBody {
         }
     }
 
+    internal static void ClearRejected() {
+        _rejected.Clear();
+    }
+
     internal static bool ApplyRemoteSkin(uint networkClientId, uint playerId,
         IReadOnlyDictionary<string, Sprite> sprites, string setName, int species) {
         if (!IsActive || sprites == null) {
-            SkinTrace.Event("apply-remote-skip", SkinTrace.Ids(networkClientId, playerId)
-                + " reason=" + (!IsActive ? "inactive" : "null-sprites")
-                + " set=" + (setName ?? "-"));
             return false;
         }
 
@@ -444,29 +493,21 @@ internal static class MpBody {
             Refresh();
         }
 
+        // same package already refused. the timer must not reset the body again.
+        long key = ((long)networkClientId << 32) | playerId;
+        if (_rejected.TryGetValue(key, out IReadOnlyDictionary<string, Sprite> rejected)
+            && ReferenceEquals(rejected, sprites)) {
+            return false;
+        }
+
         Body body = ResolveRemoteBody(networkClientId, playerId);
-        if (body == null) {
-            SkinTrace.Event("apply-remote-wait", SkinTrace.Ids(networkClientId, playerId)
-                + " reason=no-body set=" + (setName ?? "-")
-                + " " + SkinTrace.SlotSummary(setName, sprites, species));
+        if (body == null || !IsBodyFullyReady(body)) {
             return false;
         }
 
         // refuse cross-body paints when the resolved NetBody.netId disagrees with the package key
         uint resolvedNet = GetNetworkIdForBody(body);
         if (networkClientId != 0 && resolvedNet != 0 && resolvedNet != networkClientId) {
-            SkinTrace.Event("apply-remote-reject", SkinTrace.Ids(networkClientId, playerId)
-                + " reason=net-mismatch resolvedNet=" + resolvedNet
-                + " set=" + (setName ?? "-")
-                + " " + SkinTrace.BodyState(body));
-            return false;
-        }
-
-        if (!IsBodyFullyReady(body)) {
-            SkinTrace.Event("apply-remote-wait", SkinTrace.Ids(networkClientId, playerId)
-                + " reason=incomplete set=" + (setName ?? "-")
-                + " " + SkinTrace.BodyState(body)
-                + " " + SkinTrace.SlotSummary(setName, sprites, species));
             return false;
         }
 
@@ -480,35 +521,39 @@ internal static class MpBody {
         }
         // an experiment pack aliased onto a dune/milky body mixes that skin with the one already there.
         if (liveSpecies != bodySpecies) {
-            SkinTrace.Event("apply-remote-reject", SkinTrace.Ids(networkClientId, playerId)
-                + " reason=species wireSpecies=" + species
-                + " bodySpecies=" + bodySpecies
-                + " set=" + (setName ?? "-")
-                + " " + SkinTrace.BodyState(body));
+            _rejected[key] = sprites;
             ResetBodyToStock(body);
             return false;
         }
 
         BodySkinBinding binding = body.GetComponent<BodySkinBinding>();
+        if (binding != null && binding.Wearing(sprites)) {
+            int missing = binding.CountMissingRenderers();
+            if (missing <= 0) {
+                _rejected.Remove(key);
+                return true;
+            }
+
+            // new limb renderers. the head field is already the skin, the body clip is not.
+            SkinTrace.Event("rebind-new-renderers", SkinTrace.Ids(networkClientId, playerId)
+                + " missing=" + missing
+                + " " + SkinTrace.BodyState(body));
+        }
+
         if (binding == null) {
             binding = body.gameObject.AddComponent<BodySkinBinding>();
         }
 
         IReadOnlyDictionary<string, Sprite> mapped =
-            SpriteReplacerPlugin.WithSpeciesAliases(sprites, liveSpecies);
-        SkinTrace.Event("apply-remote", SkinTrace.Ids(networkClientId, playerId)
-            + " set=" + (setName ?? "-")
-            + " wireSpecies=" + species
-            + " liveSpecies=" + liveSpecies
-            + " " + SkinTrace.BodyState(body)
-            + " " + SkinTrace.SlotSummary(setName, mapped, liveSpecies));
-        binding.Bind(body, mapped, setName);
+            SpeciesAliases.WithAliases(sprites, liveSpecies);
+        _rejected.Remove(key);
+        binding.Bind(body, mapped, setName, sprites);
 
         // facialExpression caches stock head/eye sprites in fields; MP used to skip face
         // replacement and only hope SpriteRenderer hooks caught them after a full Bind.
         FacialExpression face = FindFace(body);
         if (face != null) {
-            SpriteReplacerPlugin.ApplyReplacementToFace(face, mapped);
+            SkinFace.ApplyReplacementToFace(face, mapped);
         } else {
             SkinTrace.Event("apply-remote-noface", SkinTrace.Ids(networkClientId, playerId)
                 + " set=" + (setName ?? "-"));
@@ -614,7 +659,7 @@ internal static class MpBody {
         return Resolve("NetPlayer") ?? Resolve("ScavPlayer");
     }
 
-    private static uint KnetToUInt(object value) {
+    internal static uint KnetToUInt(object value) {
         if (value == null) {
             return 0;
         }
@@ -660,6 +705,12 @@ internal static class MpBody {
             int afterChar = _localBody != null ? _localBody.charType : -1;
             if (_localBody != before || beforeChar != afterChar) {
                 _needsApply = true;
+                SkinTrace.Event("local-body",
+                    "from=" + (before != null ? before.GetInstanceID() : 0)
+                    + " to=" + (_localBody != null ? _localBody.GetInstanceID() : 0)
+                    + " fromChar=" + beforeChar
+                    + " toChar=" + afterChar
+                    + " " + SkinTrace.BodyState(_localBody));
             }
         } catch (Exception ex) {
             _localBody = null;

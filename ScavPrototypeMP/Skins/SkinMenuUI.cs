@@ -10,6 +10,9 @@ using UnityEngine.UI;
 internal static class SkinMenuUI {
     private const float WindowWidth = 780f;
     private const float WindowHeight = 636f;
+    private const string CommunityUrl = "https://casutogether.com/";
+    private const string SkinFileFilter =
+        "Skin files (*.json;*.zip;*.casutogether)\0*.json;*.zip;*.casutogether\0All files\0*.*\0";
 
     private static GameObject _canvas;
     private static GraphicRaycaster _canvasRaycaster;
@@ -36,6 +39,7 @@ internal static class SkinMenuUI {
     private static readonly Dictionary<string, Button> _cardSelectButtons = new Dictionary<string, Button>();
     private static readonly Dictionary<string, Button> _cardSwitchButtons = new Dictionary<string, Button>();
     private static readonly List<Texture2D> _previewTextures = new List<Texture2D>();
+    private static readonly List<Sprite> _previewSprites = new List<Sprite>();
     private static Button _lockButton;
     private static TextMeshProUGUI _lockStatus;
     private static TextMeshProUGUI _rateLimitLabel;
@@ -437,8 +441,11 @@ internal static class SkinMenuUI {
             new Vector2(24f, 2f), new Vector2(420f, 0f));
 
         TextMeshProUGUI community = CreateText(bar.transform, "Community",
-            "Visit https://casutogether.com/ to browse community made skins or make your own!",
+            "Visit <link=\"" + CommunityUrl + "\"><color=#" + ColorUtility.ToHtmlStringRGB(GameTheme.AccentColor)
+            + "><u>casutogether.com</u></color></link> to browse community made skins or make your own!",
             13, GameTheme.MutedColor, TextAlignmentOptions.MidlineLeft);
+        community.raycastTarget = true;
+        community.gameObject.AddComponent<LinkClickHandler>().Text = community;
         SetRect(community.rectTransform, new Vector2(0f, 0.32f), new Vector2(0f, 0.62f), new Vector2(0f, 0.5f),
             new Vector2(24f, 0f), new Vector2(520f, 0f));
 
@@ -510,7 +517,7 @@ internal static class SkinMenuUI {
             UnityEngine.Object.Destroy(_grid);
         }
 
-        ClearPreviewTextures();
+        ClearPreviewImages();
         _cardBackgrounds.Clear();
         _cardOutlines.Clear();
         _cardSelectButtons.Clear();
@@ -595,19 +602,26 @@ internal static class SkinMenuUI {
         SetRect(label.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
             new Vector2(0f, -50f), new Vector2(216f, 20f));
 
-        Button select = CreateButton(card.transform, "Select", "Select", GameTheme.TextColor, 14);
+        Button select = CreateButton(card.transform, "Select", "Select", GameTheme.TextColor, 13);
         SetRect(select.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-            new Vector2(-56f, 6f), new Vector2(104f, 26f));
+            new Vector2(-74f, 6f), new Vector2(68f, 26f));
         select.interactable = hasSkin && SkinLock.CanChangeLocal;
         select.onClick.AddListener(() => SelectBrowsedSlot(slot));
         _cardSelectButtons[slot] = select;
 
-        Button switchButton = CreateButton(card.transform, "Switch", "Switch", GameTheme.SuccessColor, 14);
-        SetRect(switchButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-            new Vector2(56f, 6f), new Vector2(104f, 26f));
-        switchButton.interactable = SkinLock.CanChangeLocal;
-        switchButton.onClick.AddListener(() => OpenFolderBrowser(slot));
-        _cardSwitchButtons[slot] = switchButton;
+        Button folderButton = CreateButton(card.transform, "ImportFolder", "Folder", GameTheme.SuccessColor, 13);
+        SetRect(folderButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+            new Vector2(0f, 6f), new Vector2(68f, 26f));
+        folderButton.interactable = SkinLock.CanChangeLocal;
+        folderButton.onClick.AddListener(() => ImportFromDialog(slot, false));
+        _cardSwitchButtons[slot] = folderButton;
+
+        Button fileButton = CreateButton(card.transform, "ImportFile", "File", GameTheme.SuccessColor, 13);
+        SetRect(fileButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+            new Vector2(74f, 6f), new Vector2(68f, 26f));
+        fileButton.interactable = SkinLock.CanChangeLocal;
+        fileButton.onClick.AddListener(() => ImportFromDialog(slot, true));
+        _cardSwitchButtons[slot + ":file"] = fileButton;
     }
 
     private static void ShowSpecies(int species) {
@@ -648,54 +662,73 @@ internal static class SkinMenuUI {
         RefreshSelection();
     }
 
-    private static Sprite LoadHeadPreview(string slot) {
-        string root = SpriteReplacerPlugin.SlotDirectory(slot, _browseSpecies);
-        string path = Path.Combine(root, "Head", "experimentHead.png");
-        if (!File.Exists(path)) {
-            path = Path.Combine(root, "Head", "experimentHeadBack.png");
-        }
+    // the head a card shows, by species. old slots keep the experiment names, so they are the later choices.
+    private static readonly string[][] PreviewNames = {
+        new[] { "experimentHeadBack", "experimentHead" },
+        new[] { "milkyheadback", "experimentHeadBack" },
+        new[] { "duneHeadBack", "experimentHeadBack" }
+    };
 
-        if (!File.Exists(path)) {
-            string headDir = Path.Combine(root, "Head");
-            if (Directory.Exists(headDir)) {
-                string[] pngs = Directory.GetFiles(headDir, "*.png");
-                if (pngs.Length > 0) {
-                    path = pngs[0];
+    // the open eyes drawn over that head, by species, with the experiment name as the second choice like the head.
+    private static readonly string[][] PreviewEyeNames = {
+        new[] { "experimentEyeOpen" },
+        new[] { "milkyeyeopen", "experimentEyeOpen" },
+        new[] { "duneEyes", "experimentEyeOpen" }
+    };
+
+    private static string FindHeadFile(string root, string[] names) {
+        foreach (string name in names) {
+            foreach (string folder in new[] { "Head", "Body" }) {
+                string path = Path.Combine(root, folder, name + ".png");
+                if (File.Exists(path)) {
+                    return path;
                 }
             }
         }
 
-        if (!File.Exists(path)) {
+        return null;
+    }
+
+    private static Sprite LoadHeadPreview(string slot) {
+        string root = SpriteReplacerPlugin.SlotDirectory(slot, _browseSpecies);
+        int species = Mathf.Clamp(_browseSpecies, 0, PreviewNames.Length - 1);
+        string[] names = PreviewNames[species];
+        string[] eyeNames = PreviewEyeNames[species];
+        if (SkinJsonFile.Exists(root)) {
+            return SkinJsonFile.PreviewSprite(root, _browseSpecies, names, eyeNames) ?? _placeholder;
+        }
+
+        string path = FindHeadFile(root, names);
+        if (path == null) {
             return _placeholder;
         }
 
-        Texture2D texture = null;
         try {
-            byte[] data = File.ReadAllBytes(path);
-            texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            texture.filterMode = FilterMode.Point;
-
-            if (ImageConversion.LoadImage(texture, data)) {
-                _previewTextures.Add(texture);
-                Sprite sprite = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height),
-                    new Vector2(0.5f, 0.5f), 8f);
-                sprite.name = slot + "_preview";
-                return sprite;
+            SkinGrid head = SkinJsonFile.GridFromPng(path);
+            if (head == null) {
+                return _placeholder;
             }
 
-            UnityEngine.Object.Destroy(texture);
+            string eyePath = FindHeadFile(root, eyeNames);
+            SkinGrid eyes = eyePath != null ? SkinJsonFile.GridFromPng(eyePath) : null;
+            Sprite sprite = SkinJsonFile.ToSprite(slot + "_preview", SkinJsonFile.ComposeHead(head, eyes), _previewTextures);
+            _previewSprites.Add(sprite);
+            return sprite;
         } catch (Exception ex) {
-            if (texture != null) {
-                UnityEngine.Object.Destroy(texture);
-            }
-
             SpriteReplacerPlugin.Log.LogWarning("Could not load preview for " + slot + ": " + ex.Message);
         }
 
         return _placeholder;
     }
 
-    private static void ClearPreviewTextures() {
+    private static void ClearPreviewImages() {
+        foreach (Sprite sprite in _previewSprites) {
+            if (sprite != null) {
+                UnityEngine.Object.Destroy(sprite);
+            }
+        }
+        _previewSprites.Clear();
+
         foreach (Texture2D texture in _previewTextures) {
             if (texture != null) {
                 UnityEngine.Object.Destroy(texture);
@@ -816,6 +849,28 @@ internal static class SkinMenuUI {
     private static void CloseFromBackdrop() {
         CloseFolderBrowser();
         SetPopupVisible(false);
+    }
+
+    // the operating system's dialog picks the folder or the skin file. without one the in-game browser is used.
+    private static void ImportFromDialog(string slot, bool pickFile) {
+        CloseFolderBrowser();
+        _pendingSlot = slot;
+        string start = GetStartDirectory();
+        string path;
+        bool shown = pickFile
+            ? NativeDialogs.TryPickFile("Choose a skin file", start, SkinFileFilter, out path)
+            : NativeDialogs.TryPickFolder("Choose a skin folder", start, out path);
+        if (!shown) {
+            OpenFolderBrowser(slot);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(path)) {
+            return;
+        }
+
+        _browserPath = path;
+        UseSelectedFolder();
     }
 
     private static void OpenFolderBrowser(string slot) {
@@ -1317,5 +1372,26 @@ internal static class SkinMenuUI {
         rect.pivot = pivot;
         rect.anchoredPosition = anchoredPosition;
         rect.sizeDelta = sizeDelta;
+    }
+}
+
+// opens the link under the pointer in a TextMeshPro text. only https links.
+internal sealed class LinkClickHandler : MonoBehaviour, UnityEngine.EventSystems.IPointerClickHandler {
+    internal TextMeshProUGUI Text;
+
+    public void OnPointerClick(UnityEngine.EventSystems.PointerEventData eventData) {
+        if (Text == null) {
+            return;
+        }
+
+        int index = TMP_TextUtilities.FindIntersectingLink(Text, eventData.position, eventData.pressEventCamera);
+        if (index < 0) {
+            return;
+        }
+
+        string url = Text.textInfo.linkInfo[index].GetLinkID();
+        if (url.StartsWith("https://", StringComparison.Ordinal)) {
+            Application.OpenURL(url);
+        }
     }
 }

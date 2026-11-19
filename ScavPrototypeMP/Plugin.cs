@@ -211,6 +211,7 @@ namespace Together {
 
             try {
                 Lang.InternalLoadLocale();
+                Lang.InitializeLanguageConfig(Config);
             } catch (Exception e) {
                 log.LogError("Lang.InternalLoadLocale FATAL: " + e.ToString());
             }
@@ -365,6 +366,12 @@ namespace Together {
                 FindTheBugInator.Install();
             } catch (Exception e) {
                 log.LogError("findthebuginator: " + e);
+            }
+
+            try {
+                CuCacheWarm.Install(this);
+            } catch (Exception e) {
+                log.LogError("ccl cache warm: " + e);
             }
 
             try {
@@ -1302,6 +1309,7 @@ namespace Together {
             using (FindTheBugInator.Time(FindTheBugInator.Chunks)) {
                 ChunkSleep.Tick();
                 BagSleep.Tick();
+                HeaterMultiplayerRewrite.Tick();
             }
             using (FindTheBugInator.Time(FindTheBugInator.Opt)) {
                 OptimizerMain.Tick();

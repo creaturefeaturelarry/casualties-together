@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -6,10 +7,39 @@ internal static class WoundViewIntegration {
     private static readonly Dictionary<int, Sprite> Originals = new Dictionary<int, Sprite>();
     // vanilla slot size, taken while the stock sprite is still on the image
     private static readonly Dictionary<int, Vector2> StockSizes = new Dictionary<int, Vector2>();
+    private static readonly List<WoundView> Live = new List<WoundView>(4);
+    private static int _prunePendingAt = StaleIds.FirstThreshold;
 
-    internal static void ApplyAll() {
-        foreach (WoundView view in Resources.FindObjectsOfTypeAll<WoundView>()) {
+    // wound views are rebuilt, and their images and renderers are keyed by instance id.
+    private static void PruneDestroyed() {
+        if (Originals.Count < _prunePendingAt && StockSizes.Count < _prunePendingAt) {
+            return;
+        }
+
+        HashSet<int> live = StaleIds.LiveIds<Image>();
+        live.UnionWith(StaleIds.LiveIds<SpriteRenderer>());
+        StaleIds.RemoveMissing(Originals, live);
+        StaleIds.RemoveMissing(StockSizes, live);
+        _prunePendingAt = Math.Max(StaleIds.FirstThreshold, Originals.Count * 2);
+    }
+
+    internal static void Note(WoundView view) {
+        if (view == null || Live.Contains(view)) {
+            return;
+        }
+
+        Live.Add(view);
+    }
+
+    internal static void Visit(Action<WoundView> visit) {
+        if (visit == null) {
+            return;
+        }
+
+        for (int i = Live.Count - 1; i >= 0; i--) {
+            WoundView view = Live[i];
             if (view == null) {
+                Live.RemoveAt(i);
                 continue;
             }
 
@@ -17,8 +47,12 @@ internal static class WoundViewIntegration {
                 continue;
             }
 
-            Apply(view);
+            visit(view);
         }
+    }
+
+    internal static void ApplyAll() {
+        Visit(Apply);
     }
 
     // species retarget swaps stock head sprites; keep the lookup key on the live stock art.
@@ -45,6 +79,7 @@ internal static class WoundViewIntegration {
             return;
         }
 
+        PruneDestroyed();
         IReadOnlyDictionary<string, Sprite> sprites = SpritesForView(view);
         HashSet<string> colored = ColoredForView(view);
         HashSet<string> replaced = new HashSet<string>();
@@ -158,13 +193,11 @@ internal static class WoundViewIntegration {
             return;
         }
 
-        foreach (WoundView view in Resources.FindObjectsOfTypeAll<WoundView>()) {
-            if (view == null || view.body != body || !view.gameObject.scene.IsValid()) {
-                continue;
+        Visit(view => {
+            if (view.body == body) {
+                Apply(view);
             }
-
-            Apply(view);
-        }
+        });
     }
 
     private static IReadOnlyDictionary<string, Sprite> SpritesForView(WoundView view) {

@@ -122,13 +122,13 @@ internal static class MpSkinSync {
         if (Skins.TryGetValue(network, out MpSkinPackage package) &&
             package != null && package.Sprites != null && package.Sprites.Count > 0
             && PackageMatchesBody(package, body)) {
-            return SpriteReplacerPlugin.WithSpeciesAliases(package.Sprites, package.Species);
+            return SpeciesAliases.WithAliases(package.Sprites, package.Species);
         }
 
         if (Pending.TryGetValue(network, out MpSkinPackage pending) &&
             pending != null && pending.Sprites != null && pending.Sprites.Count > 0
             && PackageMatchesBody(pending, body)) {
-            return SpriteReplacerPlugin.WithSpeciesAliases(pending.Sprites, pending.Species);
+            return SpeciesAliases.WithAliases(pending.Sprites, pending.Species);
         }
 
         return null;
@@ -311,6 +311,7 @@ internal static class MpSkinSync {
             ApplyPending();
         }
 
+        // failsafe for a skin that never landed. already-worn packages return immediately.
         if (joinReady && Time.unscaledTime >= _nextReapply) {
             _nextReapply = Time.unscaledTime + 3f;
             if (SpriteReplacerPlugin.DownloadSkins) {
@@ -364,8 +365,15 @@ internal static class MpSkinSync {
             return;
         }
 
-        if (network == 0 || !Skins.TryGetValue(network, out MpSkinPackage package) || package == null) {
-            // no package for this remote - keep stock. do not leave a prior mistaken bind.
+        if (network == 0) {
+            // id is not on the body yet. resetting here puts the limbs back on the
+            // clip and can write a cloned custom head back over them.
+            SkinTrace.Event("body-part-ready-noid", SkinTrace.BodyState(body));
+            return;
+        }
+
+        if (!Skins.TryGetValue(network, out MpSkinPackage package) || package == null) {
+            // known id, no package. drop a bind that does not belong to this body.
             MpBody.ResetBodyToStock(body);
             SkinTrace.Event("body-part-ready-stock",
                 "net=" + network + " " + SkinTrace.BodyState(body));
@@ -374,6 +382,45 @@ internal static class MpSkinSync {
 
         Pending[network] = package;
         uint player = PlayerIds.TryGetValue(network, out uint id) ? id : 0;
+        if (MpBody.ApplyRemoteSkin(network, player, package.Sprites, package.SetName, package.Species)) {
+            Pending.Remove(network);
+            Waiting.Remove(network);
+        }
+        SkinTrace.NoteDefaultLeak("body-part-ready", body);
+    }
+
+    // a limb spawned after the bind. reattach the package to the new renderer.
+    internal static void OnLimbRebuilt(Body body) {
+        if (body == null || !MpBody.IsActive || !SpriteReplacerPlugin.DownloadSkins) {
+            return;
+        }
+
+        if (MpBody.CanApply(body)) {
+            BodySkinBinding binding = body.GetComponent<BodySkinBinding>();
+            int missing = binding != null ? binding.CountMissingRenderers() : 0;
+            if (missing <= 0) {
+                return;
+            }
+
+            SkinTrace.Event("rebind-local-limb", "missing=" + missing + " " + SkinTrace.BodyState(body));
+            MpBody.ApplyLocalSkin(SpriteReplacerPlugin.LoadedSprites);
+            return;
+        }
+
+        uint network = MpBody.GetNetworkIdForBody(body);
+        if (network == 0) {
+            SkinTrace.Problem("limb-rebuilt-noid " + body.GetInstanceID(), SkinTrace.BodyState(body));
+            return;
+        }
+
+        if (!Skins.TryGetValue(network, out MpSkinPackage package) || package == null) {
+            SkinTrace.Problem("limb-rebuilt-nopackage " + body.GetInstanceID(),
+                "net=" + network + " " + SkinTrace.BodyState(body));
+            return;
+        }
+
+        uint player = PlayerIds.TryGetValue(network, out uint id) ? id : 0;
+        SkinTrace.Event("limb-rebuilt", SkinTrace.Ids(network, player) + " " + SkinTrace.BodyState(body));
         if (MpBody.ApplyRemoteSkin(network, player, package.Sprites, package.SetName, package.Species)) {
             Pending.Remove(network);
             Waiting.Remove(network);
@@ -402,6 +449,7 @@ internal static class MpSkinSync {
             MultiplayerApi.RegisterClientHandler(ApplyChannel, OnClientApply);
             MultiplayerApi.RegisterClientHandler(ManifestChannel, OnClientManifest);
             MultiplayerApi.RegisterClientHandler(SkinLock.LockChannel, SkinLock.ApplyRemote);
+            ScavPlayer.OnPlayerLeft += OnPlayerLeft;
             Log("handlers registered.");
         } catch (Exception ex) {
             Log("handler registration failed: " + ex);
@@ -542,7 +590,9 @@ internal static class MpSkinSync {
                     ["clientId"] = pair.Key,
                     ["playerId"] = player,
                     ["hash"] = pair.Value.Hash,
-                    ["setName"] = pair.Value.SetName
+                    ["setName"] = pair.Value.SetName,
+                    // a client that already has the zip cached builds the package from it and needs the species from here
+                    ["species"] = pair.Value.Species
                 });
             }
 
@@ -751,6 +801,7 @@ internal static class MpSkinSync {
                 if (Cache.TryRead(hash, out byte[] zip)) {
                     MpSkinPackage package = MpSkinPackage.FromZip(zip, hash, setName);
                     if (package != null) {
+                        package.Species = ClampSpecies(item.Value<int?>("species") ?? 0);
                         Store(owner, player, package);
                         cached++;
                         continue;
@@ -874,9 +925,12 @@ internal static class MpSkinSync {
             return null;
         }
 
-        int species = payload.Value<int?>("species") ?? 0;
-        package.Species = species >= 0 && species <= 2 ? species : 0;
+        package.Species = ClampSpecies(payload.Value<int?>("species") ?? 0);
         return package;
+    }
+
+    private static int ClampSpecies(int species) {
+        return species >= 0 && species <= 2 ? species : 0;
     }
 
     private static bool SendToServer(MpSkinPackage package, uint localNetwork, uint localPlayer) {
@@ -921,6 +975,25 @@ internal static class MpSkinSync {
         Pending.Clear();
         PlayerIds.Clear();
         Waiting.Clear();
+    }
+
+    // a player who leaves sends no clear, and a rejoin gets a new network id, so the old package would stay.
+    private static void OnPlayerLeft(ScavPlayer leaving) {
+        uint player = MpBody.KnetToUInt(leaving.playerId);
+        if (player == 0 || player == MpBody.LocalPlayerId) {
+            return;
+        }
+
+        List<uint> networks = new List<uint>();
+        foreach (KeyValuePair<uint, uint> owner in PlayerIds) {
+            if (owner.Value == player) {
+                networks.Add(owner.Key);
+            }
+        }
+
+        foreach (uint network in networks) {
+            Remove(network, player);
+        }
     }
 
     private static void Remove(uint ownerNetwork, uint ownerPlayer) {
@@ -1018,6 +1091,8 @@ internal static class MpSkinSync {
             ["setName"] = package.SetName,
             ["species"] = package.Species,
             ["hash"] = package.Hash,
+            // informational, the zip's marker entry decides.
+            ["skinProtocol"] = package.Protocol,
             ["zip"] = Convert.ToBase64String(package.Zip)
         };
     }
@@ -1062,6 +1137,7 @@ internal static class MpSkinSync {
         FetchLimiter.Clear();
         Cooldown.Clear();
         SkinLock.Reset();
+        MpBody.ClearRejected();
     }
 
     private static string CurrentSignature() {

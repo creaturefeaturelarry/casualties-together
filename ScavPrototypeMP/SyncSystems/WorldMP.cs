@@ -7,7 +7,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -163,28 +162,6 @@ public class WorldMP : CasualtiesTogetherSingleton {
         }
     }
 
-    // SaveSystem.TupleListToDic throws when even a single setting is missing. This one just skips them
-    static Dictionary<string, object> SettingTupleListToDict(List<(string, string)> tupleList) {
-        if (tupleList == null)
-            throw new ArgumentNullException(nameof(tupleList));
-
-        Dictionary<string, object> dict = new();
-        foreach ((string settingKey, string valueStr) in tupleList) {
-            List<RunSetting> matches = RunSettings.settingTypes.Where(x => x.name == settingKey).ToList();
-            if (matches.Count == 0)
-                continue;
-
-            RunSetting first = matches[0];
-            if (first is RunSettingFloat)
-                dict.Add(settingKey, float.Parse(valueStr, CultureInfo.InvariantCulture));
-            else if (first is RunSettingBool)
-                dict.Add(settingKey, bool.Parse(valueStr));
-            else if (first is RunSettingDropdown)
-                dict.Add(settingKey, int.Parse(valueStr));
-        }
-        return dict;
-    }
-
     public static string CompileRunSettings() {
         string input = JsonConvert.SerializeObject(SaveSystem.DicToTupleList(runSettings), Formatting.None, new JsonSerializerSettings {
             ReferenceLoopHandling = ReferenceLoopHandling.Ignore,
@@ -198,9 +175,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
             base64 = Encoding.UTF8.GetString(Util.Decompress(Convert.FromBase64String(base64)));
             JArray jArray = JArray.Parse(base64);
 
-            foreach (KeyValuePair<string, object> item2 in SettingTupleListToDict(jArray.ToObject<List<(string, string)>>())) {
-                dict[item2.Key] = item2.Value;
-            }
+            dict = RunSettingsCodec.Decode(jArray, dict, key => log.warn("ReadRunSettings: ignored unsupported value for " + key));
         } catch (Exception e) {
             log.error($"ReadRunSettings: {e.Message}\n{new StackTrace()}");
         }
@@ -359,11 +334,19 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
 
     public static void LoadDebugWorld() {
+#if FULLGAME
+        // a leftover tutorial/new-run gate skips CreateCharacter for the whole lobby.
+        CharacterSelectWait.AbortLobbyGate();
+#endif
         _CheckIfCanLoadAWorld();
         SetTutorialPlayerPrefs(false);
-        // the scene starts with whatever loadedRun the menu left behind. leave the save file where it is.
-        SavesystemPatch.PreserveSave = true;
-        SaveSystem.loadedRun = false;
+        // off leaves the file alone and starts empty. on is the same load and write path as a normal run.
+        bool useSaves = Multiplayer.rules.DebugWorldSaveSystem;
+        SavesystemPatch.PreserveSave = !useSaves;
+        SavesystemPatch.DebugWorldUsesSave = useSaves;
+        SavesystemPatch.PendingLoadMpSave = useSaves;
+        SaveSystem.loadedRun = useSaves;
+        log.l(useSaves ? "Debug world: mp_save on" : "Debug world: mp_save skipped");
 
         if (Multiplayer.IsNetworkActiveAndIsServer()) {
             ServerMain.Server_Announce_GAME_START();
@@ -461,6 +444,10 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
 
     public static void LoadWorldScene(bool loadsave = false, bool fadeout = true) {
+#if FULLGAME
+        // HostProceed already cleared the gate. this only catches a start that skipped it.
+        CharacterSelectWait.AbortLobbyGate();
+#endif
         if (world != null) {
             throw new Exception("Ur aready in the world cuh");
         }
@@ -519,6 +506,7 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
             Body_PlaceBody_MultiplayerPatch.has_spawn_location = false;
 
+            log.l("[prefab] worldgen pass");
             try {
                 WorldGeneration_GenerateWorld_MultiplayerPatch.InitializeSpecialResourcePrefabs();
             } catch (Exception ex) { log.error("InitializeSpecialResourcePrefabs\n" + ex.ToString()); }
@@ -619,6 +607,9 @@ public class WorldMP : CasualtiesTogetherSingleton {
         //if (log.verbose)
         log.l("WorldGeneration.GenerateWorld");
         yield return WorldGeneration_GenerateWorld_MultiplayerPatch.GenerateWorld(world);
+#if FULLGAME
+        LayerBuildingStream.HostRegister();
+#endif
 
 
 
@@ -675,7 +666,12 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
     static float WORLDCLEAR_MAX_HALT_TIME = 0.04f;
 
+    // set when a client session ends. the next world clear drops the previous world's registered clutter.
+    internal static bool ClientReturned;
+
     static IEnumerator FinishWorldGen_ClientClearWorldObjects() {
+        bool rejoin = ClientReturned;
+        ClientReturned = false;
         var items = FindObjectsOfType<Item>(true).Select(x => x.gameObject);
         var builds = FindObjectsOfType<BuildingEntity>(true).Select(x => x.gameObject);
 
@@ -683,22 +679,67 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
         world.loadingText.text = Lang.Get("worldgen_waitforserver_delete");
         var time = Time.realtimeSinceStartupAsDouble;
+        int kept = 0;
+        int destroyed = 0;
+        int failed = 0;
         for (int i = 0; i < aa.Count; i++) {
             var x = aa[i];
-            if (x == null || NetObjectRegistry.ObjectShouldNotBeSynced(x) || NetObjectRegistry.IsRegistered(x)) {
-                // dont destroy it
-            } else {
-                GameObject.Destroy(x);
-
-                if (Time.realtimeSinceStartupAsDouble - time > WORLDCLEAR_MAX_HALT_TIME) {
-                    yield return null;
-                    time = Time.realtimeSinceStartupAsDouble;
+            if (x == null) {
+                continue;
+            }
+            bool onBody = false;
+            try {
+                onBody = x.GetComponentInParent<Body>() != null;
+            } catch (Exception) {
+            }
+            bool registered = false;
+            try {
+                registered = NetObjectRegistry.IsRegistered(x);
+            } catch (Exception) {
+            }
+            // first visit keeps synced objects. a rejoin has to drop the previous world's copies or the new generate stacks onto them.
+            if (NetObjectRegistry.ObjectShouldNotBeSynced(x) || onBody || (registered && !rejoin)) {
+                kept++;
+                continue;
+            }
+            try {
+                if (registered) {
+                    DropStaleRegistration(x);
                 }
+                GameObject.Destroy(x);
+                destroyed++;
+            } catch (Exception ex) {
+                failed++;
+                log.error("[join] world clear " + ex.Message);
             }
 
+            if (Time.realtimeSinceStartupAsDouble - time > WORLDCLEAR_MAX_HALT_TIME) {
+                yield return null;
+                time = Time.realtimeSinceStartupAsDouble;
+            }
         }
+        log.l("[join] world clear rejoin=" + rejoin + " kept=" + kept + " destroyed=" + destroyed + " failed=" + failed);
 
         yield break;
+    }
+
+    static void DropStaleRegistration(GameObject go) {
+        if (go == null || NetObjectRegistry.SyncRegistry == null) {
+            return;
+        }
+        if (!NetObjectRegistry.SyncRegistry.TryGetValue(go, out SyncInfo si) || si == null) {
+            return;
+        }
+        NetObjectRegistry.SyncRegistry.Remove(go);
+        if (NetObjectRegistry.NetIdToSyncInfoDict != null) {
+            try {
+                NetObjectRegistry.NetIdToSyncInfoDict.Remove(si.syncId);
+            } catch (Exception) {
+            }
+        }
+        if (go.TryGetComponent(out SyncInfoGameObjectTracker tracker)) {
+            tracker.syncInfo = null;
+        }
     }
 
     public static bool client_technically_finished_worldgen_now_just_waiting_for_server = false;
@@ -839,8 +880,13 @@ public class WorldMP : CasualtiesTogetherSingleton {
         if (Multiplayer.IsNetworkActiveAndIsClient()) {
             if (ClientMain._last_reminderpack_while_generating_received) {
                 if (ScavPlayer.TryGetLocalNetBody(out var lpb)) {
-                    log.l($"CLIENT: Received starter char state packet, that im applying just now. POS: {ClientMain._last_reminderpack_while_generating.Position}");
-                    lpb.OnReceiveSyncPacket(ClientMain._last_reminderpack_while_generating, true);
+                    log.l($"[join] starter apply begin pos={ClientMain._last_reminderpack_while_generating.Position}");
+                    try {
+                        lpb.OnReceiveSyncPacket(ClientMain._last_reminderpack_while_generating, true);
+                        log.l("[join] starter apply end");
+                    } catch (Exception ex) {
+                        log.error("[join] starter apply " + ex);
+                    }
                 } else {
                     log.error($"CLIENT: Received starter char state packet, BUT I HAVE NO BODY !!!! POS: {ClientMain._last_reminderpack_while_generating.Position}");
                 }
@@ -1048,6 +1094,9 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 BlueHeartMp.Server_EnsureCargoOnAscentLoad(plr);
 #endif
 
+#if FULLGAME
+                LayerBuildingStream.HostRegister();
+#endif
                 // and sync nearest items right now
                 foreach (var item in NetObjectRegistry.GatherClosestObjectsToSync(plr.pos, plr.body, 64)) {
                     NetObjectRegistry.SafeNewGO(item);
@@ -1056,8 +1105,10 @@ public class WorldMP : CasualtiesTogetherSingleton {
                     PlayerCheckpoint.SendCrafted(crafted);
                 // the client builds each trader with a fresh roll. this is the host list, reputation, and allotment.
                 TraderSync.SendTraderState(clientId);
+                ServerMain.SendRulesTo(new System.Collections.Generic.List<knetid> { clientId });
             } else if (ScavPlayer.TryGetPlayerFromClientId(clientId, out plr)) {
                 TraderSync.SendTraderState(clientId);
+                ServerMain.SendRulesTo(new System.Collections.Generic.List<knetid> { clientId });
             }
         } finally {
             KrokV5Optimization.FixRejoinBaseline.After(clientId, queueBaseline);

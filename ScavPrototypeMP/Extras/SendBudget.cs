@@ -21,7 +21,7 @@ internal static class SendBudget
 	{
 		if (entity is not SyncInfo info)
 			return true;
-		if (info.tracker != null && info.tracker.isNearby)
+		if (info.tracker != null && (info.tracker.isNearby || info.tracker.IsCrystal()))
 			return true;
 		if (info.go != null && info.go.transform.parent != null && info.go.transform.parent.GetComponentInParent<Body>() != null)
 			return true;

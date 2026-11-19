@@ -175,8 +175,8 @@ public class SpriteReplacerPlugin : MonoBehaviour {
                 new AcceptableValueRange<int>(4, 512)));
 
         Directory.CreateDirectory(SpritesPath);
-        MigrateLegacyIntoExp();
-        EnsureCustomSpritesStructure();
+        SlotFolders.MigrateLegacyIntoExp();
+        SlotFolders.EnsureCustomSpritesStructure();
 
         Harmony harmony = new Harmony("com.yourname.spritereplacer");
         PatchLoader.Apply(harmony);
@@ -252,7 +252,6 @@ public class SpriteReplacerPlugin : MonoBehaviour {
                 return;
             }
 
-            // species decides which CustomSprites/<Exp|Milky|Dune> tree the numpad hits.
             // species decides which CustomSprites/<Exp|Milky|Dune> tree the numpad hits.
             foreach (KeyValuePair<KeyCode, string> kvp in KeyMapping) {
                 if (UnityEngine.Input.GetKeyDown(kvp.Key)) {
@@ -520,6 +519,10 @@ public class SpriteReplacerPlugin : MonoBehaviour {
         }
 
         string basePath = SlotDirectory(normalized, species);
+        if (SkinJsonFile.Exists(basePath)) {
+            return true;
+        }
+
         string bodyPath = Path.Combine(basePath, "Body");
         string headPath = Path.Combine(basePath, "Head");
         // empty prepared dirs are not a character. need pngs.
@@ -527,251 +530,51 @@ public class SpriteReplacerPlugin : MonoBehaviour {
                (Directory.Exists(headPath) && Directory.GetFiles(headPath, "*.png").Length > 0);
     }
 
-    // old installs kept slot1..slot9 and default next to CustomSprites itself.
-    private static void MigrateLegacyIntoExp() {
-        string exp = Path.Combine(SpritesPath, SpeciesNames[0]);
-        Directory.CreateDirectory(exp);
-
-        List<string> names = new List<string> { SkinSettings.DefaultFolder, "st0", "slot0" };
-        for (int i = 1; i <= SlotCount; i++) {
-            names.Add(SlotFolders.SlotId(i));
-            names.Add(SlotFolders.LegacySlotId(i));
-        }
-
-        foreach (string name in names) {
-            string src = Path.Combine(SpritesPath, name);
-            string dst = Path.Combine(exp, name);
-            if (!Directory.Exists(src)) {
-                continue;
-            }
-
-            if (Directory.Exists(dst)) {
-                continue;
-            }
-
-            try {
-                Directory.Move(src, dst);
-            } catch (Exception ex) {
-                Log.LogWarning("Could not move " + src + " to Exp: " + ex.Message);
-            }
-        }
-    }
-
-    private static void EnsureCustomSpritesStructure() {
-        for (int species = 0; species < SpeciesNames.Length; species++) {
-            string root = SpeciesRoot(species);
-            Directory.CreateDirectory(root);
-            SlotFolders.Migrate(root, SlotCount);
-
-            string fallback = Path.Combine(root, SkinSettings.DefaultFolder);
-            Directory.CreateDirectory(Path.Combine(fallback, "Body"));
-            Directory.CreateDirectory(Path.Combine(fallback, "Head"));
-            MergeLegacySlotZeroIntoDefault(root, fallback);
-
-            for (int i = 1; i <= SlotCount; i++) {
-                string slot = Path.Combine(root, SlotFolders.SlotId(i));
-                Directory.CreateDirectory(Path.Combine(slot, "Body"));
-                Directory.CreateDirectory(Path.Combine(slot, "Head"));
-            }
-        }
-    }
-
-    // slot0 / st0 were never real custom slots. fold leftover art into default, then remove the dirs.
-    private static void MergeLegacySlotZeroIntoDefault(string speciesRoot, string defaultRoot) {
-        foreach (string legacyName in new[] { "slot0", "st0" }) {
-            string legacy = Path.Combine(speciesRoot, legacyName);
-            if (!Directory.Exists(legacy)) {
-                continue;
-            }
-
-            try {
-                foreach (string sub in new[] { "Body", "Head", "WoundView" }) {
-                    string src = Path.Combine(legacy, sub);
-                    if (!Directory.Exists(src)) {
-                        continue;
-                    }
-
-                    string dst = Path.Combine(defaultRoot, sub);
-                    Directory.CreateDirectory(dst);
-                    foreach (string file in Directory.GetFiles(src)) {
-                        string target = Path.Combine(dst, Path.GetFileName(file));
-                        if (!File.Exists(target)) {
-                            File.Copy(file, target, false);
-                        }
-                    }
-                }
-
-                Directory.Delete(legacy, true);
-            } catch (Exception ex) {
-                Log.LogWarning("Could not merge " + legacy + " into default: " + ex.Message);
-            }
-        }
-    }
 
     private static void LoadCharacterSprites(string character) {
+        LocalSkinLeft.Reset();
         LoadedSprites.Clear();
         ColoredWoundSprites.Clear();
-        LoadSpritesFromFolder(character, "Body");
-        LoadSpritesFromFolder(character, "Head");
-        LoadSpritesFromFolder(character, "WoundView");
+
+        // skin.json is the whole skin, PNG folders are not read.
+        if (SkinJsonFile.Exists(SlotDirectory(character))) {
+            LoadSpritesFromJson(character);
+        } else {
+            LoadSpritesFromFolder(character, "Body");
+            LoadSpritesFromFolder(character, "Head");
+            LoadSpritesFromFolder(character, "WoundView");
+        }
+
+        LocalSkinLeft.Link(LoadedSprites);
         // milky/dune slots often keep experiment* filenames. map them onto the live sprite names.
-        AddSpeciesAliases(LoadedSprites, ActiveSpecies);
+        SpeciesAliases.Add(LoadedSprites, ActiveSpecies);
         SkinTrace.Event("load-slot", SkinTrace.SlotSummary(character, LoadedSprites, ActiveSpecies));
     }
 
-    // remote packages carry experiment filenames. the species on the wire picks the live names.
-    internal static IReadOnlyDictionary<string, Sprite> WithSpeciesAliases(
-        IReadOnlyDictionary<string, Sprite> sprites, int species) {
-        if (sprites == null || species < 1 || species > 2) {
-            return sprites;
-        }
-
-        Dictionary<string, Sprite> copy = new Dictionary<string, Sprite>(sprites.Count + 32);
-        foreach (KeyValuePair<string, Sprite> pair in sprites) {
-            copy[pair.Key] = pair.Value;
-        }
-
-        AddSpeciesAliases(copy, species);
-        return copy;
-    }
-
-    // game limbs look up by their stock sprite name. fill missing milky/dune keys from experiment art.
-    internal static void AddSpeciesAliases(IDictionary<string, Sprite> sprites, int species) {
-        if (sprites == null) {
-            return;
-        }
-
-        if (species == 1) {
-            Alias(sprites, "milkycrus", "experimentCrus");
-            Alias(sprites, "mildownarm", "experimentDownArm");
-            Alias(sprites, "milkydowntorso", "experimentDownTorso");
-            Alias(sprites, "milkyfoot", "experimentFoot");
-            Alias(sprites, "milkyhandb", "experimentHandB");
-            Alias(sprites, "milkyhandf", "experimentHandF");
-            Alias(sprites, "milkytail", "experimentTail");
-            Alias(sprites, "milkythigh", "experimentThigh");
-            Alias(sprites, "milkyuparm", "experimentUpArm");
-            Alias(sprites, "milkytorso", "experimentUpTorso");
-            Alias(sprites, "milkyeyeclosed", "experimentEyeClosed");
-            Alias(sprites, "milkyeyegone", "experimentEyeGone");
-            Alias(sprites, "milkyeyegonehealed", "experimentEyeGoneHealed");
-            Alias(sprites, "milkyeyehalfclosed", "experimentEyeHalfClosed");
-            Alias(sprites, "milkyeyehalfclosedback", "experimentEyeHalfClosedBack");
-            Alias(sprites, "milkyeyehappy", "experimentEyeHappy");
-            Alias(sprites, "milkyeyehappyback", "experimentEyeLookBack");
-            Alias(sprites, "milkyeyelockedin", "experimentEyeLockedIn");
-            Alias(sprites, "milkyeyelockedinback", "experimentEyeLockedInBack");
-            Alias(sprites, "milkyeyeopen", "experimentEyeOpen");
-            Alias(sprites, "milkyeyeopenback", "experimentEyeLookBack");
-            Alias(sprites, "milkyeyepanic", "experimentEyePanic");
-            Alias(sprites, "milkyeyesad", "experimentEyeSad");
-            Alias(sprites, "milkyeyesadback", "experimentEyeSadBack");
-            Alias(sprites, "milkyeyescared", "experimentEyeScared");
-            Alias(sprites, "milkyeyescaredback", "experimentEyeScaredBack");
-            Alias(sprites, "milkyheadback", "experimentHeadBack");
-            Alias(sprites, "milkyheadbackmouthopen", "experimentHeadBackMouth");
-            Alias(sprites, "milkyheadbackmouthhalfopen", "experimentHeadBackMouthMini");
-            Alias(sprites, "milkydisfigure1", "experimentHeadDisfigured1");
-            Alias(sprites, "milkydisfigure1healed", "experimentHeadDisfigured1Healed");
-            Alias(sprites, "milkydisfigure2", "experimentHeadDisfigured2");
-            Alias(sprites, "milkydisfigure2healed", "experimentHeadDisfigured2Healed");
-            Alias(sprites, "milkheadmiddle", "headMiddle");
-            Alias(sprites, "milkheadouter", "headoutline");
-            return;
-        }
-
-        if (species != 2) {
-            return;
-        }
-
-        Alias(sprites, "duneCrus", "experimentCrus");
-        Alias(sprites, "duneDownArm", "experimentDownArm");
-        Alias(sprites, "duneDownArmAlt", "experimentDownArm");
-        Alias(sprites, "duneDownTorso", "experimentDownTorso");
-        Alias(sprites, "duneFoot", "experimentFoot");
-        Alias(sprites, "duneHand", "experimentHandF");
-        Alias(sprites, "duneHandAlt", "experimentHandB");
-        Alias(sprites, "duneTail", "experimentTail");
-        Alias(sprites, "duneThigh", "experimentThigh");
-        Alias(sprites, "duneThighAlt", "experimentThigh");
-        Alias(sprites, "duneUpArm", "experimentUpArm");
-        Alias(sprites, "duneUpArmAlt", "experimentUpArm");
-        Alias(sprites, "duneUpTorso", "experimentUpTorso");
-        Alias(sprites, "duneEyesClosed", "experimentEyeClosed");
-        Alias(sprites, "duneEyeGone", "experimentEyeGone");
-        Alias(sprites, "duneEyeGoneHealed", "experimentEyeGoneHealed");
-        Alias(sprites, "duneEyesHalfClosed", "experimentEyeHalfClosed");
-        Alias(sprites, "duneEyeHappy", "experimentEyeHappy");
-        Alias(sprites, "duneeyelockedin", "experimentEyeLockedIn");
-        Alias(sprites, "duneEyes", "experimentEyeOpen");
-        Alias(sprites, "duneEyePanic", "experimentEyePanic");
-        Alias(sprites, "duneEyeSad", "experimentEyeSad");
-        Alias(sprites, "duneEyeScared", "experimentEyeScared");
-        Alias(sprites, "duneHeadBack", "experimentHeadBack");
-        Alias(sprites, "duneHeadMouth", "experimentHeadBackMouth");
-        Alias(sprites, "duneHeadMouthHalf", "experimentHeadBackMouthMini");
-        Alias(sprites, "duneDisfigured", "experimentHeadDisfigured1");
-        Alias(sprites, "duneDisfiguredHealed", "experimentHeadDisfigured1Healed");
-        Alias(sprites, "headMiddleDune", "headMiddle");
-        Alias(sprites, "headOuterDune", "headoutline");
-    }
-
-    private static void Alias(IDictionary<string, Sprite> sprites, string liveName, string sourceName) {
-        if (sprites == null || string.IsNullOrEmpty(liveName) || string.IsNullOrEmpty(sourceName)) {
-            return;
-        }
-
-        if (sprites.ContainsKey(liveName)) {
-            return;
-        }
-
-        if (!sprites.TryGetValue(sourceName, out Sprite sprite) || sprite == null) {
-            return;
-        }
-
-        sprites[liveName] = sprite;
-    }
-
     private static void LoadSpritesFromFolder(string character, string subfolder) {
-        string path = Path.Combine(SlotDirectory(character), subfolder);
-        if (!Directory.Exists(path)) {
+        LegacySkinFolder.Load(Path.Combine(SlotDirectory(character), subfolder), subfolder == "WoundView",
+            LoadedSprites, ColoredWoundSprites, LocalSkinLeft.LoadFile);
+    }
+
+    private static void LoadSpritesFromJson(string character) {
+        string slotRoot = SlotDirectory(character);
+        if (!SkinJsonFile.TryLoad(slotRoot, ActiveSpecies, out Dictionary<string, Sprite> rights,
+                out Dictionary<string, Sprite> lefts, out HashSet<string> coloredWound, out string error)) {
+            Log.LogWarning("Could not load " + SkinJsonFile.SlotPath(slotRoot) + ": " + error);
             return;
         }
 
-        foreach (string file in Directory.GetFiles(path, "*.png")) {
-            string spriteName = Path.GetFileNameWithoutExtension(file);
-            byte[] data = File.ReadAllBytes(file);
-            Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            tex.filterMode = FilterMode.Point;
-            if (!ImageConversion.LoadImage(tex, data)) {
-                UnityEngine.Object.Destroy(tex);
-                Log.LogWarning("Could not decode sprite: " + file);
-                continue;
-            }
-
-            Sprite sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 8f);
-            sprite.name = spriteName;
-            LoadedSprites[spriteName] = sprite;
-
-            if (subfolder == "WoundView" && HasColorPixels(tex)) {
-                ColoredWoundSprites.Add(spriteName);
-            }
+        foreach (KeyValuePair<string, Sprite> pair in rights) {
+            LoadedSprites[pair.Key] = pair.Value;
         }
-    }
 
-    private static bool HasColorPixels(Texture2D tex) {
-        Color32[] pixels = tex.GetPixels32();
-        for (int i = 0; i < pixels.Length; i++) {
-            Color32 p = pixels[i];
-            if (p.a < 128) {
-                continue;
-            }
-
-            if (p.r != p.g || p.g != p.b) {
-                return true;
-            }
+        foreach (string name in coloredWound) {
+            ColoredWoundSprites.Add(name);
         }
-        return false;
+
+        foreach (KeyValuePair<string, Sprite> pair in lefts) {
+            LocalSkinLeft.Add(pair.Key, pair.Value);
+        }
     }
 
     internal static Sprite LoadEmbeddedSprite(string resourceName) {
@@ -807,7 +610,7 @@ public class SpriteReplacerPlugin : MonoBehaviour {
                 ApplyReplacementToTail(tail);
             }
             foreach (FacialExpression face in UnityEngine.Object.FindObjectsOfType<FacialExpression>()) {
-                ApplyReplacementToFace(face);
+                SkinFace.ApplyReplacementToFace(face);
             }
         }
 
@@ -845,124 +648,6 @@ public class SpriteReplacerPlugin : MonoBehaviour {
         }
     }
 
-    public static void ApplyReplacementToFace(FacialExpression face) {
-        if (face == null || !MpBody.CanApply(face.body)) {
-            return;
-        }
-
-        ApplyReplacementToFace(face, LoadedSprites);
-    }
-
-    static readonly IReadOnlyDictionary<string, Sprite> EmptySpriteMap =
-        new Dictionary<string, Sprite>();
-
-    // slot apply renames dune/milky face fields to experiment* via aliases. empty-map
-    // replaceSprite can only recover stock by the *current* name, so default never
-    // returns duneHeadBack. keep the pre-skin field sprites and write them back.
-    sealed class FaceStock {
-        internal Sprite DefaultHead;
-        internal Sprite DefaultHeadMouth;
-        internal Sprite DefaultHeadMouthHalf;
-        internal Sprite EyesGone;
-        internal Sprite EyesGoneHealed;
-        internal Sprite[] DisfiguredHead;
-        internal Sprite[] DisfiguredHeadHeal;
-        internal Eye[] Eyes;
-    }
-
-    static readonly Dictionary<int, FaceStock> FaceStocks = new Dictionary<int, FaceStock>();
-
-    static void CaptureFaceStock(FacialExpression face) {
-        if (face == null) {
-            return;
-        }
-
-        int id = face.GetInstanceID();
-        if (FaceStocks.ContainsKey(id)) {
-            return;
-        }
-
-        FaceStock stock = new FaceStock {
-            DefaultHead = face.defaultHead,
-            DefaultHeadMouth = face.defaultHeadMouth,
-            DefaultHeadMouthHalf = face.defaultHeadMouthHalf,
-            EyesGone = face.eyesGone,
-            EyesGoneHealed = face.eyesGoneHealed,
-        };
-
-        if (face.disfiguredHead != null) {
-            stock.DisfiguredHead = (Sprite[])face.disfiguredHead.Clone();
-        }
-
-        if (face.disfiguredHeadHeal != null) {
-            stock.DisfiguredHeadHeal = (Sprite[])face.disfiguredHeadHeal.Clone();
-        }
-
-        if (face.eyeList != null) {
-            stock.Eyes = face.eyeList.ToArray();
-        }
-
-        FaceStocks[id] = stock;
-        DefaultSpriteExport.Capture(face.defaultHead);
-        DefaultSpriteExport.Capture(face.defaultHeadMouth);
-        DefaultSpriteExport.Capture(face.defaultHeadMouthHalf);
-    }
-
-    // facialExpression caches head/eye sprites in fields - SR Reset alone leaves a custom head.
-    public static void RestoreFaceToStock(FacialExpression face) {
-        if (face == null) {
-            return;
-        }
-
-        int id = face.GetInstanceID();
-        if (FaceStocks.TryGetValue(id, out FaceStock stock)) {
-            face.defaultHead = stock.DefaultHead;
-            face.defaultHeadMouth = stock.DefaultHeadMouth;
-            face.defaultHeadMouthHalf = stock.DefaultHeadMouthHalf;
-            face.eyesGone = stock.EyesGone;
-            face.eyesGoneHealed = stock.EyesGoneHealed;
-
-            if (stock.DisfiguredHead != null && face.disfiguredHead != null) {
-                int n = Math.Min(stock.DisfiguredHead.Length, face.disfiguredHead.Length);
-                for (int i = 0; i < n; i++) {
-                    face.disfiguredHead[i] = stock.DisfiguredHead[i];
-                }
-            }
-
-            if (stock.DisfiguredHeadHeal != null && face.disfiguredHeadHeal != null) {
-                int n = Math.Min(stock.DisfiguredHeadHeal.Length, face.disfiguredHeadHeal.Length);
-                for (int i = 0; i < n; i++) {
-                    face.disfiguredHeadHeal[i] = stock.DisfiguredHeadHeal[i];
-                }
-            }
-
-            if (stock.Eyes != null && face.eyeList != null) {
-                int n = Math.Min(stock.Eyes.Length, face.eyeList.Count);
-                for (int i = 0; i < n; i++) {
-                    face.eyeList[i] = stock.Eyes[i];
-                }
-            }
-
-            if (face.nosebleedSprite != null) {
-                SkinSpriteReplacer replacer = face.nosebleedSprite.GetComponent<SkinSpriteReplacer>();
-                if (replacer != null) {
-                    replacer.Restore();
-                }
-            }
-
-            if (face.head != null && stock.DefaultHead != null) {
-                face.head.sprite = stock.DefaultHead;
-            }
-
-            SkinTrace.Event("face-restore-stock",
-                "head=" + (stock.DefaultHead != null ? stock.DefaultHead.name : "-")
-                + " " + SkinTrace.BodyState(face.body));
-            return;
-        }
-
-        ApplyReplacementToFace(face, EmptySpriteMap);
-    }
-
     public static bool IsDefaultSlotName(string slot) {
         return string.IsNullOrEmpty(slot)
             || string.Equals(slot, SkinSettings.DefaultFolder, StringComparison.OrdinalIgnoreCase)
@@ -971,211 +656,4 @@ public class SpriteReplacerPlugin : MonoBehaviour {
             || string.Equals(slot, "st0", StringComparison.OrdinalIgnoreCase);
     }
 
-    // remote MP skins pass their package sprites; local uses LoadedSprites.
-    public static void ApplyReplacementToFace(FacialExpression face,
-        IReadOnlyDictionary<string, Sprite> sprites) {
-        if (face == null || sprites == null) {
-            return;
-        }
-
-        if (sprites.Count > 0) {
-            CaptureFaceStock(face);
-        }
-
-        // always start from the pre-skin sprites. the last slot renames duneHeadBack to
-        // experimentHeadBack, and the next slot would then restore the experiment head.
-        FaceStocks.TryGetValue(face.GetInstanceID(), out FaceStock stock);
-        Sprite headBase = stock != null ? stock.DefaultHead : face.defaultHead;
-        Sprite mouthBase = stock != null ? stock.DefaultHeadMouth : face.defaultHeadMouth;
-        Sprite mouthHalfBase = stock != null ? stock.DefaultHeadMouthHalf : face.defaultHeadMouthHalf;
-        Sprite eyesGoneBase = stock != null ? stock.EyesGone : face.eyesGone;
-        Sprite eyesGoneHealedBase = stock != null ? stock.EyesGoneHealed : face.eyesGoneHealed;
-
-        string before = headBase != null ? headBase.name : "-";
-        SkinTrace.Event("face-apply", SkinTrace.FaceApplySummary(face, sprites)
-            + " " + SkinTrace.BodyState(face.body));
-
-        face.defaultHead = ReplaceSprite(headBase, sprites);
-        face.defaultHeadMouth = ReplaceSprite(mouthBase, sprites);
-        face.defaultHeadMouthHalf = ReplaceSprite(mouthHalfBase, sprites);
-        face.eyesGone = ReplaceSprite(eyesGoneBase, sprites);
-        face.eyesGoneHealed = ReplaceSprite(eyesGoneHealedBase, sprites);
-
-        if (face.nosebleedSprite != null) {
-            DefaultSpriteExport.Capture(face.nosebleedSprite.sprite);
-
-            SkinSpriteReplacer replacer = face.nosebleedSprite.GetComponent<SkinSpriteReplacer>();
-            if (replacer == null) {
-                replacer = SkinSpriteReplacer.Attach(face.nosebleedSprite, sprites);
-                replacer.Apply();
-            } else {
-                replacer.SetSprites(sprites);
-            }
-        }
-
-        if (face.disfiguredHead != null) {
-            for (int i = 0; i < face.disfiguredHead.Length; i++) {
-                Sprite basis = face.disfiguredHead[i];
-                if (stock != null && stock.DisfiguredHead != null && i < stock.DisfiguredHead.Length) {
-                    basis = stock.DisfiguredHead[i];
-                }
-                face.disfiguredHead[i] = ReplaceSprite(basis, sprites);
-            }
-        }
-
-        if (face.disfiguredHeadHeal != null) {
-            for (int i = 0; i < face.disfiguredHeadHeal.Length; i++) {
-                Sprite basis = face.disfiguredHeadHeal[i];
-                if (stock != null && stock.DisfiguredHeadHeal != null && i < stock.DisfiguredHeadHeal.Length) {
-                    basis = stock.DisfiguredHeadHeal[i];
-                }
-                face.disfiguredHeadHeal[i] = ReplaceSprite(basis, sprites);
-            }
-        }
-
-        if (face.eyeList != null) {
-            for (int i = 0; i < face.eyeList.Count; i++) {
-                Eye eye = face.eyeList[i];
-                Eye basis = eye;
-                if (stock != null && stock.Eyes != null && i < stock.Eyes.Length) {
-                    basis = stock.Eyes[i];
-                }
-                eye.front = ReplaceSprite(basis.front, sprites);
-                eye.back = ReplaceSprite(basis.back, sprites);
-                face.eyeList[i] = eye;
-            }
-        }
-
-        string after = face.defaultHead != null ? face.defaultHead.name : "-";
-        int headSpecies = -1;
-        string afterLower = after.ToLowerInvariant();
-        if (afterLower.Contains("dune")) {
-            headSpecies = 2;
-        } else if (afterLower.Contains("milk")) {
-            headSpecies = 1;
-        } else if (afterLower.StartsWith("experiment") || SkinImporter.HeadNames.Contains(after)) {
-            headSpecies = 0;
-        }
-        int charType = face.body != null ? face.body.charType : -1;
-        int clash = headSpecies >= 0 && charType >= 0 && charType <= 2 && headSpecies != charType ? 1 : 0;
-        int faceId = face.body != null ? face.body.GetInstanceID() : 0;
-        SkinTrace.Problem("face-applied " + faceId, "beforeHead=" + before + " afterHead=" + after
-            + " stockMiss=" + (sprites.Count == 0 || !sprites.ContainsKey(before) ? 1 : 0)
-            + " headSpecies=" + headSpecies
-            + " headClash=" + clash
-            + " map=" + sprites.Count
-            + " " + SkinTrace.BodyState(face.body));
-    }
-
-    private static Sprite ReplaceSprite(Sprite s) {
-        return ReplaceSprite(s, LoadedSprites);
-    }
-
-    private static Sprite ReplaceSprite(Sprite s, IReadOnlyDictionary<string, Sprite> sprites) {
-        DefaultSpriteExport.Capture(s);
-
-        if (s == null) {
-            return null;
-        }
-
-        if (sprites != null && sprites.TryGetValue(s.name, out Sprite r) && r != null) {
-            return r;
-        }
-
-        // missing in this slot (empty Head folder, etc.) - restore stock, do not keep the prior skin.
-        if (DefaultSpriteExport.TryGetStock(s.name, out Sprite stock)) {
-            return stock;
-        }
-
-        return s;
-    }
-}
-
-[HarmonyPatch(typeof(Limb), "Awake")]
-public class LimbAwakePatch {
-    static void Postfix(Limb __instance) {
-        // never solo-stamp LoadedSprites while a session is up - remotes would get the local slot.
-        if (MpBody.IsActive || Net.IsRunning) {
-            return;
-        }
-
-        SpriteReplacerPlugin.ApplyReplacement(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(FacialExpression), "Start")]
-public class FacialExpressionStartPatch {
-    static void Postfix(FacialExpression __instance) {
-        if (MpBody.IsActive) {
-            // head/face finishes after torso - kick pending remote (or local) skin apply now.
-            MpSkinSync.OnBodyPartReady(__instance != null ? __instance.body : null);
-            return;
-        }
-
-        if (Net.IsRunning) {
-            // mpBody bridge not ready yet - do not paint local slot onto joiners.
-            return;
-        }
-
-        SpriteReplacerPlugin.ApplyReplacementToFace(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(TailScript), "Start")]
-public class TailScriptStartPatch {
-    static void Postfix(TailScript __instance) {
-        if (MpBody.IsActive || Net.IsRunning) {
-            return;
-        }
-
-        SpriteReplacerPlugin.ApplyReplacementToTail(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(Settings), "ApplyAll")]
-public class SettingsApplyAllPatch {
-    // the game writes settings after us. put the slot back first so a stale value cannot win.
-    static void Prefix() {
-        CoreLibIntegration.StoreActiveSlot(SpriteReplacerPlugin.ActiveSlot);
-        CoreLibIntegration.StoreBackupCount(SpriteReplacerPlugin.BackupCount);
-    }
-}
-
-[HarmonyPatch(typeof(WoundView), "Awake")]
-public class WoundViewAwakePatch {
-    static void Postfix(WoundView __instance) {
-        WoundViewIntegration.Apply(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(WoundView), "Start")]
-public class WoundViewStartPatch {
-    static void Postfix(WoundView __instance) {
-        if (__instance == null || __instance.limbImages == null || __instance.limbImages.Length == 0) {
-            WoundViewIntegration.Apply(__instance);
-            return;
-        }
-
-        Image head = __instance.limbImages[0];
-        WoundViewIntegration.RememberStock(head);
-        if (head != null && head.transform.childCount > 0) {
-            WoundViewIntegration.RememberStock(head.transform.GetChild(0).GetComponent<Image>());
-        }
-
-        WoundViewIntegration.Apply(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(WoundView), "UpdateView")]
-public class WoundViewUpdatePatch {
-    static void Postfix(WoundView __instance) {
-        WoundViewIntegration.ShowCustomColors(__instance);
-    }
-}
-
-[HarmonyPatch(typeof(PlayerCamera), "Awake")]
-public class PlayerCameraAwakePatch {
-    static void Postfix() {
-        WoundViewIntegration.ApplyAll();
-    }
 }

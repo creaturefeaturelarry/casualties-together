@@ -274,6 +274,8 @@
   "casualtiestogether_rule_desc_Permadeath": "永久死亡。停用地層轉換時或招募商人等重生方式。作弊指令不受影響。",
   "casualtiestogether_rule_desc_ReviveOnNextLevel": "在下一關重生。經過地層轉換後重生所有死去的玩家。",
   "casualtiestogether_rule_desc_ReviveFromTrader": "透過商人重生。允許「招募」商人，重生隨機一個玩家。",
+  "casualtiestogether_rule_name_TraderReviveAsSpecies": "商人復活時變為其物種",
+  "casualtiestogether_rule_desc_TraderReviveAsSpecies": "商人招募復活時，玩家變為該商人的物種。若開啟重生保留技能，則保留原技能。若關閉，則使用新物種的基礎技能。",
   "casualtiestogether_rule_desc_TrackPlayerDeaths": "追蹤玩家死亡。在聊天室顯示玩家死亡公告、死完標記和存活玩家數量。停用此規則將隱藏這類資訊。",
   "casualtiestogether_rule_desc_PLAYER_COUNT_LIMIT": "玩家數量限制。可同時進入伺服器的最大玩家人數。",
   "casualtiestogether_rule_desc_ShowPlayerDirections": "顯示玩家方向。顯示方向指示幫助你尋找其他玩家。",
