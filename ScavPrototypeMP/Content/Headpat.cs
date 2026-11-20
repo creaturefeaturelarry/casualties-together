@@ -1,7 +1,6 @@
 using HarmonyLib;
 using LiteNetLib;
 using LiteNetLib.Utils;
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -327,6 +326,9 @@ namespace Together {
             if (x1 - x0 < 1f || y1 - y0 < 1f) {
                 return false;
             }
+            if (headRect.width < 1f || headRect.height < 1f || armRect.width < 1f || armRect.height < 1f) {
+                return false;
+            }
             int headW = head.width;
             int headH = head.height;
             int sheetW = _armW * 3;
@@ -504,7 +506,12 @@ namespace Together {
         [HarmonyPatch(typeof(Body), nameof(Body.Attack))]
         static class BlockAttack {
             static bool Prefix(Body __instance) {
-                return !Blocks(__instance);
+                if (!Blocks(__instance)) {
+                    return true;
+                }
+                // the swing did not happen. drop this so the next real attack is not swallowed.
+                Body_Attack_MultiplayerPatch.ForceOnlyRetrieveAttackInfo = false;
+                return false;
             }
         }
 

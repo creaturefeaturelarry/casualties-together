@@ -1,11 +1,14 @@
+using BepInEx.Logging;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Together;
 using UnityEngine;
 
-// skin join/swap helpers. event and problem writes are off.
+// skin join/swap trace. problems stay in the log until the detail changes.
 internal static class SkinTrace {
     internal static void Event(string action, string detail = null) {
+        Write(false, "[skin] " + action + " " + (detail ?? ""));
     }
 
     internal static string SlotSummary(string slot, IReadOnlyDictionary<string, Sprite> sprites, int species) {
@@ -105,6 +108,198 @@ internal static class SkinTrace {
     static readonly Dictionary<string, string> LastProblem = new Dictionary<string, string>();
 
     internal static void Problem(string action, string detail) {
+        if (string.IsNullOrEmpty(action)) {
+            return;
+        }
+
+        string shown = detail ?? "";
+        if (LastProblem.TryGetValue(action, out string prev) && prev == shown) {
+            return;
+        }
+
+        LastProblem[action] = shown;
+        bool leak = action.IndexOf("leak", StringComparison.Ordinal) >= 0
+            || action.IndexOf("bind-local", StringComparison.Ordinal) >= 0;
+        string line = "[skin] " + action + " " + shown;
+        if (leak) {
+            line += " stack=" + Stack();
+        }
+        Write(true, line);
+    }
+
+    static readonly Dictionary<int, float> NextLeak = new Dictionary<int, float>();
+    static int _nextLeakPruneAt = StaleIds.FirstThreshold;
+
+    // remote with no synced skin, body sprites are the local slot, head is not.
+    internal static void NoteDefaultLeak(string where, Body body) {
+        if (body == null || !MpBody.IsActive || MpBody.CanApply(body)) {
+            return;
+        }
+
+        Dictionary<string, Sprite> loaded = SpriteReplacerPlugin.LoadedSprites;
+        if (loaded == null || loaded.Count == 0) {
+            return;
+        }
+
+        if (MpSkinSync.SpritesForBody(body) != null) {
+            return;
+        }
+
+        int id = body.GetInstanceID();
+        float now = Time.unscaledTime;
+        if (NextLeak.TryGetValue(id, out float next) && now < next) {
+            return;
+        }
+        StaleIds.Prune<Body, float>(NextLeak, ref _nextLeakPruneAt);
+        NextLeak[id] = now + 1f;
+
+        int bodyHit = 0;
+        int bodySeen = 0;
+        int replacerLocal = 0;
+        string sample = "-";
+        Limb[] limbs = body.limbs;
+        int headIdx = (int)Body.LimbNum.Head;
+        if (limbs != null) {
+            for (int i = 0; i < limbs.Length; i++) {
+                if (i == headIdx || limbs[i] == null) {
+                    continue;
+                }
+
+                SpriteRenderer renderer = limbs[i].GetComponent<SpriteRenderer>();
+                if (renderer == null || renderer.sprite == null) {
+                    continue;
+                }
+
+                bodySeen++;
+                if (IsLocalArt(renderer.sprite)) {
+                    bodyHit++;
+                    if (sample == "-") {
+                        sample = renderer.sprite.name;
+                    }
+                }
+
+                SkinSpriteReplacer replacer = renderer.GetComponent<SkinSpriteReplacer>();
+                if (replacer != null && replacer.Active && ReferenceEquals(replacer.Sprites, loaded)) {
+                    replacerLocal++;
+                }
+            }
+        }
+
+        int headHit = 0;
+        string headName = "-";
+        if (limbs != null && headIdx >= 0 && headIdx < limbs.Length && limbs[headIdx] != null) {
+            FacialExpression face = limbs[headIdx].GetComponent<FacialExpression>();
+            if (face != null) {
+                if (face.head != null && face.head.sprite != null) {
+                    headName = face.head.sprite.name;
+                    if (IsLocalArt(face.head.sprite)) {
+                        headHit++;
+                    }
+                }
+                if (face.defaultHead != null && IsLocalArt(face.defaultHead)) {
+                    headHit++;
+                }
+            }
+        }
+
+        if (bodyHit <= 0) {
+            return;
+        }
+
+        string kind = headHit == 0 ? "default-body-leak" : "default-full-leak";
+        Problem(kind + " " + id,
+            "where=" + where
+            + " net=" + MpBody.GetNetworkIdForBody(body)
+            + " bodyHit=" + bodyHit + "/" + bodySeen
+            + " sample=" + sample
+            + " headHit=" + headHit
+            + " head=" + headName
+            + " replacerLocal=" + replacerLocal
+            + " " + BodyState(body));
+    }
+
+    internal static bool UsesLocalSprites(IReadOnlyDictionary<string, Sprite> sprites) {
+        if (sprites == null) {
+            return false;
+        }
+
+        if (ReferenceEquals(sprites, SpriteReplacerPlugin.LoadedSprites)) {
+            return true;
+        }
+
+        foreach (Sprite sprite in sprites.Values) {
+            if (IsLocalArt(sprite)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool IsLocalArt(Sprite sprite) {
+        if (sprite == null) {
+            return false;
+        }
+
+        if (LocalSkinLeft.IsLocalTwin(sprite)) {
+            return true;
+        }
+
+        Dictionary<string, Sprite> loaded = SpriteReplacerPlugin.LoadedSprites;
+        if (loaded == null) {
+            return false;
+        }
+
+        foreach (Sprite loadedSprite in loaded.Values) {
+            if (ReferenceEquals(loadedSprite, sprite)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static string Stack() {
+        string raw = Environment.StackTrace;
+        if (string.IsNullOrEmpty(raw)) {
+            return "-";
+        }
+
+        raw = raw.Replace("\r", " ").Replace("\n", " | ");
+        if (raw.Length > 700) {
+            raw = raw.Substring(0, 700);
+        }
+        return raw;
+    }
+
+    static void Write(bool problem, string line) {
+        try {
+            ManualLogSource source = SpriteReplacerPlugin.Log;
+            if (source != null) {
+                if (problem) {
+                    source.LogWarning(line);
+                } else {
+                    source.LogInfo(line);
+                }
+            }
+        } catch {
+            // log source can be missing during early boot
+        }
+
+        if (!problem) {
+            return;
+        }
+
+        if (line.IndexOf("default-body-leak", StringComparison.Ordinal) < 0
+            && line.IndexOf("bind-local-onto-remote", StringComparison.Ordinal) < 0) {
+            return;
+        }
+
+        try {
+            log.warn(line, false);
+        } catch {
+            // together log follows the plugin
+        }
     }
 
     internal static void ClearProblems() {

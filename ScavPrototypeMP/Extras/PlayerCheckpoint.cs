@@ -168,6 +168,13 @@ public static class PlayerCheckpoint {
         StampSpecies(Path.Combine(SavesystemPatch.mpsavefolder, persistentId), species, slot);
     }
 
+    // A host handoff replaces the entire checkpoint directory. Cached species
+    // may belong to this machine's previous run and must be read from disk again.
+    internal static void OnHostTransferInstalled() {
+        _species.Clear();
+        _speciesSlot.Clear();
+    }
+
     public static bool TryReadSpecies(string persistentId, out string species, out int slot) {
         species = null;
         slot = 0;

@@ -30,47 +30,91 @@ namespace Together;
 
 public class HeaterMultiplayerRewrite : MonoBehaviour {
     Heater heater;
+    static readonly List<NetBody> _near = new List<NetBody>();
+    static Heater[] _cached = System.Array.Empty<Heater>();
+    static float _nextScan;
+    static float _nextApply;
 
     void Awake() {
         heater = GetComponent<Heater>();
     }
 
     void Update() {
-        //OG: Heater.OnWillRenderObject - all bodies in radius, host-authoritative temperature.
-        // covers: spaceheater / campfire / lifepod heater+AC / CrystalTemperature / any prefab Heater.
-        // body.temperature is medical-synced; clients must not mutate it or host snaps overwrite them.
-        // host sim range already stamps every player's 3x3, so far-client heaters still Update here.
+        // stock only cools the camera body, and only while the sprite is on screen.
+        if (heater == null) {
+            heater = GetComponent<Heater>();
+        }
+        Apply(heater);
+    }
+
+    // structure AC is a child sprite. the host camera never draws it when the host is elsewhere, so OnWillRender never fires.
+    // chunk sleep also turns the whole structure off. this still lerps anyone standing in it and sends the temperature.
+    internal static void Tick() {
+        if (!Net.IsRunning || !Net.IsServer) {
+            return;
+        }
+        if (!SharedMain.LocalWorldIsGenerated) {
+            return;
+        }
+        float now = Time.unscaledTime;
+        if (now < _nextApply) {
+            return;
+        }
+        _nextApply = now + 0.5f;
+        if (now >= _nextScan) {
+            _cached = UnityEngine.Object.FindObjectsByType<Heater>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            _nextScan = now + 2f;
+        }
+        for (int i = 0; i < _cached.Length; i++) {
+            Heater heater = _cached[i];
+            if (heater == null) {
+                continue;
+            }
+            // an awake rewrite already applies in Update
+            if (heater.gameObject.activeInHierarchy && heater.GetComponent<HeaterMultiplayerRewrite>() != null) {
+                continue;
+            }
+            Apply(heater);
+        }
+    }
+
+    internal static void Apply(Heater heater) {
+        if (heater == null) {
+            return;
+        }
         if (Net.IsRunning && !Net.IsServer) {
             return;
         }
-
-        if (heater == null) {
-            heater = GetComponent<Heater>();
-            if (heater == null) {
-                return;
-            }
+        if (!heater.enabled) {
+            return;
         }
-
         // crystalTemperature / sync AddComponent can leave maxDistance at 0; vanilla never cools then.
         float radius = heater.maxDistance;
         if (radius <= 0.01f) {
             radius = 10f;
         }
-
-        if (heater.enabled && Time.time - heater.lastTime > 0.5f) {
-            heater.lastTime = (Time.time);
-
-            foreach (var nb in NetBody.GetBodiesInRadius(heater.transform.position, radius)) {
-                var body = nb.body;
-                if (body == null) {
-                    continue;
-                }
-
-                if (
-                    ((heater.isHeater && body.temperature < heater.desiredTemp) || (!heater.isHeater && body.temperature > heater.desiredTemp))
-                ) {
-                    body.temperature = Mathf.Lerp(body.temperature, heater.desiredTemp, heater.tempLerpStrength);
-                }
+        if (Time.time - heater.lastTime <= 0.5f) {
+            return;
+        }
+        heater.lastTime = Time.time;
+        _near.Clear();
+        NetBody.GetBodiesInRadius(heater.transform.position, radius, _near);
+        for (int i = 0; i < _near.Count; i++) {
+            NetBody nb = _near[i];
+            if (nb == null) {
+                continue;
+            }
+            Body body = nb.body;
+            if (body == null) {
+                continue;
+            }
+            bool towards = (heater.isHeater && body.temperature < heater.desiredTemp) || (!heater.isHeater && body.temperature > heater.desiredTemp);
+            if (!towards) {
+                continue;
+            }
+            body.temperature = Mathf.Lerp(body.temperature, heater.desiredTemp, heater.tempLerpStrength);
+            if (Net.IsRunning) {
+                MedicalSync.Server_QueueSendCharacterHealth(nb, true);
             }
         }
     }
@@ -229,6 +273,68 @@ public class OnWillRenderObject_ForceForMPComponent : MonoBehaviour {
     public MonoBehaviour target;
     Renderer[] _childRenderers;
     MethodInfo _willRender;
+    bool _wantSim;
+
+    void OnEnable() {
+        Camera.onPostRender += AfterCam;
+    }
+
+    void OnDisable() {
+        Camera.onPostRender -= AfterCam;
+    }
+
+    // sprites sit on children, so the camera never calls the root OnWillRenderObject.
+    // visible used to mean "skip", and the sim never ran for the person standing there.
+    void TickTrader(TraderScript trader) {
+        if (trader == null || !Net.IsRunning) {
+            _wantSim = false;
+            return;
+        }
+        TraderProbe.Tick(trader, "sim");
+        if (Net.IsClient) {
+            Body local = Util.GetLocalBody();
+            bool close = (local != null) && (Vector2.Distance(trader.transform.position, local.transform.position) < 12f);
+            _wantSim = trader.hostile || close;
+            return;
+        }
+        // stock only raises hostility while someone is within 12, and only inside this render tick.
+        Body near = TrackerTrader.ClosestLiving(trader.transform.position);
+        bool hostClose = (near != null) && (Vector2.Distance(trader.transform.position, near.transform.position) < 12f);
+        if (trader.hostile || hostClose) {
+            if (!gameObject.activeSelf) {
+                gameObject.SetActive(true);
+            }
+            ChunkSleep.Ignore(gameObject);
+        }
+        _wantSim = trader.hostile || hostClose || ((tracker != null) && tracker.isVisible);
+        // the render tick is the only stock place hostility climbs, and it never sees a stall off the host camera.
+        TraderScript_OnWillRender_PinLog.EnsureClimb(trader);
+    }
+
+    // after the camera. if it never called the root script, run the stand and the swing once.
+    void AfterCam(Camera cam) {
+        if (cam != Camera.main || !_wantSim || !(target is TraderScript trader)) {
+            return;
+        }
+        if (TraderScript_OnWillRender_PinLog.RanThisFrame(trader)) {
+            return;
+        }
+        InvokeWillRender();
+    }
+
+    void InvokeWillRender() {
+        if (_willRender == null) {
+            _willRender = target.GetType().GetMethod("OnWillRenderObject", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+        }
+        if (_willRender == null) {
+            return;
+        }
+        try {
+            _willRender.Invoke(target, null);
+        } catch (System.Exception e) {
+            Plugin.log.LogError($"Failed force OnWillRenderObject for {target?.name}\n{e}");
+        }
+    }
 
     void CacheRenderers() {
         if ((target == null) || ((_childRenderers != null) && (_childRenderers.Length > 0))) {
@@ -253,6 +359,10 @@ public class OnWillRenderObject_ForceForMPComponent : MonoBehaviour {
     }
 
     void Update() {
+        if (target is TraderScript trader) {
+            TickTrader(trader);
+            return;
+        }
         if (Net.IsClient) {
             if (target is GunmineScript gun) {
                 TrapClaim.TickClientGun(gun);
@@ -895,6 +1005,13 @@ public static class BuildingEntity_Update_MultiplayerPatch {
             PlayDeathOnce(__instance);
             return false;
         }
+        // stock sets Static when the host chunk renderer is off. putting Dynamic
+        // back in the same update zeros velocity, so a fall far from the host
+        // never gets past one physics step.
+        if (__instance != null && __instance.TryGetComponent(out Rigidbody2D rb) && !__instance.ignoreBodyOptimize) {
+            BuildingOptimization(rb);
+            return false;
+        }
         return true;
     }
 
@@ -942,11 +1059,6 @@ public static class BuildingEntity_Update_MultiplayerPatch {
     static void Postfix(BuildingEntity __instance) {
         if (__instance != null)
             ChunkSleep.Watch(__instance);
-
-        //OG: BuildingEntity.Update V5t4
-        if (__instance.TryGetComponent(out Rigidbody2D rb) && !__instance.ignoreBodyOptimize) {
-            BuildingOptimization(rb);
-        }
     }
 
     static void BuildingOptimization(Rigidbody2D rb) {
@@ -954,13 +1066,18 @@ public static class BuildingEntity_Update_MultiplayerPatch {
         //OG: BuildingEntity.Update V6.0-pre5 , that one liner but extended and just upgraded for multiplayer
 
         if (!WorldGeneration.world.worldExists || !(Time.timeScale <= 5f)) {
-            rb.bodyType = RigidbodyType2D.Static;
+            if (rb.bodyType != RigidbodyType2D.Static)
+                rb.bodyType = RigidbodyType2D.Static;
             return;
         }
 
-        var inSimRange = SharedMain.WorldInSimRange(rb.position);
-
-        rb.bodyType = inSimRange ? RigidbodyType2D.Dynamic : RigidbodyType2D.Static;
+        bool inSimRange = SharedMain.WorldInSimRange(rb.position);
+        RigidbodyType2D want = inSimRange ? RigidbodyType2D.Dynamic : RigidbodyType2D.Static;
+        if (rb.bodyType != want)
+            rb.bodyType = want;
+        // a static frame used to leave simulated off, and the next dynamic frame never got a real fall.
+        if (inSimRange && !rb.simulated)
+            rb.simulated = true;
 
     }
 
@@ -1078,10 +1195,8 @@ public static class BuildingEntity_Start_MultiplayerPatch {
     static void Postfix(BuildingEntity __instance) {
         if (!Net.IsRunning) return;
 
-        if (__instance.GetComponent<Heater>()) {
-            // i rewrote the heater to support multiple players
-            __instance.GetOrAddComponent<HeaterMultiplayerRewrite>();
-        } else {
+        // the AC is a child of the structure, not a heater on the building root
+        if (!AttachHeaterRewrites(__instance)) {
             // plants / AC may AddComponent<Heater> in their own Start after this postfix
             __instance.StartCoroutine(AttachHeaterRewriteNextFrame(__instance));
         }
@@ -1115,6 +1230,10 @@ public static class BuildingEntity_Start_MultiplayerPatch {
             // suck drain lives in OnWillRenderObject - without ForceForMP, dens only work in the host camera frustum
             var owro = __instance.GetOrAddComponent<OnWillRenderObject_ForceForMPComponent>();
             owro.target = _bloodsucker;
+        } else if (__instance.TryGetComponent(out FanTrap _fan)) {
+            // hit ray lives in OnWillRenderObject. host still has to swing it when they are not looking
+            var owro = __instance.GetOrAddComponent<OnWillRenderObject_ForceForMPComponent>();
+            owro.target = _fan;
         } else if (__instance.id == "macrofleshrebuilder" && __instance.GetComponent<SurgicalDeviceBehavior>() == null) {
             // runtime component from EndLabScript.Start; a synced copy of the building does not have it, so OnUse never fired
             __instance.gameObject.AddComponent<SurgicalDeviceBehavior>();
@@ -1137,14 +1256,26 @@ public static class BuildingEntity_Start_MultiplayerPatch {
 
     }
 
+    static bool AttachHeaterRewrites(BuildingEntity building) {
+        if (building == null) {
+            return false;
+        }
+        Heater[] heaters = building.GetComponentsInChildren<Heater>(true);
+        bool any = false;
+        for (int i = 0; i < heaters.Length; i++) {
+            Heater heater = heaters[i];
+            if (heater == null) {
+                continue;
+            }
+            any = true;
+            heater.GetOrAddComponent<HeaterMultiplayerRewrite>();
+        }
+        return any;
+    }
+
     static IEnumerator AttachHeaterRewriteNextFrame(BuildingEntity building) {
         yield return null;
-        if (building == null || building.gameObject == null) {
-            yield break;
-        }
-        if (building.GetComponent<Heater>() != null) {
-            building.GetOrAddComponent<HeaterMultiplayerRewrite>();
-        }
+        AttachHeaterRewrites(building);
     }
 }
 
@@ -1411,3 +1542,67 @@ internal class ScavMPBuildingSynchronizer : CasualtiesTogetherSingleton {
 
 
 }
+
+// keeps a building in the snapshot after everyone walks away. joiners still receive it.
+internal sealed class KeepForJoiners : MonoBehaviour {
+}
+
+#if FULLGAME
+// host registers these so a joiner still receives them.
+internal static class LayerBuildingStream {
+    internal static void HostRegister() {
+        if (!Net.IsServer)
+            return;
+        WorldGeneration world = WorldGeneration.world;
+        if (world == null || !world.worldExists)
+            return;
+
+        CeilingTurret[] guns = UnityEngine.Object.FindObjectsOfType<CeilingTurret>(true);
+        for (int i = 0; i < guns.Length; i++) {
+            if (guns[i] == null)
+                continue;
+            BuildingEntity gunBuild = guns[i].GetComponent<BuildingEntity>();
+            if (gunBuild != null && string.IsNullOrEmpty(gunBuild.id))
+                gunBuild.id = "ceilingturret";
+            Try(gunBuild, true);
+        }
+
+        BloodSuckerScript[] dens = UnityEngine.Object.FindObjectsOfType<BloodSuckerScript>(true);
+        for (int i = 0; i < dens.Length; i++) {
+            BuildingEntity den = BuildingOf(dens[i]);
+            if (den != null && string.IsNullOrEmpty(den.id))
+                den.id = "bloodsuckerden";
+            Try(den, true);
+        }
+
+        BlueHeart[] hearts = UnityEngine.Object.FindObjectsOfType<BlueHeart>(true);
+        for (int i = 0; i < hearts.Length; i++)
+            Try(BuildingOf(hearts[i]), false);
+    }
+
+    static BuildingEntity BuildingOf(Component part) {
+        if (part == null)
+            return null;
+        BuildingEntity build = part.GetComponent<BuildingEntity>();
+        if (build == null)
+            build = part.GetComponentInParent<BuildingEntity>();
+        return build;
+    }
+
+    static void Try(BuildingEntity build, bool nearOnly) {
+        if (build == null || build.gameObject == null)
+            return;
+        if (string.IsNullOrEmpty(build.id))
+            return;
+        if (NetObjectRegistry.ObjectShouldNotBeSynced(build.gameObject))
+            return;
+        if (!nearOnly)
+            build.gameObject.GetOrAddComponent<KeepForJoiners>();
+        if (NetObjectRegistry.IsRegistered(build.gameObject))
+            return;
+        if (nearOnly && !SharedMain.WorldInSimRange(build.transform.position))
+            return;
+        NetObjectRegistry.NewGO(build.gameObject);
+    }
+}
+#endif

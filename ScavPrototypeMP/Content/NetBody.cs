@@ -29,7 +29,7 @@ namespace Together;
 public class BodyDamageEvent {
     public override string ToString() {
         if (this == null) return "";
-        return $"BodyDamageEvent({type}, {attackerBody.ToSafeString()} {attackerBuilding.ToSafeString()} {victim.ToSafeString()})";
+        return $"BodyDamageEvent({type}, {attackerBody.ToSafeString()} {attackerBuilding.ToSafeString()} {victim.ToSafeString()})"; 
     }
 
     public enum DamageEventType {
@@ -106,7 +106,7 @@ public class BodyDamageEvent {
         victimPos = target.position;
         victim = target;
         attackerBody = evil;
-        this.weapon = weapon;
+        this.weapon = weapon; 
         if (weapon != null) {
             weaponItemId = weapon.id;
         }
@@ -349,14 +349,14 @@ public class NetBody : MonoBehaviour {
     // server only!
     readonly MaxCapacityQueue<BodyDamageEvent> DamageHistory = new(100);
     public BodyDamageEvent GetLastDamageEvent() {
-
+        
         List<BodyDamageEvent> events;
         { // forget everything before last revive
             events = plr.netBody.DamageHistory.JustGiveTheQueue().ToList();
             var foundRevive = events.FindIndex(x => x.type == BodyDamageEvent.DamageEventType.Revive);
             if (foundRevive != -1) {
                 events = events.Skip(foundRevive).ToList();
-            }
+            } 
         }
 
         var unexpired = events.Where(x => x.expirationTime > DateTime.UtcNow).Reverse().ToList();
@@ -442,11 +442,11 @@ public class NetBody : MonoBehaviour {
 
 
     public void BackupLocalPlayerInit() {
-
+        
         if (plr == null && Net.IsRunning && ScavPlayer.LocalPlayer != null) {
             plr = ScavPlayer.LocalPlayer;
-
-#if !RELEASE
+             
+#if !RELEASE 
             Plugin.log.LogWarning("BackupLocalSCIInit ACTUALLY WORKED YAY!!!!!!!");
 #endif
 
@@ -622,7 +622,7 @@ public class NetBody : MonoBehaviour {
 
 
         if (body.alive) {
-
+           
         } else {
             body.halfMinuteCheckTime = 0; // specifically to not trigger brain damage problems, it shouldnt cause any other problems
         }
@@ -650,8 +650,8 @@ public class NetBody : MonoBehaviour {
             return;
         }
 
-        if (chip_punishment_protocol) {
-            body.eyePanicTime = 1f;
+            if (chip_punishment_protocol) {
+                body.eyePanicTime = 1f;
             // old radiation tick (replaced by mood offset):
             // body.radiationSickness += Time.deltaTime;
             scatterMoodTick += Time.deltaTime;
@@ -691,7 +691,7 @@ public class NetBody : MonoBehaviour {
 
         // consoleScript noclip writes carrier transform in Update - after FixedUpdate pin.
         if (piggybacking_on != null && body != null) {
-            HandlePiggybackUpdate();
+            HandlePiggybackUpdate("late");
         }
 
         if (!last_alive && !body.alive) { // because body is not losing its temperature when dead for some reason
@@ -713,7 +713,7 @@ public class NetBody : MonoBehaviour {
             }
 
             last_mood = body.happiness;
-
+        
 
 
 
@@ -737,7 +737,7 @@ public class NetBody : MonoBehaviour {
                 if (cprPacient.body.IsRagdolling() || cprPacient.body.crouching) {
                     body.crouching = true;
                 }
-
+                
             } else {
                 if (lastCpr) {
                     cprPress = 0;
@@ -877,7 +877,7 @@ public class NetBody : MonoBehaviour {
             tooltipDescription_text += "piggyback: " + (this.piggybacking_on) + "\n";
             tooltipDescription_text += "piggyback stack: " + (CountPiggybackStackDown()) + "\n";
 
-
+            
 
             tooltipDescription_text += "temperature: " + Math.Round(this.body.temperature, 2) + "\n";
 
@@ -895,7 +895,7 @@ public class NetBody : MonoBehaviour {
                 }
             }
 
-
+            
             if (syncBody != null) {
                 tooltipDescription_text += "ReadingRagdollData: " + syncBody.readingRagdollData.ToString() + "\n";
                 if (syncBody.TryGetOwnerTick(out var tick)) {
@@ -912,7 +912,7 @@ public class NetBody : MonoBehaviour {
                             tooltipDescription_text += (item.ToString()) + ("\n");
                         }
                     }
-                }
+                } 
             }
 
         } else {
@@ -944,7 +944,7 @@ public class NetBody : MonoBehaviour {
             }
         }
         if (body != null) {
-            ScavPlayer.BodyToPlayerDict.Remove(body);
+        ScavPlayer.BodyToPlayerDict.Remove(body);
         }
 
         if (MoodleManager.main != null && MoodleManager.main.body == body && Util.TryGetLocalBody(out var locbody)) { // fix nullreference if player disconnects
@@ -979,6 +979,9 @@ public class NetBody : MonoBehaviour {
     internal bool healthConfirm;
     public ushort _lastHealthPacketReceiveTick = 0;
     public ushort _lastSyncPacketReceiveTick = 0;
+    // movement packets from before the click still say main hand. ignore those.
+    internal bool handSwitched;
+    internal ushort handSwitchTick;
     public void SetNetIgnoreTime(float additionaltime = 0f) {
         if (Net.IsClient) {
             var t = ClientMain.RTT_IN_SECONDS_with_margin;
@@ -1045,7 +1048,7 @@ public class NetBody : MonoBehaviour {
             if (IsPlayer) {
                 return plr.playerColor;
             }
-
+            
             return _color;
         }
         set {
@@ -1129,28 +1132,25 @@ public class NetBody : MonoBehaviour {
                             ? "late-joined EndLab without suitcase"
                             : "late-joined and LateJoinSpectate is on";
                         if (log.verbose) log.l($"Killing {plr} cuz {why}.");
-
-                        plr.body.GetHead().Dismember();
-                        plr.body.GetLowerTorso().Dismember();
-                        plr.body.brainHealth = 0;
-                        plr.body.heartRate = 0;
-                        plr.body.bloodOxygen = 0;
-                        plr.body.bloodPressure = 0;
-                        MedicalSync.Server_QueueSendCharacterHealth(nb, true);
-                        Util.CallLambdaWhen(() => {
-                            if (!Util.IsInWorld()) {
-                                return true; // break out if not in world
-                            }
-                            return plr.ServerPlayerState.is_loaded_in; // trigger only when fully loaded in
-                        }, () => {
-                            Util.DelayCallLambda(1, () => {
-                                Multiplayer.Server_SendSimpleMessageToOneClient(NetmsgId.CLIENT_forcespectator, plr.playerId);
-                                string alert = endLab && !hasSuitcase
-                                    ? "Late join into Ending Lab — spectator only (no suitcase)."
-                                    : "Late join, server put you in spectator mode.";
-                                plr.Server_DoAlertSingle(alert, true, true);
+                            
+                            plr.body.GetHead().Dismember();
+                            plr.body.GetLowerTorso().Dismember();
+                            plr.body.brainHealth = 0;
+                            plr.body.heartRate = 0;
+                            plr.body.bloodOxygen = 0;
+                            plr.body.bloodPressure = 0;
+                            MedicalSync.Server_QueueSendCharacterHealth(nb, true);
+                            Util.CallLambdaWhen(() => {
+                                if (!Util.IsInWorld()) {
+                                    return true; // break out if not in world
+                                }
+                                return plr.ServerPlayerState.is_loaded_in; // trigger only when fully loaded in
+                            }, () => {
+                                Util.DelayCallLambda(1, () => {
+                                    Multiplayer.Server_SendSimpleMessageToOneClient(NetmsgId.CLIENT_forcespectator, plr.playerId);
+                                plr.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey("latejoin_spectator_alert"), true, true);
+                                });
                             });
-                        });
                     }
                 }
 
@@ -1190,7 +1190,7 @@ public class NetBody : MonoBehaviour {
         }
 #endif
         if (nb != null) {
-            if (sb != null) {
+            if (sb != null) { 
                 nb.syncBody = sb;
                 NetBody._PRIV_NetIdToNetBody[sb.Id] = nb;
             }
@@ -1371,7 +1371,7 @@ public class NetBody : MonoBehaviour {
         return body.limbs[(int)Body.LimbNum.Head].transform.position;
     }
 
-
+    
 
     public static float DistanceForNearBodies = 40;
     public List<NetBody> NearBodies = new(); // only living btw
@@ -1446,7 +1446,7 @@ public class NetBody : MonoBehaviour {
 #if FULLGAME
                     if (!ConcurrentEndings.KeepSpectating)
 #endif
-                        UIInGame.StopSpectatorMode();
+                    UIInGame.StopSpectatorMode();
                 }
                 body.GetCoUtilsInstance()?.CancelAll();
 
@@ -1477,7 +1477,7 @@ public class NetBody : MonoBehaviour {
         last_alive = body.alive;
     }
 
-
+    
 
     void UpdateBodySleepShare() {
         // energy now trends via median sleepCycleSpeed mult; only track nearby sleepers for later sleep-quality hooks
@@ -1487,10 +1487,10 @@ public class NetBody : MonoBehaviour {
         }
         foreach (NetBody onb in NearBodies) {
             if (onb != null && KM.DistanceCheck_PreSqr(this.transform.position, onb.transform.position, 30)) {
-                NearBodiesDistanceIs5 = true;
+                    NearBodiesDistanceIs5 = true;
                 return;
+                }
             }
-        }
     }
     void UpdateBodyTempShare() {
         if (!body.alive) return;
@@ -1506,7 +1506,7 @@ public class NetBody : MonoBehaviour {
             Body otherbody = null;
             if (item2.TryGetComponent<Limb>(out var limb)) {
                 otherbody = limb.body;
-            }
+            } 
 
             if (otherbody != null && otherbody != body && otherbody.alive && otherbody.temperature > 20) {
 
@@ -1571,11 +1571,11 @@ public class NetBody : MonoBehaviour {
 
 
     private bool prev_useiteminhand = false;
-
+    
 
     void FixedUpdate() {
 
-        HandlePiggybackUpdate();
+        HandlePiggybackUpdate("fixed");
 
 
         if (Net.IsRunning) {
@@ -1859,7 +1859,7 @@ public class NetBody : MonoBehaviour {
     }
 
     // called from FixedUpdate; also LateUpdate so we follow noclip (moves carrier in Update).
-    void HandlePiggybackUpdate() {
+    void HandlePiggybackUpdate(string phase) {
 
         if (carrying_person != null) {
             body.idleTime = 0f; // disable idle animations
@@ -1894,6 +1894,11 @@ public class NetBody : MonoBehaviour {
                 target_uppertorso_pos = Vector2.LerpUnclamped(piggybacking_on.pos + standupamount, target_uppertorso_pos, 0.1f);
             }
             body.crouchAmount = piggybacking_on.body.crouchAmount;
+
+            float step = CarryProbe.Measure(body);
+            float chestErr = Vector2.Distance(torsorb.position, target_uppertorso_pos);
+            Vector2 carrierVelNow = targetbody.rb.velocity;
+            CarryProbe.Rel(body, carrierVelNow, out float relIn, out float maxAng, out int hot);
 
             if (body.alive) {
                 // alive: shift the whole pose onto the back and lerp limb velocity toward the carrier.
@@ -1945,6 +1950,10 @@ public class NetBody : MonoBehaviour {
                 torsorb.angularVelocity = targettorsorb.angularVelocity;
                 torsorb.MoveRotation(targettorsorb.rotation);
             }
+
+            CarryProbe.Rel(body, carrierVelNow, out float relOut, out float angAfter, out int hotAfter);
+            CarryProbe.Write(body, phase, step, chestErr, relIn, relOut, maxAng > angAfter ? maxAng : angAfter, hot >= 0 ? hot : hotAfter);
+            CarryProbe.Save(body);
 
         }
 
@@ -2017,12 +2026,12 @@ public class NetBody : MonoBehaviour {
             if (Util.QuickRaycastInteractionCheck(body.transform.position, target.body.transform.position, true)) {
                 // continue to the return true;  :)
             } else {
-                PlayerCamera.main.DoAlert(Lang.Get("interact_obstructed"));
+                PlayerCamera.main.DoAlert(Lang.Get("interact_obstructed")); 
             }
         }
 
         return true;
-
+        
     }
 
 
@@ -2043,7 +2052,7 @@ public class NetBody : MonoBehaviour {
             Sound.Play("backpack" + UnityEngine.Random.Range(1, 3), target.carrying_person.body.transform.position, twoDimensional: false, pitchShift: false, target.carrying_person.body.transform, 1f, UnityEngine.Random.Range(0.8f, 1.2f));
 
             target.body.rb.velocity = Vector2.Lerp(target.body.rb.velocity, body.rb.velocity, 0.5f);
-            HandlePiggybackUpdate();
+            HandlePiggybackUpdate("start");
 
             if (IsPlayer) {
 
@@ -2093,7 +2102,7 @@ public class NetBody : MonoBehaviour {
                         if (!IsBodyLocal()) {
                             Server_RemindPlayersCurrentState(true);
                         }
-                    }
+                    } 
                     SetNetIgnoreTime(0.1f);
                 }
             }
@@ -2176,7 +2185,7 @@ public class NetBody : MonoBehaviour {
             }
 
         }
-
+            
     }
 
     public void Hug(NetBody other) {

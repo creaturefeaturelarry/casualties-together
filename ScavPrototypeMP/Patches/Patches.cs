@@ -312,7 +312,17 @@ static class Body_GetTotalEncumberance_MultiplayerPatch {
             if (__instance.TryGetComponent<NetBody>(out var npc)) {
                 if (npc.carrying_person != null) {
                     var realweight = npc.carrying_person.GetRealFullEncumberanceOfBody(); // this also gets encumberence from carryong other players, so it stacks
-                    __result += realweight * Multiplayer.rules.PiggybackWeightMultiplier;
+                    float species = 1f;
+                    Body carried = npc.carrying_person.body;
+                    if (carried != null) {
+                        // 0 experiment, 1 milky, 2 dune. after the server multiplier.
+                        if (carried.charType == 1) {
+                            species = 1.2f;
+                        } else if (carried.charType == 2) {
+                            species = 0.8f;
+                        }
+                    }
+                    __result += realweight * Multiplayer.rules.PiggybackWeightMultiplier * species;
                 }
             }
         }
@@ -1153,12 +1163,12 @@ public static class ScavGameStartPatch {
         if (Net.IsRunning) {
 
             if (starting_game) {
-                Multiplayer.DoMultiplayerStatusMessageLog("Client is starting game by request of server.");
+                Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("client_starting_game_by_server"));
 
                 starting_game = false;
                 return true;
             } else if (Net.IsClient) {
-                Multiplayer.DoMultiplayerStatusMessageLog("You can't start the game, server can.");
+                Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("client_cant_start_game"));
                 starting_game = false;
                 __result = (new List<object>()).GetEnumerator(); // shut up the coroutine
                 return false;
@@ -1204,7 +1214,7 @@ public static class TutorialHandler_Start_MarkiplierPatch {
     static void Postfix(TutorialHandler __instance) {
         if (Net.IsRunning) {
             Util.DelayCallLambda(1, () => {
-                Util.DoAlert("Multiplayer Tutorial is not done!\nsorry!", true);
+                Util.DoAlert(Lang.Get("tutorial_not_done_alert"), true);
             });
             __instance.StartCourse(typeof(SandboxCourse));
             __instance.courseSelectScreen.SetActive(value: false);

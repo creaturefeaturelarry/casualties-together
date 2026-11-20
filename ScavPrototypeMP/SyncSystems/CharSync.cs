@@ -1,4 +1,5 @@
 using CasualtiesTogetherUtils;
+using HarmonyLib;
 using LiteNetLib.Utils;
 using System.Collections.Generic;
 using Together;
@@ -16,6 +17,7 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
 
 
     public bool crouching;
+    public bool offHand;
 
     public bool standing;
     public bool is_piggyback;
@@ -56,6 +58,7 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
             moveDir = Vector2.zero;
         }
         crouching = body.crouching;
+        offHand = body.handSlot != 0;
 
         velocity = body.GetVelocity();
 
@@ -84,6 +87,8 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
                     body.shock = 100;
                 }
                 if (body.standing != this.standing) {
+                    RagdollProbe.Event(body, this.standing ? "sync-stand" : "sync-down",
+                        " packVel=" + ((Vector2)this.velocity).x.ToString("0.00") + "," + ((Vector2)this.velocity).y.ToString("0.00"));
                     if (this.standing) {
                         body.ForceStand(); // force Stand
                     } else {
@@ -134,6 +139,9 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
 
         body.targetLookPos = this.targetLookPos;
         body.crouching = this.crouching;
+        // same tick or older than the hand toggle. that packet was built on the main hand.
+        if (!nb.handSwitched || LiteEntitySystem.Utils.SequenceDiff(Tick, nb.handSwitchTick) > 0)
+            body.handSlot = offHand ? 1 : 0;
 
         nb.moveDir = compressedmoveDir;
         if (body.conscious) {
@@ -177,10 +185,42 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
         }
 
 
+        RagdollProbe.Pack(body, this.standing, (Vector2)this.velocity, nb.piggybacking_on != null);
+
         if (Net.IsServer) {
             nb.syncBody.WriteBodyData();
         }
 
     }
 
+}
+
+// remote player on the ground. stock FixedUpdate spins the head and crawls with a 6000 shove.
+// that pose is what a viewer pastes, so the limbs fly. the get-up check still runs.
+[HarmonyPatch(typeof(Body), "FixedUpdate")]
+public static class Body_FixedUpdate_RemoteRagdoll {
+    static bool Prefix(Body __instance) {
+        RagdollProbe.Tick(__instance);
+        if (!Net.IsRunning || __instance.standing || !__instance.conscious || __instance.IsBodyLocal()) {
+            return true;
+        }
+        if (!__instance.TryGetNetBody(out NetBody nb) || !nb.IsPlayer) {
+            return true;
+        }
+        if (nb.piggybacking_on != null) {
+            CarryProbe.MarkSkip(__instance);
+        }
+        if (__instance.rb != null) {
+            __instance.rb.gravityScale = 1f;
+            __instance.lastTimeStepVelocity = __instance.rb.velocity;
+            if ((__instance.grounded || __instance.bodyAffect.wasWater) && __instance.shock < 10f && __instance.rb.velocity.magnitude < __instance.maxSpeed * 0.1f) {
+                RagdollProbe.Event(__instance, "getup",
+                    " grounded=" + (__instance.grounded ? 1 : 0)
+                    + " water=" + (__instance.bodyAffect.wasWater ? 1 : 0)
+                    + " vel=" + __instance.rb.velocity.magnitude.ToString("0.00"));
+                __instance.Stand();
+            }
+        }
+        return false;
+    }
 }

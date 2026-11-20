@@ -67,6 +67,10 @@ public sealed class SkinSpriteReplacer : MonoBehaviour {
 
     public void Restore() {
         Active = false;
+        // instantiate keeps the sprite ref and drops this pointer, so a cloned body cannot restore.
+        if (Renderer == null) {
+            Renderer = GetComponent<SpriteRenderer>();
+        }
         if (Renderer == null) {
             return;
         }
@@ -110,12 +114,18 @@ internal static class SkinSpritePatch {
         DefaultSpriteExport.Capture(value);
 
         SkinSpriteReplacer replacer = __instance.GetComponent<SkinSpriteReplacer>();
-        if (replacer == null || !replacer.Active || value == null || replacer.Sprites == null) {
-            return;
+        if (replacer != null && replacer.Active && value != null && replacer.Sprites != null
+            && replacer.Sprites.TryGetValue(value.name, out Sprite replacement) && replacement != null) {
+            value = replacement;
+            Body owner = __instance.GetComponentInParent<Body>();
+            if (owner != null && !MpBody.CanApply(owner)
+                && (ReferenceEquals(replacer.Sprites, SpriteReplacerPlugin.LoadedSprites)
+                    || SkinTrace.UsesLocalSprites(replacer.Sprites))) {
+                SkinTrace.NoteDefaultLeak("sprite-set", owner);
+            }
         }
 
-        if (replacer.Sprites.TryGetValue(value.name, out Sprite replacement) && replacement != null) {
-            value = replacement;
-        }
+        // limbs have no replacer, so this runs for every renderer.
+        value = SkinFacing.Choose(__instance, value);
     }
 }

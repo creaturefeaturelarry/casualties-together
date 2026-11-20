@@ -5,13 +5,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Reflection.Emit;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.U2D.IK;
+using UnityEngine.UIElements;
 using Random = UnityEngine.Random;
 
 namespace Together;
@@ -76,9 +77,17 @@ public static class XalorisScript_OnWillRenderObject_MultiplayerPatch {
         float lastTime = 0f;
         void Update() {
             //OG: XalorisScript.OnWillRenderObject V4
+            // heatfern uses this. vanilla only ticks the camera body, and only while a camera is drawing the plant.
+            // a client standing on one far from the host never got shock, then the host health packet wiped their local add.
+            if (Net.IsRunning && !Net.IsServer) {
+                return;
+            }
             if (Time.time - lastTime > 0.5f) {
                 lastTime = Time.time;
                 foreach (var obj in ScavPlayer.GetPlayerBodiesInRadius(transform.position, 5.5f)) {
+                    if (obj == null || obj.body == null) {
+                        continue;
+                    }
                     obj.body.septicShock += 0.074f;
                 }
             }
@@ -87,10 +96,21 @@ public static class XalorisScript_OnWillRenderObject_MultiplayerPatch {
 
     static bool Prefix(XalorisScript __instance) {
         if (Net.IsRunning) {
-            var tr = __instance.GetOrAddComponent<Krokosha_XalorisScript_OverrideComponent>();
+            __instance.GetOrAddComponent<Krokosha_XalorisScript_OverrideComponent>();
             return false;
         }
         return true;
+    }
+}
+
+// OnWillRender never runs if the host camera is not looking at the plant, so the component above never got added.
+[HarmonyPatch(typeof(XalorisScript), nameof(XalorisScript.Start))]
+static class XalorisScript_Start_MultiplayerPatch {
+    static void Postfix(XalorisScript __instance) {
+        if (!Net.IsRunning || __instance == null) {
+            return;
+        }
+        __instance.GetOrAddComponent<XalorisScript_OnWillRenderObject_MultiplayerPatch.Krokosha_XalorisScript_OverrideComponent>();
     }
 }
 
@@ -526,6 +546,9 @@ public class TrackerTurret : BaseComponentTracker<TurretScript> {
 public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
 
     bool announced_charge = false;
+    bool warnedLocal = false;
+    static float CannonChargeTime = 5f;
+    static float CannonMaxBlockedRange = 150f;
 
 
     public bool charging = false;
@@ -535,6 +558,7 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
     public float checkTime = 1f;
     public float maxDistance = 50f;
     public float chargeTime = 0f;
+
 
 
     // host spent state. barrel z is the angle it froze on.
@@ -623,8 +647,6 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
         return closestvisiblebody ?? closestbody;
     }
 
-
-
     // the original  Update() is disabled, because the entire funcion is inflexible
     void Update() {
         PullHostSpent();
@@ -695,6 +717,12 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
         }
         chargeTime += Time.deltaTime;
 
+        if (!warnedLocal && (chargeTime < CannonChargeTime * 0.8f)) {
+            if (CanSeePos(this.transform, PlayerCamera.main.transform.position)) {
+                PlayerCamera.main.WarnSoundCannon(this.transform.position);
+                warnedLocal = true;
+            }
+        }
 
         var closestplayerbody = GetClosestVisibleBody(this.transform);
         var closestbody = closestplayerbody.body;
@@ -707,18 +735,15 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
         if (hostLocked)
             PointBarrel(endAngle);
         else
-            base.transform.GetChild(0).eulerAngles = new Vector3(0f, 0f, Mathf.LerpAngle(base.transform.GetChild(0).eulerAngles.z, Vector2.SignedAngle(Vector2.up, goallookdir), Time.deltaTime * 4f));
+            PointBarrel(Mathf.LerpAngle(base.transform.GetChild(0).eulerAngles.z, Vector2.SignedAngle(Vector2.up, goallookdir), Time.deltaTime * 4f));
 
-        var current_lookdir = base.transform.GetChild(0).up;
-
-
-        if ((chargeTime < 5f)) {
+        if ((chargeTime < CannonChargeTime)) {
             return;
         }
         spent = true;
         charging = false;
 
-        (og).spent = (true);
+        og.spent = (true);
         if (hostLocked)
             PointBarrel(endAngle);
         else if (Net.IsServer) {
@@ -727,30 +752,39 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
             PublishSpent();
         }
 
+        Fire();
+    }
 
-        foreach (var plr in ScavPlayer.AllLivingPlayers) {
+    void Fire() {
+        var current_lookdir = base.transform.GetChild(0).up;
 
-            var body = plr.body;
-            var headpos = plr.netBody.GetHeadPos();
+#if DEBUG
+        log.l($"FIRING SOUND CANNON! {(Vector2)this.transform.position} {DebugHelp.GetGameObjectFullDebugString(this)} ");
+#endif
 
+        foreach (var nb in NetBody.all_instances) {
+
+            var body = nb.body;
+            var headpos = nb.GetHeadPos();
 
             var gaollookdirforthisplr = -KM.NormalTo(headpos, base.transform.position, out var distance_to_this_plr);
 
             var dot = Vector2.Dot(current_lookdir, gaollookdirforthisplr);
 
-#if DEBUG
-            log.l($"DELETEME: FIRING SOUND CANNON!!!!!!!!!: {plr.playerName} dot: {dot} ");
-#endif
-
             var insameenvironment = FluidManager.main.HasLiquid(WorldGeneration.world.WorldToBlockPos(base.transform.position)) == body.inWater;
 
+            var isDirectHit = CanSeePos(this.transform, headpos) && dot > 0.55f && insameenvironment;
 
-            if (CanSeePos(this.transform, headpos) && dot > 0.55f && insameenvironment) {
+#if DEBUG
+            log.l($"\tSOUND CANNON HIT CHECK: {headpos} {nb} dot: {dot} insameenvironment: {insameenvironment} hit: {isDirectHit}");
+#endif
+
+            if (isDirectHit) {
 
                 //OG: SoundCannon.Update
 
                 if (body.bodyAffect.wasWater) {
-                    if (plr.IsLocal)
+                    if (nb.IsLocal)
                         Sound.Play("sonarmegaouchfixed", base.transform.position, twoDimensional: true, pitchShift: false, null, 1f, 1f, noReverb: false, ignoreMixer: true);
                     body.hearingLoss = 100f;
                     body.internalBleeding += 100f;
@@ -758,13 +792,13 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
                     body.shock = 100f;
                     body.limbs[0].pain = 100f;
                     body.brainHealth -= 20f;
-                    if (plr.IsLocal) {
+                    if (nb.IsLocal) {
                         PlayerCamera.main.shaker.Shake(3000f);
                         PlayerCamera.main.bonusAbber = -70f;
                         PlayerCamera.main.globalMuteTime += 120f;
                     }
                 } else {
-                    if (plr.IsLocal)
+                    if (nb.IsLocal)
                         Sound.Play("sonarouch", base.transform.position, twoDimensional: true, pitchShift: false, null, 1f, 1f, noReverb: false, ignoreMixer: true);
                     body.hearingLoss += 60f;
                     body.internalBleeding += UnityEngine.Random.Range(20f, 30f);
@@ -772,13 +806,13 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
                     body.shock = 65f;
                     body.limbs[0].pain = 80f;
                     body.brainHealth -= 5f;
-                    if (plr.IsLocal) {
+                    if (nb.IsLocal) {
                         PlayerCamera.main.shaker.Shake(1000f);
                         PlayerCamera.main.bonusAbber = -30f;
                         PlayerCamera.main.globalMuteTime += 30f;
                     }
                 }
-                if (plr.IsLocal) {
+                if (nb.IsLocal) {
                     Sound.Play("tinnitus", base.transform.position, twoDimensional: true, pitchShift: false, null, 1f, 1f, noReverb: false, ignoreMixer: true);
                 }
                 body.consciousness -= 69f;
@@ -793,17 +827,19 @@ public class TrackerSoundCannon : BaseComponentTracker<SoundCannon> {
                 }
 
             } else {
+                if (distance_to_this_plr > CannonMaxBlockedRange) // MP Addition
+                    continue;
+                
                 //OG: SoundCannon.Update
                 body.consciousness -= 30f;
                 body.eyeScareTime = 4f;
-                if (plr.IsLocal) {
+                if (nb.IsLocal) {
                     Sound.Play("sonarouchblocked", base.transform.position, twoDimensional: true, pitchShift: false, null, 1f, 1f, noReverb: false, ignoreMixer: true);
                     PlayerCamera.main.shaker.Shake();
                     PlayerCamera.main.globalMuteTime += 3f;
                 }
             }
         }
-
 
     }
 }

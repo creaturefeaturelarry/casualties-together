@@ -1,4 +1,4 @@
-using CasualtiesMultiplayerAPI;
+﻿using CasualtiesMultiplayerAPI;
 using CasualtiesTogetherUtils;
 using HarmonyLib;
 using KrokV5Optimization;
@@ -1879,8 +1879,8 @@ public class Con : CasualtiesTogetherSingleton {
                 //createvote give_@a_shotgun 5 10 hello bye
                 //createvote explode_plr:@r 5 10 explosion gamble
 
-                var title = "vote title";
-                var text = "vote text";
+                var title = Lang.MarkMsgAsLocaleKey("vote_default_title");
+                var text = Lang.MarkMsgAsLocaleKey("vote_default_text");
 
                 {
                     var tt = splited.ElementAtOrDefault(argcount++);
@@ -1922,9 +1922,9 @@ public class Con : CasualtiesTogetherSingleton {
                 ConFailIfNetworkNotRunning();
                 con.CheckArgumentCount(splited, 1);
 
-                var reason = "Kicked!";
+                var reason = Lang.MarkMsgAsLocaleKey("kick_reason_default");
                 if (splited.Count() > 2) {
-                    reason = "Kicked: " + string.Join(" ", splited.Skip(2));
+                    reason = Lang.FormatMsg("kick_reason_custom", string.Join(" ", splited.Skip(2)));
                 }
 
                 var plrname = splited[1];
@@ -1938,7 +1938,7 @@ public class Con : CasualtiesTogetherSingleton {
                     }
                 }, false, GetCommandCallerPlayer(), false, false);
                 if (res.Item1) {
-                    log.l($"Kicked: {plrname} - {reason}");
+                    log.l($"Kicked: {plrname} - {Lang.ParseTaggedString(reason)}");
                 } else {
                     log.l($"Failed to kick: {plrname} {res.Item2}");
                 }
@@ -1951,9 +1951,9 @@ public class Con : CasualtiesTogetherSingleton {
                 con.CheckArgumentCount(splited, 1);
                 var plrname = splited[1];
 
-                var reason = "Banned!";
+                var reason = Lang.MarkMsgAsLocaleKey("ban_reason_default");
                 if (splited.Count() > 2) {
-                    reason = "Banned: " + string.Join(" ", splited.Skip(2));
+                    reason = Lang.FormatMsg("ban_reason_custom", string.Join(" ", splited.Skip(2)));
                 }
 
                 var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
@@ -1967,7 +1967,7 @@ public class Con : CasualtiesTogetherSingleton {
                     }
                 }, false, GetCommandCallerPlayer(), false, false);
                 if (res.Item1) {
-                    log.l($"Banned: {plrname} - {reason}");
+                    log.l($"Banned: {plrname} - {Lang.ParseTaggedString(reason)}");
                 } else {
                     if (ulong.TryParse(plrname, out var parsed_as_steamid) && parsed_as_steamid != 0 && plrname.StartsWith("7656119")) {
                         BanList.Add("NULL", "", parsed_as_steamid);
@@ -1990,9 +1990,9 @@ public class Con : CasualtiesTogetherSingleton {
                 }
 
 
-                var reason = "Banned!";
+                var reason = Lang.MarkMsgAsLocaleKey("ban_reason_default");
                 if (splited.Count() > 2) {
-                    reason = "Banned: " + string.Join(" ", splited.Skip(2));
+                    reason = Lang.FormatMsg("ban_reason_custom", string.Join(" ", splited.Skip(2)));
                 }
 
                 var res = PerformActionOnPlayersByName(plrname, (ScavPlayer plr) => {
@@ -2011,7 +2011,7 @@ public class Con : CasualtiesTogetherSingleton {
                 }, false, GetCommandCallerPlayer(), false, false);
 
                 if (res.Item1) {
-                    log.l($"Banned: {plrname} - {reason}");
+                    log.l($"Banned: {plrname} - {Lang.ParseTaggedString(reason)}");
                 } else {
                     if (Net.TryParseIPPORT(plrname, out var realip, out var _)) {
                         BanList.Add(realip, "", 0);
@@ -2509,6 +2509,7 @@ public class Con : CasualtiesTogetherSingleton {
                 DebugMenuSettings.is_verbose = target;
                 DebugMenuSettings._DEV_VISUALISE_NET_EVENTS = target;
                 DebugMenuSettings._DEV_ENABLE_STEAM_LOG = target;
+                KrokV5Optimization.FindTheBug.Arm();
 
                 log.l($"DEV : verbose = {Multiplayer.verbose} ");
             }, null));
@@ -3001,7 +3002,7 @@ public class Con : CasualtiesTogetherSingleton {
 
                 var nettttt = Multiplayer.SERVER_TOGGLE_SHOULD_HOST_DEDICATED ? Net.NetType.DedicatedServer : Net.NetType.Host;
 
-                Multiplayer.DoMultiplayerStatusMessageLog($"Hosting Steam Lobby: {nettttt}, {type}");
+                Multiplayer.DoMultiplayerStatusMessageLog(string.Format(Lang.Get("mmct_hosting_steam_lobby"), nettttt, type));
 
                 TransportSteamworks.OnWantToHostLobby(
                     nettttt,
@@ -4308,6 +4309,7 @@ public class Con : CasualtiesTogetherSingleton {
                 } else {
                     DebugMenuSettings.is_verbose = ParseBool01(args[3]);
                 }
+                KrokV5Optimization.FindTheBug.Arm();
                 return $"verbose: {Multiplayer.verbose} ";
             }
 

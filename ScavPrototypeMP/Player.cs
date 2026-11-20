@@ -147,6 +147,22 @@ namespace Together {
         public Sprite IconMediumSprite;
         public Sprite IconSmallSprite;
 
+        // the three sprites are often one object, and the textures under them belong to the shared avatar cache.
+        void DestroyIconSprites() {
+            HashSet<Sprite> sprites = new HashSet<Sprite>();
+            sprites.Add(IconLargeSprite);
+            sprites.Add(IconMediumSprite);
+            sprites.Add(IconSmallSprite);
+            sprites.Remove(null);
+            foreach (Sprite sprite in sprites) {
+                UnityEngine.Object.Destroy(sprite);
+            }
+
+            IconLargeSprite = null;
+            IconMediumSprite = null;
+            IconSmallSprite = null;
+        }
+
 
         public List<Sprite> KnownUserTagIcons = new();
 
@@ -442,6 +458,8 @@ namespace Together {
         }
 
         public bool finishedLayer = false;
+        // stays set while they bob on the exit line, cleared once they climb back off it
+        public bool layerExitLatched = false;
 
         public double ping = -0.01;
         public double rtt_in_seconds_with_margin => ping * 4.1; // should be 2.01,  but more is better placebo
@@ -913,25 +931,38 @@ namespace Together {
         static NetDataWriter ragdollpacketwriter = Net.CreateWriter(NetmsgId.CLIENT_ragdollpack);
         void SlowButFastUpdate() {
             visiblebodies.Clear();
-            if (Net.IsServer) {
-                if (Util.IsWorldGenerated()) {
+            if (!Net.IsServer || !Util.IsWorldGenerated())
+                return;
+            NetBody.GetBodiesInRadius(pos, 40f, visiblebodies);
+            if (ServerPlayerState != null && ServerPlayerState.is_loaded_in)
+                Server_SendRagdollPackets();
+            // v4 sent the pose as a packet. this group lerps in from the origin and the client throws that away.
+            foreach (SyncBody otherBody in Net.ServerEntityManager.GetEntities<SyncBody>()) {
+                if (otherBody == null)
+                    continue;
+                Net.ServerEntityManager.ToggleSyncGroup((byte)playerId, otherBody, SyncGroup.SyncGroup3, false);
+            }
+        }
 
-                    NetBody.GetBodiesInRadius(pos, 40, visiblebodies);
-
-                    //if (ServerPlayerState.is_loaded_in) 
-                    {
-                        //server_SendRagdollPackets();
-
-                        foreach (SyncBody otherBody in Net.ServerEntityManager.GetEntities<SyncBody>()) {
-                            Net.ServerEntityManager.ToggleSyncGroup(
-                                (byte)playerId,
-                                otherBody,
-                                SyncGroup.SyncGroup3,
-                                ServerPlayerState.is_loaded_in && !otherBody._standing.Value && !otherBody._isPiggyback.Value && otherBody.nb.plr != this && visiblebodies.Contains(otherBody.nb)
-                            );
-                        }
-                    }
-                }
+        // krok v4. each viewer gets the ragdolls near them. the host does not send this to itself.
+        void Server_SendRagdollPackets() {
+            if (IsLocal)
+                return;
+            NetDataWriter writer = ragdollpacketwriter;
+            for (int i = 0; i < visiblebodies.Count; i++) {
+                NetBody visible = visiblebodies[i];
+                if (visible == null || visible.body == null)
+                    continue;
+                if (visible.body.standing || visible.piggybacking_on != null)
+                    continue;
+                if (visible.plr == this && !Server_HasForcedServerOwnershipOfBody())
+                    continue;
+                writer.ResetKeepMsgId();
+                writer.Put((ushort)visible.netId);
+                int length = writer.Length;
+                ClientMain.WriteRagdollPacket(ref writer, visible.body);
+                writer.CompressWriter(length);
+                Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, playerId);
             }
         }
 
@@ -1044,12 +1075,14 @@ namespace Together {
 
 
 
-        public void Server_Kick(string message = "Kicked.") {
+        public void Server_Kick(string message = null) {
 
             if (Net.TryGetSteamTransport(out TransportSteamworks _) && KnownPersons.IsSteamUserPrivileged(SteamId)) {
                 // kick protection
                 return;
             }
+
+            message ??= Lang.MarkMsgAsLocaleKey("kick_default_reason");
 
             try {
                 if (body != null) {
@@ -1060,10 +1093,10 @@ namespace Together {
             }
 
 
-            string msg = $"Kicked {playerName}";
+            var msg = Lang.FormatMsg("plr_kicked", playerName);
             Chat.Server_ChatAnnouncement(msg);
             try {
-                ServerMain.Server_SendMPLogMessage(msg + ": " + message, false, new knetid[] { playerId });
+                ServerMain.Server_SendMPLogMessage(Lang.FormatMsg("kick_notice", Lang.NestedMsg(msg), Lang.NestedMsg(message)), false, new knetid[] { playerId });
             } catch (Exception e) {
                 log.error(e);
             }
@@ -1351,6 +1384,9 @@ namespace Together {
 #endif
                     // the suitcase is taken apart on the next descent. the file is what a later layer can load.
                     PlayerCheckpoint.WriteOne(this, false);
+                    if (ServerMain.Server_LastPlayerStates.TryGetValue(GetPersistentId(), out PlayerSavedState previousState)) {
+                        previousState.Discard();
+                    }
                     ServerMain.Server_LastPlayerStates[GetPersistentId()] = (new PlayerSavedState(body));
                 }
             } catch (Exception e) {
@@ -1371,6 +1407,7 @@ namespace Together {
             }
 
             OnPlayerLeftUE?.Invoke(this);
+            DestroyIconSprites();
 
             try {
                 if (Net.IsServer && Net.IsRunning) {

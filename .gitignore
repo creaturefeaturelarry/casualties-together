@@ -43,6 +43,7 @@ scripts/__pycache__/
 **/__pycache__/
 *.pyc
 ScavPrototypeMP/Optimizinator/Evidence/archived/
+.github/workflows/sync-to-public.yml
 
 # Build artis
 CasualtiesTogether.Local.props
@@ -53,3 +54,4 @@ omnisharp.json
 
 # Local Tools
 tools/FakePlayer/
+.github/workflows/sync-to-public.yml

@@ -334,6 +334,11 @@ namespace Together {
 
         protected void OnDestroy() {
             if (nametag != null) {
+                TMP_Text nametagText = nametag.GetComponent<TMP_Text>();
+                if (nametagText != null && nametagText.fontMaterial != null && nametagText.fontMaterial.name.StartsWith("FANCY")) {
+                    Destroy(nametagText.fontMaterial);
+                }
+
                 Destroy(nametag);
             }
 

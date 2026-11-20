@@ -1700,15 +1700,7 @@ namespace Together {
                 return CombatStuff.CheckIfItsOkeyToDismemberThatLimb(limb);
             } else {
                 //OG: Item.DoAmputate V5t5
-                bool anyLegGone = false;
-                for (int i = 9; i < 15; i++) {
-                    if (limb.body.limbs[i].dismembered) {
-                        anyLegGone = true;
-                        break;
-                    }
-                }
-
-                if (limb.infectionAmount > 60f && Array.IndexOf(limb.body.limbs, limb) > 2 && (!anyLegGone || !limb.isLegLimb)) {
+                if (limb.infectionAmount > 60f && Array.IndexOf(limb.body.limbs, limb) > 2) {
                     return true;
                 }
                 return false;
@@ -1857,6 +1849,67 @@ namespace Together {
 
 
 
+    // closed bags are inactive, and the stock search skips those children.
+    // near the host the bag is often open or the row is still awake, so the kit counts.
+    // far away it is asleep, pickLevel stays -1, and the lock springs back at full speed.
+    [HarmonyPatch(typeof(LockpingMinigame), nameof(LockpingMinigame.Start))]
+    public static class LockpingMinigame_Start_MultiplayerPatch {
+        static void Postfix(LockpingMinigame __instance) {
+            if (!Net.IsRunning || __instance == null)
+                return;
+            ApplyKit(__instance);
+        }
+
+        internal static void ApplyKit(LockpingMinigame game) {
+            if (game == null || Minigame.game == null)
+                return;
+            Body body = Minigame.game.body;
+            if (body == null || body.skills == null || body.skills.INT < 10)
+                return;
+            Item kit = FindKit(body);
+            if (kit == null)
+                return;
+            int level = body.skills.INT - 10;
+            if (game.pickLevel < level)
+                game.pickLevel = level;
+            if (Minigame.game.currentItem == null)
+                Minigame.game.currentItem = kit;
+        }
+
+        internal static Item FindKit(Body body) {
+            if (body == null)
+                return null;
+            if (body.slots != null) {
+                for (int i = 0; i < body.slots.Length; i++) {
+                    Item found = Scan(body.GetItem(i));
+                    if (found != null)
+                        return found;
+                }
+            }
+            foreach (Item worn in body.GetAllWearables()) {
+                Item found = Scan(worn);
+                if (found != null)
+                    return found;
+            }
+            return null;
+        }
+
+        static Item Scan(Item item) {
+            if (item == null)
+                return null;
+            if (item.id == "lockpickingkit")
+                return item;
+            if (!item.TryGetComponent(out Container _))
+                return null;
+            Item[] kids = item.GetComponentsInChildren<Item>(true);
+            for (int i = 0; i < kids.Length; i++) {
+                if (kids[i] != null && kids[i].id == "lockpickingkit")
+                    return kids[i];
+            }
+            return null;
+        }
+    }
+
     [HarmonyPatch(typeof(LockpingMinigame), nameof(LockpingMinigame.Update))]
     public static class LockpingMinigame_Update_MultiplayerPatch {
 
@@ -1864,6 +1917,8 @@ namespace Together {
             if (!Net.IsRunning) {
                 return;
             }
+            if (__instance.pickLevel < 0)
+                LockpingMinigame_Start_MultiplayerPatch.ApplyKit(__instance);
 
             if (__instance.clickingInside) {
 
@@ -1907,7 +1962,7 @@ namespace Together {
                 ServerMain.Server_AnnounceSound(lockpicker.slots[lockpicker.handSlot].limb.transform.position, $"gore2", ServerMain.GetListOfClientIdsExceptThis(clientId));
 
                 //OG: Openable.OnUse V501
-                lockpicker.FindByIdSurface("lockpickingkit", out Item it);
+                Item it = LockpingMinigame_Start_MultiplayerPatch.FindKit(lockpicker);
                 if (lockpicker.skills.INT < 10) { // its kinda kinda ? kinda guranteed? that theyre lockpicking with a lockipck??
                     it = null;
                 }
@@ -2488,6 +2543,7 @@ namespace Together {
                 if (NetObjectRegistry.TryGetSyncInfo(Minigame.game.currentItem.gameObject, out SyncInfo si)) {
                     Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_BandageMinigame_DoBandageAction, si.syncId, pb.netId, Util.GetLimbIndex(l), true);
                     si.SetIgnoreTimeForRoundTrip();
+                    si.AwaitServerAck();
                 }
 
             }
@@ -2507,6 +2563,7 @@ namespace Together {
             reader.Get(out knetid bandageid);
             reader.Get(out knetid targetplr);
             reader.Get(out byte limbid);
+            using (UseAck.Scope ack = UseAck.After(clientId, bandageid)) {
 
             if (MedicalSync.Server_CheckCanHealerUseItemForLimb(clientId, targetplr, limbid, bandageid, out ScavPlayer healerPlr, out NetBody targetnb, out SyncInfo item_si)) {
                 if (MinigameBase_StartMinigame_MultiplayerPatch.known_bandages_onuse_lambdas.TryGetValue(item_si.item.id, out OnBandageUse onuse_lambda)) {
@@ -2550,6 +2607,7 @@ namespace Together {
             if (healerPlr != null) {
                 //healersci.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey("serverdeny_bandage2"));
                 MinigameMPManager.Server_ForceEndMinigameForPlayer(healerPlr);
+            }
             }
         }
     }
@@ -3004,7 +3062,7 @@ namespace Together {
             }
 
             if (healer != null && target != null) {
-                healer.Server_DoAlertSingle("Denied amputation cut (try again)", false);
+                healer.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey("serverdeny_amputation"), false);
                 log.warn($"Denied amputation cutting for {healer} -> {target}");
                 MinigameMPManager.Server_ForceEndMinigameForPlayer(healer);
             }
