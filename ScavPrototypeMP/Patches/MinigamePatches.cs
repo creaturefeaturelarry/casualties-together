@@ -2616,6 +2616,8 @@ namespace Together {
     [HarmonyPatch(typeof(Item), nameof(Item.TryProsthesisRepair))]
     public static class ProsthesisRepair_RememberPatchCount {
         public static readonly Dictionary<ushort, int> PatchCount = new Dictionary<ushort, int>();
+        // sync ids are reused once an item is gone, so remember which item the count was for
+        static readonly Dictionary<ushort, string> PatchItem = new Dictionary<ushort, string>();
 
         static void Prefix(Item item, int holeCount) {
             if (item == null || holeCount < 1) {
@@ -2625,6 +2627,27 @@ namespace Together {
                 return;
             }
             PatchCount[si.syncId.id] = holeCount;
+            PatchItem[si.syncId.id] = item.id;
+        }
+
+        public static bool TryGet(ushort syncId, Item item, out int holeCount) {
+            if (!PatchCount.TryGetValue(syncId, out holeCount) || holeCount < 1) {
+                return false;
+            }
+            if (item == null || !PatchItem.TryGetValue(syncId, out string id) || id != item.id) {
+                // left over from an item that had this id before
+                holeCount = 0;
+                return false;
+            }
+            return true;
+        }
+
+        [CTPostInit]
+        static void Init() {
+            WorldMP.OnWorldgenFinish += () => {
+                PatchCount.Clear();
+                PatchItem.Clear();
+            };
         }
     }
 
@@ -2713,7 +2736,7 @@ namespace Together {
                 if (limb == null || limb.dismembered || limb.dislocated || !limb.HasProsthetic()) {
                     return;
                 }
-                if (!ProsthesisRepair_RememberPatchCount.PatchCount.TryGetValue(itemId, out int holeCount) || holeCount < 1) {
+                if (!ProsthesisRepair_RememberPatchCount.TryGet(itemId, itemSi.item, out int holeCount)) {
                     return;
                 }
                 bool placed = false;
