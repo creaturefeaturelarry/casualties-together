@@ -77,20 +77,14 @@ public static class CharacterSpawn {
             PrefabCache[chr] = null;
         }
 
-        // reuse the scene Experiment capture when chr==0 if ClientMain already stashed it
-        if (chr == 0 && ServerMain.CHARACTER_PREFAB != null) {
-            Body stash = ServerMain.CHARACTER_PREFAB.GetComponentInChildren<Body>(true);
-            if (stash != null && ClampChar(stash.charType) == 0) {
-                MpBody.ResetBodyToStock(stash);
-                PrefabCache[0] = ServerMain.CHARACTER_PREFAB;
-                return PrefabCache[0];
-            }
+        // the scene Experiment is already wearing the local slot. cloning it gives every
+        // new experiment that skin, and the shared sprite names stop the strip from undoing it.
+        GameObject live = Utils.Create(PrefabPaths[chr], Vector2.zero, 0f);
+        if (live == null) {
+            return null;
         }
 
-        // never clone a live player. charType can be corrected before the mesh is, and
-        // copying that body stored a Milky mesh under the Dune index (and the reverse).
-        GameObject live = Utils.Create(PrefabPaths[chr], Vector2.zero, 0f);
-
+        DefaultSpriteExport.CaptureClean(live);
         CaptureHingeState(live);
         GameObject cached = Object.Instantiate(live);
         cached.SetActive(false);

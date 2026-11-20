@@ -87,6 +87,21 @@ public struct PlayerSavedState {
                 }
             }
 
+            int meshes = 0;
+            int inside = 0;
+            Item[] kept = invholder.GetComponentsInChildren<Item>(true);
+            for (int i = 0; i < kept.Length; i++) {
+                if (kept[i] == null) {
+                    continue;
+                }
+                meshes++;
+                Transform parent = kept[i].transform.parent;
+                if (parent != null && parent.GetComponent<Container>() != null) {
+                    inside++;
+                }
+            }
+            FindTheBugReports.Say("leavegear", "park meshes=" + meshes + " inside=" + inside);
+
             invholder.SetActive(false);
         }
 
@@ -569,6 +584,8 @@ public class ServerMain : MonoBehaviour {
 
             if (!pb.body.alive && Multiplayer.rules.LateJoinSpectate) {
                 // dont give them any spawn location, cuz they were moved to outside of the map
+            } else if (MapPoses.TryApply(pb.body)) {
+                // this player was placed on the saved debug map.
             } else {
                 if (plr.ServerPlayerState.did_give_spawn_location_from_a_save) {
                     plr.ServerPlayerState.did_give_spawn_location_from_a_save = false;
@@ -689,6 +706,12 @@ public class ServerMain : MonoBehaviour {
 
 
     public static void LateSpawnLocation(NetBody b) {
+        if (WorldSpawn.Applies(WorldGeneration.world)) {
+            b.SetBodyPosition(WorldSpawn.Pos);
+            if (b != null && b.plr != null)
+                PlayerCheckpoint.ReclaimGear(b.plr.playerId);
+            return;
+        }
         var pb = GetPlayerBodyHostOrAnyoneAlive(b.plr, b);
         var shouldSpawnOnPlayer = Multiplayer.rules.SpawnOnPlayer && pb != null && pb.body.alive;
 
@@ -1705,14 +1728,22 @@ public class ServerMain : MonoBehaviour {
             && ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out var giverPlr, out NetBody giverNetBody)
             && NetBody.TryGetNetBodyFromId(this_guy, out NetBody receiverNetBody) && giverNetBody != receiverNetBody
             && ItemSync.TryGetItemSyncInfo(itemId, out var si)
-            && KM.DistanceCheck(giverNetBody, receiverNetBody, 20)
         ) {
+            if (!Util.CanHandOff(giverNetBody.body, receiverNetBody.body, out string blocked)) {
+                giverPlr.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey(blocked));
+                return;
+            }
             var ici = ItemSync.ItemGetContainerInfo(si.item);
             if (ici.bodynpc != receiverNetBody) {// check if it's not already taken
 
                 if (receiverNetBody.body.conscious && receiverNetBody.IsPlayer) {
                     PromptPlayer(receiverNetBody.plr, "ITEM_OFFER", $"<body:{giverNetBody.netId}> <key:plrint_give_prompt>", $"<key:plrint_take_prompt> \"<item:{si.syncId}>\"?", (answer) => {
                         if (answer == 0) {
+                            // the prompt can be accepted after either player has walked off or behind a wall.
+                            if (!Util.CanHandOff(giverNetBody.body, receiverNetBody.body, out string later)) {
+                                giverPlr.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey(later));
+                                return;
+                            }
                             if (ItemSync.ConfirmItemOffer(giverNetBody, receiverNetBody, si.item)) {
                                 ItemSync.ForcePickupItem(receiverNetBody, si.item);
 
@@ -1722,7 +1753,7 @@ public class ServerMain : MonoBehaviour {
                             giverPlr.Server_DoAlertSingle($"<bodyc:{receiverNetBody.netId}> <key:declined>.");
                         }
                     });
-                } else {
+                } else if (Util.CanHandOff(giverNetBody.body, receiverNetBody.body, out _)) {
                     ItemSync.ForcePickupItem(receiverNetBody, si.item);
                 }
 

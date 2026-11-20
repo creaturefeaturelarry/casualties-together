@@ -98,8 +98,19 @@ public class SpriteReplacerPlugin : MonoBehaviour {
     internal static int BackupCount =>
         _backupCountSetting == null ? DefaultBackupCount : Math.Max(0, _backupCountSetting.Value);
 
-    internal static bool ShareSkins => _shareSetting == null || _shareSetting.Value;
-    internal static bool DownloadSkins => _downloadSetting == null || _downloadSetting.Value;
+    internal static bool ShareSkins {
+        get {
+            SkinSettings.EnsureLoaded();
+            return SkinSettings.shareSkins;
+        }
+    }
+
+    internal static bool DownloadSkins {
+        get {
+            SkinSettings.EnsureLoaded();
+            return SkinSettings.downloadSkins;
+        }
+    }
 
     internal static int MaxSkinCacheMB =>
         _cacheMbSetting == null ? 64 : Math.Max(4, _cacheMbSetting.Value);
@@ -192,6 +203,8 @@ public class SpriteReplacerPlugin : MonoBehaviour {
 
         Log.LogInfo("Sprite Replacer loaded successfully. Numpad 0 = default, 1-9 = slots.");
         // species cache lives in the settings json, not the old slot1 cfg.
+        AdoptCfgToggle(nameof(SkinSettings.shareSkins), _shareSetting);
+        AdoptCfgToggle(nameof(SkinSettings.downloadSkins), _downloadSetting);
         SyncSpeciesCache();
     }
 
@@ -467,24 +480,67 @@ public class SpriteReplacerPlugin : MonoBehaviour {
     }
 
     internal static void SetShareSkins(bool value) {
-        if (_shareSetting == null || _shareSetting.Value == value) {
-            return;
-        }
-
-        _shareSetting.Value = value;
-        if (_shareSetting.ConfigFile != null) {
-            _shareSetting.ConfigFile.Save();
-        }
+        WriteSkinToggle(nameof(SkinSettings.shareSkins), value);
+        WriteCfgBool(_shareSetting, value);
     }
 
     internal static void SetDownloadSkins(bool value) {
-        if (_downloadSetting == null || _downloadSetting.Value == value) {
+        bool was = DownloadSkins;
+        WriteSkinToggle(nameof(SkinSettings.downloadSkins), value);
+        WriteCfgBool(_downloadSetting, value);
+        if (was == DownloadSkins) {
+            return;
+        }
+        if (!DownloadSkins) {
+            MpSkinSync.ReleaseShownRemoteSkins();
+        } else {
+            MpSkinSync.ShowStoredRemoteSkins();
+        }
+    }
+
+    // the cfg file is the old store. a missing settings-json key takes that value once.
+    static void AdoptCfgToggle(string fieldName, ConfigEntry<bool> entry) {
+        if (entry == null) {
             return;
         }
 
-        _downloadSetting.Value = value;
-        if (_downloadSetting.ConfigFile != null) {
-            _downloadSetting.ConfigFile.Save();
+        SkinSettings.EnsureLoaded();
+        FieldInfo field = typeof(SkinSettings).GetField(fieldName, BindingFlags.Static | BindingFlags.Public);
+        SettingDeclarerThingyBoolAttribute attr = field == null ? null : field.GetCustomAttribute<SettingDeclarerThingyBoolAttribute>();
+        if (attr == null || SettingsJsonThing.json.HasKey(attr.GetPrefKey(field))) {
+            WriteCfgBool(entry, (bool)field.GetValue(null));
+            return;
+        }
+
+        attr.Save(field, entry.Value);
+        SettingsJsonThing.json.Save();
+    }
+
+    static void WriteSkinToggle(string fieldName, bool value) {
+        SkinSettings.EnsureLoaded();
+        FieldInfo field = typeof(SkinSettings).GetField(fieldName, BindingFlags.Static | BindingFlags.Public);
+        if (field == null || (bool)field.GetValue(null) == value) {
+            return;
+        }
+
+        SettingDeclarerThingyBoolAttribute attr = field.GetCustomAttribute<SettingDeclarerThingyBoolAttribute>();
+        if (attr == null) {
+            field.SetValue(null, value);
+            return;
+        }
+
+        attr.Save(field, value);
+        SettingsJsonThing.json.Save();
+    }
+
+    static void WriteCfgBool(ConfigEntry<bool> entry, bool value) {
+        if (entry == null || entry.Value == value) {
+            return;
+        }
+
+        entry.Value = value;
+        if (entry.ConfigFile != null) {
+            entry.ConfigFile.Save();
         }
     }
 

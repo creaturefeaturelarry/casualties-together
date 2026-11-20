@@ -282,6 +282,7 @@ namespace Together {
                 }
             }
             AppendPhases(frames);
+            LeaveGear.AppendStatus(_sb);
             log.l(_sb.ToString(), false);
 
             Array.Clear(Total, 0, Total.Length);

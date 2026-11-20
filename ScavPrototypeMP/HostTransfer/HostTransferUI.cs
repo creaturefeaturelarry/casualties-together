@@ -36,6 +36,7 @@ internal sealed class HostTransferUI : CasualtiesTogetherSingleton {
     }
 
     internal static void DrawLobbyAction() {
+        if (!LobbyHostTransfer.Enabled) return;
         if (!Net.IsRunningSteam || !Net.IsHost || !Util.IsInMainMenu()) return;
         bool oldEnabled = GUI.enabled;
         GUI.enabled &= !LobbyHostTransfer.Busy && ScavPlayer.AllPlayers.Count(p => p != null && !p.IsLocal) > 0;

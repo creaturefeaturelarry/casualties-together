@@ -182,8 +182,13 @@ namespace Together {
 
     [HarmonyPatch(typeof(Skills), nameof(Skills.AddExp))]
     static class Skills_AddExp_MultiplayerPatch {
-        static void Prefix(Skills __instance, int stat, float xp) {
-
+        // the host's copy of a remote player does not walk or carry, so its own
+        // encumbrance tick would miss. that tick is reported by the owner instead.
+        static bool Prefix(Skills __instance, int stat, float xp) {
+            if (Body_HandlePeriodicChecks_MultiplayerPatch.SuppressRemotePassive) {
+                return false;
+            }
+            return true;
         }
     }
 
@@ -258,6 +263,21 @@ namespace Together {
             public bool halfMinuteTick;
             public bool suppressedBrainFx;
             public bool savedForceNoMovement;
+            public bool suppressRemotePassive;
+            public bool trackLocal;
+            public int str;
+            public int res;
+            public float expStr;
+            public float expRes;
+        }
+
+        // host copy of a far player has no walk speed and no carried weight, so the
+        // encumbrance tick never fires there. the owner's machine reports the tick instead.
+        internal static bool SuppressRemotePassive => suppressRemotePassive > 0;
+        static int suppressRemotePassive;
+
+        static Body_HandlePeriodicChecks_MultiplayerPatch() {
+            Multiplayer.RegisterCustomServerReceiver("together.passive-skill", OnPassiveSkill);
         }
 
         static void Prefix(Body __instance, ref PeriodicState __state) {
@@ -266,6 +286,19 @@ namespace Together {
             __state = new PeriodicState {
                 halfMinuteTick = body.halfMinuteCheckTime + Time.deltaTime > 30f,
             };
+
+            if (Net.IsRunning && body != null && body.skills != null && body.TryGetNetPlayer(out ScavPlayer owner) && owner != null) {
+                if (Net.IsServer && !owner.IsLocal) {
+                    suppressRemotePassive++;
+                    __state.suppressRemotePassive = true;
+                } else if (Net.IsClient && owner.IsLocal) {
+                    __state.trackLocal = true;
+                    __state.str = body.skills.STR;
+                    __state.res = body.skills.RES;
+                    __state.expStr = body.skills.expSTR;
+                    __state.expRes = body.skills.expRES;
+                }
+            }
 
             if (!Net.IsRunning || !__state.halfMinuteTick || body.brainHealth >= 95f) {
                 return;
@@ -290,6 +323,15 @@ namespace Together {
         static void Postfix(Body __instance, ref PeriodicState __state) {
             Body body = __instance;
 
+            if (__state.suppressRemotePassive && suppressRemotePassive > 0) {
+                suppressRemotePassive--;
+            }
+
+            if (__state.trackLocal && body != null && body.skills != null) {
+                ReportPassive(body, 0, __state.str, __state.expStr, body.skills.STR, body.skills.expSTR);
+                ReportPassive(body, 1, __state.res, __state.expRes, body.skills.RES, body.skills.expRES);
+            }
+
             if (__state.suppressedBrainFx) {
                 body.forceNoMovement = __state.savedForceNoMovement;
             }
@@ -301,6 +343,39 @@ namespace Together {
             // belt-and-suspenders if any FX still leaked before the suppress
             if (PlayerCamera.main != null && PlayerCamera.main.threatMusicTime == 8f) {
                 PlayerCamera.main.threatMusicTime = 0f;
+            }
+        }
+
+        static void ReportPassive(Body body, byte stat, int levelBefore, float expBefore, int levelAfter, float expAfter) {
+            float gained = 0f;
+            if (levelAfter == levelBefore) {
+                if (expAfter > expBefore) {
+                    gained = expAfter - expBefore;
+                }
+            } else if (levelAfter > levelBefore) {
+                gained = 0.1f * Time.timeScale;
+            }
+            if (gained <= 0f || gained > 2f) {
+                return;
+            }
+            NetDataWriter writer = Multiplayer.CreateNamedWriter("together.passive-skill");
+            writer.Put(stat);
+            writer.Put(gained);
+            Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
+        }
+
+        static void OnPassiveSkill(ScavPlayer plr, LiteNetLib.Utils.NetDataReader reader) {
+            if (plr == null || plr.body == null || plr.body.skills == null) {
+                return;
+            }
+            byte stat = reader.GetByte();
+            float gained = reader.GetFloat();
+            if (stat > 1 || gained <= 0f || gained > 2f) {
+                return;
+            }
+            plr.body.skills.AddExp(stat, gained);
+            if (plr.netBody != null) {
+                MedicalSync.ForceHealth(plr.netBody);
             }
         }
 
@@ -361,11 +436,17 @@ namespace Together {
                     has_spawn_location = true;
                     Vector2 podSpawn = body.transform.position;
                     bool packTogether = WorldGeneration.world != null && (WorldGeneration.world.doPod || WorldGeneration.world.biomeDepth == 10);
+                    bool levelSpawn = WorldSpawn.Applies(WorldGeneration.world);
+                    MapPoses.TryApply(body);
                     foreach (NetBody item in NetBody.all_instances) {
                         if (item.IsPlayer && !item.IsBodyLocal()) {
                             item.plr.ResetEntropy();
-                            // pod and ascent: one spot for the group. otherwise keep their X, match host Y.
-                            item.SetBodyPosition(packTogether
+                            if (item.body != null && MapPoses.TryApply(item.body))
+                                continue;
+                            // a saved level spawn is one spot. pod and ascent match the host. otherwise keep their X.
+                            item.SetBodyPosition(levelSpawn
+                                ? WorldSpawn.Pos
+                                : packTogether
                                 ? podSpawn
                                 : new Vector2(item.transform.position.x, podSpawn.y));
                         }

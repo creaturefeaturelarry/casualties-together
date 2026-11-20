@@ -1,5 +1,6 @@
 using BepInEx.Configuration;
 using HarmonyLib;
+using System;
 using Together;
 
 namespace KrokV5Optimization;
@@ -26,7 +27,12 @@ internal static class FindTheBug {
             return;
         }
         _armed = true;
-        EvidenceCache.Arm(_harmony);
+        try {
+            EvidenceCache.Arm(_harmony);
+        } catch (Exception ex) {
+            // a patch that will not compile used to escape as "Command mpverbose failed".
+            Write("cache arm failed: " + ex.GetType().Name + " " + ex.Message);
+        }
     }
 
     internal static void Write(string line) {

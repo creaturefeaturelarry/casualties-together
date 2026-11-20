@@ -248,6 +248,9 @@ public static class WorldGeneration_SetBlock_MultiplayerPatch {
         if (WorldGenerationGenerateBlockCirclePatch.doing_autoUpdateChunk) return;
 
         var b = new ChangedBlockInfo((Vector2Int16)pos, block);
+        // a client who already received this chunk will not be sent it again. forget it
+        // so walking back pulls the tiles placed while they were away.
+        ForgetClientChunk(pos);
         // cooled lava has to arrive. the unreliable queue drops it once it fills.
         if (block == 37) {
             if (reliableChangedBlocks.Count < 256)
@@ -255,6 +258,33 @@ public static class WorldGeneration_SetBlock_MultiplayerPatch {
         } else if (changedBlocks.Count < MaxChangedBlocksQueue) {
             //if (changed_blocks.Count < 5 || (WorldGeneration.world.earthquakeIntensity > 0f && changed_blocks.Count < MaxChangedBlocksQueue)) {
             changedBlocks.Add(b);
+        }
+    }
+
+    // the proximity resend skips a chunk marked known. placement while that client is
+    // outside the ~100 block window used to stay on the host only.
+    static void ForgetClientChunk(Vector2Int pos) {
+        int cx = pos.x / WorldChunkSync.SYNCCHUNK_TILESIZE;
+        int cy = pos.y / WorldChunkSync.SYNCCHUNK_TILESIZE;
+        int dim = WorldChunkSync.SYNCCHUNK_DIMENSION;
+        if ((uint)cx >= (uint)dim || (uint)cy >= (uint)dim)
+            return;
+
+        uint[,] hashes = WorldChunkSync.Server_ChunkHashes;
+        if (hashes != null && cx < hashes.GetLength(0) && cy < hashes.GetLength(1))
+            hashes[cx, cy] = 0;
+
+        IReadOnlyList<ScavPlayer> players = ServerMain.AllPlayersExceptHost;
+        if (players == null)
+            return;
+        for (int i = 0; i < players.Count; i++) {
+            bool[,] known = players[i] != null && players[i].ServerPlayerState != null
+                ? players[i].ServerPlayerState.known_chunks
+                : null;
+            if (known == null)
+                continue;
+            if (cx < known.GetLength(0) && cy < known.GetLength(1))
+                known[cx, cy] = false;
         }
     }
 
@@ -271,7 +301,8 @@ public static class WorldGeneration_SetBlock_MultiplayerPatch {
             for (int i = 0; i < n; i++) {
                 writer.Put(changedBlocks[i]);
             }
-            Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
+            // unreliable was dropped for anyone outside the live chunk window, and nothing sent it again.
+            Net.Server_SendToClients(DeliveryMethod.ReliableUnordered, writer, clientIds: ServerMain.AllClientIdsExceptHost);
             writer.ResetKeepMsgId();
             changedBlocks.Clear();
         }

@@ -240,7 +240,7 @@ public static class Body_UseItem_MultiplayerPatch {
 
             if (
                 (giver == target_nb || !MedicalSync.IsRefusingHelp(target_nb.body))
-                && KM.DistanceCheck(giver, target_nb.body, SharedMain.max_player_interaction_distance * 1.6f)
+                && (giver == target_nb || Util.CanHandOff(giver.body, target_nb.body, out _))
                 && (si.item.Stats.usable || si.item.Stats.wearable)
                 && ItemSync.CheckIfBodyReachThisItem(si, giver.body)
                 && !CombatStuff.ItemIsUsedForAttacking(si.item)
@@ -288,7 +288,9 @@ public static class Body_UseItem_MultiplayerPatch {
                                 UseAck.Send(clientId, item);
                                 return;
                             }
-                            if (ItemSync.ConfirmItemOffer(giver, target_nb, si.item)) {
+                            if (!Util.CanHandOff(giver.body, target_nb.body, out string later)) {
+                                giverPlr.Server_DoAlertSingle(Lang.MarkMsgAsLocaleKey(later));
+                            } else if (ItemSync.ConfirmItemOffer(giver, target_nb, si.item)) {
                                 useItemFunc();
 
                                 giverPlr.Server_DoAlertSingle($"<bodyc:{target_nb.netId}> <key:accepted>.");

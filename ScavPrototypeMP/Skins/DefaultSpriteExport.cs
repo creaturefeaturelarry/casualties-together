@@ -33,13 +33,88 @@ internal static class DefaultSpriteExport {
         }
 
         // loaded replacements keep the stock name. never record them as vanilla.
-        if (SpriteReplacerPlugin.LoadedSprites != null &&
-            SpriteReplacerPlugin.LoadedSprites.TryGetValue(name, out Sprite loaded) &&
-            ReferenceEquals(loaded, sprite)) {
+        if (IsSkin(sprite)) {
             return;
         }
 
         Captured[name] = sprite;
+    }
+
+    // the resource prefab is the vanilla art. a same-named skin must not stay in this map.
+    internal static void CaptureClean(GameObject root) {
+        if (root == null) {
+            return;
+        }
+
+        SpriteRenderer[] renderers = root.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++) {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer != null) {
+                RememberClean(renderer.sprite);
+            }
+        }
+
+        FacialExpression[] faces = root.GetComponentsInChildren<FacialExpression>(true);
+        for (int i = 0; i < faces.Length; i++) {
+            FacialExpression face = faces[i];
+            if (face == null) {
+                continue;
+            }
+
+            RememberClean(face.defaultHead);
+            RememberClean(face.defaultHeadMouth);
+            RememberClean(face.defaultHeadMouthHalf);
+            RememberClean(face.eyesGone);
+            RememberClean(face.eyesGoneHealed);
+            RememberAll(face.disfiguredHead);
+            RememberAll(face.disfiguredHeadHeal);
+        }
+    }
+
+    static void RememberAll(Sprite[] sprites) {
+        if (sprites == null) {
+            return;
+        }
+
+        for (int i = 0; i < sprites.Length; i++) {
+            RememberClean(sprites[i]);
+        }
+    }
+
+    static void RememberClean(Sprite sprite) {
+        if (sprite == null || IsSkin(sprite)) {
+            return;
+        }
+
+        string name = sprite.name;
+        if (string.IsNullOrEmpty(name) || FolderFor(name) == null) {
+            return;
+        }
+
+        Captured[name] = sprite;
+    }
+
+    static bool IsSkin(Sprite sprite) {
+        if (sprite == null) {
+            return false;
+        }
+
+        if (LocalSkinLeft.IsLocalTwin(sprite)) {
+            return true;
+        }
+
+        Dictionary<string, Sprite> loaded = SpriteReplacerPlugin.LoadedSprites;
+        if (loaded == null) {
+            return false;
+        }
+
+        foreach (Sprite loadedSprite in loaded.Values) {
+            if (ReferenceEquals(loadedSprite, sprite)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     internal static bool TryGetStock(string name, out Sprite sprite) {
@@ -48,7 +123,7 @@ internal static class DefaultSpriteExport {
             return false;
         }
 
-        return Captured.TryGetValue(name, out sprite) && sprite != null;
+        return Captured.TryGetValue(name, out sprite) && sprite != null && !IsSkin(sprite);
     }
 
     private static string FolderFor(string name) {

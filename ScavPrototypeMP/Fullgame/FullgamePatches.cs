@@ -961,6 +961,11 @@ static class BlueHeartMp {
 
 [HarmonyPatch(typeof(BlueHeart))]
 static class BlueHeart_MultiplayerPatch {
+    static BlueHeart_MultiplayerPatch() {
+        // chunk sleep was turning the heart off while everyone was still at the pod, which stopped the pulse packets.
+        ChunkSleep.Ignore(typeof(BlueHeart));
+    }
+
     static float _nextPulseSend;
     static ushort _pulseSerial;
     static ushort _sendSeq;
@@ -1103,10 +1108,12 @@ static class BlueHeart_MultiplayerPatch {
         float timeSincePulsed = tr.Field<float>("timeSincePulsed").Value;
         float pulseTime = tr.Field<float>("pulseTime").Value;
         bool wasClose = tr.Field<bool>("wasClose").Value;
-        Material mat = tr.Field<Material>("mat").Value;
+        Material mat = OwnMat(__instance, tr, tr.Field<Material>("mat").Value);
 
         float num = Vector2.Distance(__instance.transform.position, local.transform.position) / 500f;
-        float num2 = Mathf.Max(local.transform.position.y - __instance.transform.position.y, 0f) / 500f;
+        // stock drops the ring to nothing 500 units above the heart. this layer's spawn
+        // is about 560 above it, so the beacon was gone from where everyone landed.
+        float num2 = Mathf.Max(local.transform.position.y - __instance.transform.position.y, 0f) / 1400f;
         if (num < 0.075f) {
             PlayerCamera.main.customLookPos = Vector2.Lerp(__instance.transform.position + Vector3.up * 3f, local.transform.position, num / 0.075f);
         }
@@ -1163,6 +1170,34 @@ static class BlueHeart_MultiplayerPatch {
         __instance.transform.position = origPos + UnityEngine.Random.insideUnitCircle * 0.1f;
         __instance.transform.localScale = new Vector2(1f + Mathf.Sin(Time.time * 3f) * 0.25f + UnityEngine.Random.value * pulseSpeedAdd, 1f);
         return false;
+    }
+
+    // the prefab material is one asset. the host's distance was writing its alpha,
+    // so a player standing on the heart still saw the host's invisible ring.
+    static Material OwnMat(BlueHeart heart, Traverse tr, Material mat) {
+        if (heart == null || mat == null || mat.name.Contains(" (Heart)")) {
+            return mat;
+        }
+        Material owned = new Material(mat);
+        owned.name = mat.name + " (Heart)";
+        tr.Field<Material>("mat").Value = owned;
+        // only the pulse ring uses this material. painting it onto every renderer
+        // replaced the heart body, so the mesh was gone and the glow was all that remained.
+        Renderer[] renderers = heart.GetComponentsInChildren<Renderer>(true);
+        int swapped = 0;
+        for (int i = 0; i < renderers.Length; i++) {
+            Renderer renderer = renderers[i];
+            if (renderer != null && renderer.sharedMaterial == mat) {
+                renderer.sharedMaterial = owned;
+                swapped++;
+            }
+        }
+        Vector3 pos = heart.transform.position;
+        FindTheBugReports.Say("pulse", "mat own side=" + (Net.IsServer ? "host" : "client")
+            + " swapped=" + swapped
+            + " renderers=" + renderers.Length
+            + " pos=" + pos.x.ToString("0.0") + "," + pos.y.ToString("0.0"));
+        return owned;
     }
 
     [HarmonyPrefix]

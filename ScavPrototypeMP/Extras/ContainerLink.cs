@@ -29,6 +29,42 @@ internal static class ContainerLink {
         return true;
     }
 
+    // the bag record is still in the session. go and version can lag a fresh join.
+    internal static bool BagAlive(SyncInfo item) {
+        if (item == null) {
+            return false;
+        }
+        ushort id;
+        try {
+            id = item.container_netId.Value.id;
+        } catch {
+            return false;
+        }
+        if (id == 0) {
+            return false;
+        }
+        // the id map misses bags that are only in the mesh map. the worn bag still shows, and its contents never spawn.
+        if (!NetObjectRegistry.TryGetSyncInfoLive(new knetid(id), out SyncInfo bag) || bag == null || bag.IsDestroyed) {
+            return false;
+        }
+        return true;
+    }
+
+    // live bag at this id, ignoring the stored version. seating uses this when the
+    // stamp is stale so a rejoiner still puts the items in the bag he left with.
+    internal static bool TryLiveBag(SyncInfo item, out SyncInfo bag) {
+        bag = null;
+        if (!BagAlive(item)) {
+            return false;
+        }
+        ushort id = item.container_netId.Value.id;
+        if (!NetObjectRegistry.TryGetSyncInfoLive(new knetid(id), out bag) || bag == null || bag.go == null || bag.container == null) {
+            bag = null;
+            return false;
+        }
+        return true;
+    }
+
     internal static bool TryBag(SyncInfo item, out SyncInfo bag) {
         bag = null;
         if (item == null) {

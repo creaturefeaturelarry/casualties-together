@@ -1157,6 +1157,7 @@ public static class CraftCommit {
                 known.RecipesHasCrafterBefore.Add(recipe.index);
                 known.body.happiness += 1f;
                 known.body.skills.AddExp(2, 10f);
+                MedicalSync.ForceHealth(known);
             }
             PlayerCheckpoint.SendCrafted(known);
         }
