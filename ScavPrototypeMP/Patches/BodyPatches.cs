@@ -356,9 +356,11 @@ namespace Together {
             Body body = __instance;
             if (body.IsBodyLocal()) {
                 if (Net.IsClient) {
-                    // Vanilla PlaceBody can overwrite the host's Drillpod position; when a worldgen packet
-                    // is available, apply it after the vanilla call so the client does not return to the map top.
-                    if (WorldGeneration.world != null && WorldGeneration.world.generatingWorld && ClientMain._last_reminderpack_while_generating_received && __instance.TryGetNetBody(out var nb)) {
+                    // make sure client does not return to the map top after using Drillpod.
+                    if (WorldGeneration.world != null &&
+                        WorldGeneration.world.generatingWorld && 
+                        ClientMain._last_reminderpack_while_generating_received &&
+                        __instance.TryGetNetBody(out var nb)) {
                         nb.OnReceiveSyncPacket(ClientMain._last_reminderpack_while_generating, true);
                     } else {
                         __instance.transform.position = ogbodypos;

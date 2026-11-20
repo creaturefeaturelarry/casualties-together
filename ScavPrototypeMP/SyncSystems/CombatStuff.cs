@@ -1264,7 +1264,10 @@ public static class Body_Attack_MultiplayerPatch {
             Plugin.log.LogWarning($"COPYING atkinfo {LastAttackInfo?.damage} ");
 #endif
             var atkinfo = LastAttackInfo.CloneViaSerialization();
-
+            // The attack damage multiplier also applies here.
+            float attackDamageMultiplier = WorldGeneration.GetRunSettingFloat("attackdamage");
+            atkinfo.damage *= attackDamageMultiplier;
+            atkinfo.structuralDamage *= attackDamageMultiplier;
 
             var atkdir = KM.NormalTo(limb1pos, targetlookpos);
             var attackpower = CalculateAttackPower(pb.body, atkinfo);
