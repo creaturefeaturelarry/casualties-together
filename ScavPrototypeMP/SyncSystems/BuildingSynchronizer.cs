@@ -1193,6 +1193,8 @@ public static class BuildingEntity_Start_MultiplayerPatch {
     }
 
     static void Postfix(BuildingEntity __instance) {
+        if (SavesystemPatch.InDebugMap)
+            MapPoses.Capture(__instance);
         if (!Net.IsRunning) return;
 
         // the AC is a child of the structure, not a heater on the building root

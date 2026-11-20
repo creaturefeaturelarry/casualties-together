@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -9,10 +10,38 @@ public sealed class BodySkinBinding : MonoBehaviour {
     private IReadOnlyDictionary<string, Sprite> _package;
 
     internal string SetName { get; private set; }
+    string _appliedHash = "";
+    int _rendererCount = -1;
 
     // package is the synced dictionary. mapped sprites are what the body actually looks up.
     internal bool Wearing(IReadOnlyDictionary<string, Sprite> package) {
         return package != null && ReferenceEquals(_package, package);
+    }
+
+    // same zip and the same renderers. a new limb changes the count and forces a rebind.
+    internal bool Holds(string hash) {
+        if (string.IsNullOrEmpty(hash) || !string.Equals(_appliedHash, hash, StringComparison.Ordinal)) {
+            return false;
+        }
+
+        return _rendererCount >= 0 && CountSpriteRenderers() == _rendererCount;
+    }
+
+    internal void Remember(string hash) {
+        _appliedHash = hash ?? "";
+        _rendererCount = CountSpriteRenderers();
+    }
+
+    int CountSpriteRenderers() {
+        SpriteRenderer[] renderers = GetComponentsInChildren<SpriteRenderer>(true);
+        int count = 0;
+        for (int i = 0; i < renderers.Length; i++) {
+            if (renderers[i] != null && renderers[i].sprite != null) {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     // a limb rebuilt after the bind has a renderer and no replacer. the face field still shows the skin.
@@ -129,6 +158,8 @@ public sealed class BodySkinBinding : MonoBehaviour {
         _replacers.Clear();
         _sprites = null;
         _package = null;
+        _appliedHash = "";
+        _rendererCount = -1;
     }
 
     private void OnDestroy() => Reset();

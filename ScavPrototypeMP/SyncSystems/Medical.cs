@@ -2631,7 +2631,9 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
             writer.CompressWriter();
 
-            Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
+            // a forced push is a level-up or a carried-weight tick. the slow unreliable
+            // round robin is what made crafting intelligence show up late, or not at all.
+            Net.Server_SendToClients(force ? DeliveryMethod.ReliableUnordered : DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
 
             // WRITER END;
         }

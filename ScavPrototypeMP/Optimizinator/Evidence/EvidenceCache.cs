@@ -76,32 +76,49 @@ internal static class EvidenceCache
 		}
 
 		MethodInfo load = AccessTools.Method(typeof(Resources), "Load", new Type[] { typeof(string), typeof(Type) });
-		if (load != null)
-		{
-			harmony.Patch(
-				load,
-				prefix: new HarmonyMethod(typeof(EvidenceCache), nameof(BeforeLoad)),
-				postfix: new HarmonyMethod(typeof(EvidenceCache), nameof(AfterLoad)));
-		}
+		TryPatch(harmony, load, nameof(BeforeLoad), nameof(AfterLoad));
 
-		MethodInfo loadAll = null;
+		// Resources.Load<T>(string) and LoadAll<T>(string) are open generics.
+		// patching the open method makes Harmony throw "IL Compile Error", which the
+		// console then shows as mpverbose failing. closed copies are fine.
+		MethodInfo loadOfT = AccessTools.Method(typeof(Resources), "Load", new Type[] { typeof(string) });
+		MethodInfo loadAllOfT = null;
 		MethodInfo[] methods = typeof(Resources).GetMethods(BindingFlags.Public | BindingFlags.Static);
 		for (int i = 0; i < methods.Length; i++)
 		{
-			if (methods[i].Name != "LoadAll" || !methods[i].IsGenericMethod)
-				continue;
-			loadAll = methods[i];
-			break;
+			if (methods[i].Name == "LoadAll" && methods[i].IsGenericMethodDefinition)
+			{
+				loadAllOfT = methods[i];
+				break;
+			}
 		}
-		if (loadAll != null)
+		Type[] traced = { typeof(GameObject), typeof(UnityEngine.Object), typeof(Sprite), typeof(AudioClip), typeof(Texture2D) };
+		for (int i = 0; i < traced.Length; i++)
 		{
-			harmony.Patch(
-				loadAll,
-				prefix: new HarmonyMethod(typeof(EvidenceCache), nameof(BeforeLoadAll)),
-				postfix: new HarmonyMethod(typeof(EvidenceCache), nameof(AfterLoadAll)));
+			if (loadOfT != null && loadOfT.IsGenericMethodDefinition)
+				TryPatch(harmony, loadOfT.MakeGenericMethod(traced[i]), nameof(BeforeLoadOfT), nameof(AfterLoadOfT));
+			if (loadAllOfT != null)
+				TryPatch(harmony, loadAllOfT.MakeGenericMethod(traced[i]), nameof(BeforeLoadAll), nameof(AfterLoadAll));
 		}
 
 		FindTheBug.Write("cache trace on");
+	}
+
+	static void TryPatch(Harmony harmony, MethodInfo target, string prefix, string postfix)
+	{
+		if (target == null || target.IsGenericMethodDefinition)
+			return;
+		try
+		{
+			harmony.Patch(
+				target,
+				prefix: prefix == null ? null : new HarmonyMethod(typeof(EvidenceCache), prefix),
+				postfix: postfix == null ? null : new HarmonyMethod(typeof(EvidenceCache), postfix));
+		}
+		catch (Exception ex)
+		{
+			FindTheBug.Write("cache patch failed " + target.Name + ": " + ex.GetType().Name + " " + ex.Message);
+		}
 	}
 
 	static void BeforeCorpse(CorpseScript __instance)
@@ -183,6 +200,18 @@ internal static class EvidenceCache
 	static void PlaceExit()
 	{
 		Say("place exit");
+	}
+
+	static void BeforeLoadOfT(string path)
+	{
+		_depth++;
+		Say("load enter depth=" + _depth + " kind=LoadT path=" + path);
+	}
+
+	static void AfterLoadOfT(string path)
+	{
+		Say("load exit depth=" + _depth + " kind=LoadT path=" + path);
+		_depth--;
 	}
 
 	static void BeforeLoad(string path, Type systemTypeInstance)

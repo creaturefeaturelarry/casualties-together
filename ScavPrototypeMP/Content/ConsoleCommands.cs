@@ -27,6 +27,38 @@ using UnityEngine.Experimental.Rendering.Universal;
 namespace Together;
 
 
+// the console reads argAutofill live. named debug folders are filled in when that word is the one being typed.
+[HarmonyPatch(typeof(ConsoleScript), "HandleDescriptionText")]
+static class ConsoleScript_HandleDescriptionText_MapNames_MultiplayerPatch {
+    static void Prefix(string[] args) {
+        if (args == null || args.Length < 4 || args[0] != "map" || args[1] != "debug")
+            return;
+        if (args[2] != "load" && args[2] != "save")
+            return;
+        Command map = ConsoleScript.SearchExact("map");
+        if (map == null || map.argAutofill == null)
+            return;
+        map.argAutofill[2] = DebugMapNameSuggestions();
+    }
+
+    static List<string> DebugMapNameSuggestions() {
+        var names = new List<string>();
+        string root = SavesystemPatch.mpdebugfolder;
+        if (!Directory.Exists(root))
+            return names;
+        foreach (string dir in Directory.GetDirectories(root)) {
+            string name = Path.GetFileName(dir);
+            if (!SavesystemPatch.ValidDebugMapName(name))
+                continue;
+            if (!File.Exists(Path.Combine(dir, "world_tiles.bin")))
+                continue;
+            names.Add(name);
+        }
+        names.Sort(StringComparer.OrdinalIgnoreCase);
+        return names;
+    }
+}
+
 [HarmonyPatch(typeof(ConsoleScript), nameof(ConsoleScript.RegisterAllCommands))]
 static class ConsoleScript_RegisterAllCommands_MultiplayerPatch {
     static void Postfix() {
@@ -446,6 +478,7 @@ public class Con : CasualtiesTogetherSingleton {
 
     public static bool _DEV_TELEKINESIS = false;
     public static GameObject _DEV_TELEKINESIS_OBJECT = null;
+    public static bool _DEV_MOVETOOL = false;
 
 
     public static GameObject SpawnThingOnPlayer(string resourceid, Body body = null, bool give_it_to_em = false, GameObject container = null) {
@@ -1833,6 +1866,29 @@ public class Con : CasualtiesTogetherSingleton {
                 ConsoleScript.instance.LogToConsole($"Set fluid {realpos.x} {realpos.y} id to {fluidid} ({FluidManager.WorldFluidToLiquidID[fluidid]})");
             }, null));
 
+            RegisterCommand_LocalOnly(new Command("setworldspawn", "MP - spawn new players at a point saved with this level", (string[] splited) => {
+                ConFailIfNetworkIsRunningAndIsClient();
+                ConFailIfCheatsDisabled();
+                con.CheckForWorld();
+                con.CheckArgumentCount(splited, 1);
+                string which = splited[1].ToLowerInvariant();
+                Vector2 pos;
+                if (which == "self") {
+                    Body body = Util.GetLocalBody();
+                    if (body == null)
+                        throw new Exception("No local body.");
+                    pos = body.transform.position;
+                } else if (which == "cursor") {
+                    pos = Util.GetCursorWorldPos();
+                } else {
+                    throw new Exception("Expected self or cursor.");
+                }
+                WorldSpawn.Assign(pos);
+                con.LogToConsole($"World spawn set to {pos.x:0.0}, {pos.y:0.0}");
+            }, new Dictionary<int, List<string>> {
+                { 0, new List<string> { "self", "cursor" } },
+            }, ("where", "self or cursor")));
+
             RegisterCommand_LocalOnly(new Command("spawnpoint", "MP-SERVER- Set default spawn point. (It resets after world generates)", (string[] splited) => {
                 ConFailIfCheatsDisabled();
                 ConFailIfNetworkIsRunningAndIsClient();
@@ -2102,18 +2158,31 @@ public class Con : CasualtiesTogetherSingleton {
 
             RegisterCommand(new Command("map", "MP dev", (string[] splited) => {
                 ConFailIfNetworkIsRunningAndIsClient();
-                ConFailIfNotInMainMenu();
 
                 var m = "debug";
                 if (splited.Length > 1) {
                     m = splited[1];
                 }
+                var sub = splited.Length > 2 ? splited[2] : "start";
+                string mapName = splited.Length > 3 ? splited[3] : null;
+
+                if (m == "debug" && sub == "save") {
+                    WorldMP.SaveDebugMapNow(mapName);
+                    return;
+                }
+
+                ConFailIfNotInMainMenu();
 
                 var prs = PreRunScript.instance;
 
                 if (m == "debug") {
-                    log.l("Loading debug world");
-                    WorldMP.LoadDebugWorld();
+                    if (sub == "load") {
+                        log.l("Loading saved debug world");
+                        WorldMP.LoadSavedDebugWorld(mapName);
+                    } else {
+                        log.l("Starting a new debug world");
+                        WorldMP.StartDebugWorld();
+                    }
                 } else if (m == "tutorial") {
                     log.l("Loading tutorial world");
                     prs.StartTutorial();
@@ -2126,9 +2195,15 @@ public class Con : CasualtiesTogetherSingleton {
                         prs.StartRun();
                     }
                 }
-            }, new Dictionary<int, List<string>> { { 0,
-                new List<string> { "debug", "tutorial", "vanilla" }
-            } }));
+            }, new Dictionary<int, List<string>> {
+                { 0, new List<string> { "debug", "tutorial", "vanilla" } },
+                { 1, new List<string> { "start", "load", "save", "loadsave" } },
+                { 2, new List<string>() },
+            },
+                ("mode", "debug, tutorial, or vanilla"),
+                ("action", "start, load, or save"),
+                ("name", "letters and numbers, for a named debug map")
+            ));
 
             RegisterCommand_LocalOnly(new Command("novisioneffect", "MP", (string[] splited) => {
                 ref bool val = ref _DEV_NO_VISION_EFFECT;
@@ -2154,9 +2229,29 @@ public class Con : CasualtiesTogetherSingleton {
                 if (target) {
                     ConFailIfNetworkIsRunningAndIsClient();
                     ConFailIfCheatsDisabled();
+                    _DEV_MOVETOOL = false;
+                    MoveTool.Drop();
                 }
                 val = target;
                 ConsoleScript.instance.LogToConsole($"telekinesis {val}");
+            }, null));
+
+            RegisterCommand_LocalOnly(new Command("movetool", "MP dev - snap, rotate, and scale props", (string[] splited) => {
+                ref bool val = ref _DEV_MOVETOOL;
+                var target = !val;
+                if (splited.Length > 1) {
+                    target = ParseBool01(splited[1]);
+                }
+                if (target) {
+                    ConFailIfNetworkIsRunningAndIsClient();
+                    ConFailIfCheatsDisabled();
+                    _DEV_TELEKINESIS = false;
+                    _DEV_TELEKINESIS_OBJECT = null;
+                }
+                val = target;
+                if (!val)
+                    MoveTool.Drop();
+                ConsoleScript.instance.LogToConsole($"movetool {val}");
             }, null));
 
 

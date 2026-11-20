@@ -35,6 +35,8 @@ public static class PlayerCheckpoint {
         _wait = 0f;
 
         var players = new List<ScavPlayer>(ScavPlayer.BodyToPlayerDict.Values);
+        if (SavesystemPatch.InDebugMap && !SavesystemPatch.PreserveSave)
+            SavesystemPatch.WriteDebugWorld();
         if (players.Count == 0)
             return;
         if (_cursor >= players.Count)
@@ -47,7 +49,7 @@ public static class PlayerCheckpoint {
                 continue;
             _cursor = i + 1;
             WriteOne(plr, false);
-            if (!File.Exists(Path.Combine(SavesystemPatch.mpsavefolder, SavesystemPatch.mpsaveheaderfile)))
+            if (!File.Exists(Path.Combine(SavesystemPatch.SessionSaveFolder, SavesystemPatch.mpsaveheaderfile)))
                 WriteRules(true);
             return;
         }
@@ -133,6 +135,7 @@ public static class PlayerCheckpoint {
             RegisterBody(plr.body);
 
             plr.body.transform.position = pos;
+            MapPoses.TryApply(plr.body);
             if (plr.ServerPlayerState != null) {
                 plr.ServerPlayerState.loaded_save = true;
                 plr.ServerPlayerState.did_give_spawn_location_from_a_save = false;
@@ -158,6 +161,40 @@ public static class PlayerCheckpoint {
             if (item != null && NetObjectRegistry.ObjectShouldBeSynced(item.gameObject))
                 NetObjectRegistry.Server_EnsureItemIsNetworkRegistered(item.gameObject);
         }
+        RetieBagContents(body);
+    }
+
+    // children keep the version from before the bag's sync was recreated.
+    // a rejoiner then treats the bag as the wrong generation and never builds them.
+    static void RetieBagContents(Body body) {
+        int bags = 0;
+        int tied = 0;
+        foreach (Item item in body.GetAllItemsThorough()) {
+            if (item == null)
+                continue;
+            Transform parent = item.transform.parent;
+            if (parent == null || !parent.TryGetComponent(out Container _))
+                continue;
+            if (!NetObjectRegistry.TryGetSyncInfo(item.gameObject, out SyncInfo si) || si == null || si.IsDestroyed)
+                continue;
+            if (!NetObjectRegistry.TryGetSyncInfo(parent.gameObject, out SyncInfo bag) || bag == null || bag.IsDestroyed)
+                continue;
+            bags++;
+            try {
+                ushort id = bag.syncId.id;
+                byte ver = id == 0 ? (byte)0 : bag.Version;
+                if (si.container_data1.Value == 1 && si.container_netId.Value.id == id && si.container_ver.Value == ver)
+                    continue;
+                si.container_data1.Value = 1;
+                si.container_netId.Value = bag.syncId;
+                si.container_ver.Value = ver;
+                tied++;
+            } catch {
+                // a half-dead record is skipped. the mesh is already parked.
+            }
+        }
+        if (tied > 0)
+            FindTheBugReports.Say("leavegear", "retie bags=" + bags + " tied=" + tied);
     }
 
     public static void RememberSpecies(string persistentId, string species, int slot) {
@@ -165,7 +202,7 @@ public static class PlayerCheckpoint {
             return;
         _species[persistentId] = species;
         _speciesSlot[persistentId] = slot;
-        StampSpecies(Path.Combine(SavesystemPatch.mpsavefolder, persistentId), species, slot);
+        StampSpecies(Path.Combine(SavesystemPatch.SessionSaveFolder, persistentId), species, slot);
     }
 
     // A host handoff replaces the entire checkpoint directory. Cached species
@@ -184,7 +221,7 @@ public static class PlayerCheckpoint {
             _speciesSlot.TryGetValue(persistentId, out slot);
             return true;
         }
-        if (!ReadSpeciesFile(Path.Combine(SavesystemPatch.mpsavefolder, persistentId), out species, out slot))
+        if (!ReadSpeciesFile(Path.Combine(SavesystemPatch.SessionSaveFolder, persistentId), out species, out slot))
             return false;
         _species[persistentId] = species;
         _speciesSlot[persistentId] = slot;
@@ -318,14 +355,16 @@ public static class PlayerCheckpoint {
     }
 
     static string Folder(ScavPlayer plr) {
-        return Path.Combine(SavesystemPatch.mpsavefolder, plr.GetPersistentId());
+        return Path.Combine(SavesystemPatch.SessionSaveFolder, plr.GetPersistentId());
     }
 
     static void CopyHostFlag(string folder) {
         var from = Path.Combine(folder, "save.sv");
-        var to = Path.Combine(SavesystemPatch.mpsavefolder, "save.sv");
+        var to = Path.Combine(SavesystemPatch.SessionSaveFolder, "save.sv");
         if (File.Exists(from))
             File.Copy(from, to, true);
+        // the copy is one player's file. put the level spawn back onto the shared save.sv.
+        WorldSpawn.Stamp();
     }
 
     // SaveGame stores biomeDepth + 1. a mid-layer tick wants the layer they are standing on.
@@ -340,7 +379,7 @@ public static class PlayerCheckpoint {
         try {
             if (WoundView.view == null || WoundView.view.cInfo == null || WoundView.view.cInfo.Length < 3)
                 return;
-            Directory.CreateDirectory(SavesystemPatch.mpsavefolder);
+            Directory.CreateDirectory(SavesystemPatch.SessionSaveFolder);
             var dict = new Dictionary<string, object>();
             dict["hello"] = "Multiplayer Mod created by Krokosha666";
             dict["MPVERSION"] = Plugin.MOD_VERSION;
@@ -351,7 +390,7 @@ public static class PlayerCheckpoint {
             dict["MODIFIER"] = midlevel ? (WorldMP.GetLayerModifier()?.modifierIndex ?? -1) : -1;
             dict["PLRPOS"] = new Dictionary<string, (float, float)>();
             var text = Newtonsoft.Json.JsonConvert.SerializeObject(dict, Newtonsoft.Json.Formatting.Indented);
-            File.WriteAllText(Path.Combine(SavesystemPatch.mpsavefolder, SavesystemPatch.mpsaveheaderfile), text);
+            File.WriteAllText(Path.Combine(SavesystemPatch.SessionSaveFolder, SavesystemPatch.mpsaveheaderfile), text);
         } catch (Exception e) {
             log.error($"PlayerCheckpoint.WriteRules\n{e}");
         }

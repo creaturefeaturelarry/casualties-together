@@ -999,7 +999,7 @@ namespace Together {
                             prs.StartTutorial();
                         } else
                             if (startworld == 2) {
-                                WorldMP.LoadDebugWorld();
+                                WorldMP.StartDebugWorld();
                             } else {
                                 SceneManager.LoadScene("SampleScene");
 

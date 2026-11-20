@@ -16,6 +16,8 @@ namespace Together
     internal sealed class LobbyHostTransfer : CasualtiesTogetherSingleton
     {
         internal enum TransferMode : byte { NextLayer, LobbyWithSave, LobbyOnly }
+        // The transfer code stays compiled. The singleton loader and the menu button both check this.
+        internal const bool Enabled = false;
         private enum Phase { Idle, Offered, Accepted, Preparing, Ready, CommitApproved, Switching, Reconnecting, Resuming }
         private enum Message : byte { Offer, Answer, Prepare, Begin, Chunk, Ready, Abort, Arrived, Complete, Commit, CommitAck }
         private const string MessageName = "together.host-transfer.v2";

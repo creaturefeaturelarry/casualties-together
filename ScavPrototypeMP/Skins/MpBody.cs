@@ -240,6 +240,26 @@ internal static class MpBody {
         SkinTrace.NoteDefaultLeak("reset", body);
     }
 
+    internal static void ResetRemoteSkins() {
+        try {
+            Dictionary<Body, Together.ScavPlayer> map = Together.ScavPlayer.BodyToPlayerDict;
+            if (map == null) {
+                return;
+            }
+
+            List<Body> bodies = new List<Body>(map.Keys);
+            for (int i = 0; i < bodies.Count; i++) {
+                Body body = bodies[i];
+                if (body == null || body == _localBody) {
+                    continue;
+                }
+                ResetBodyToStock(body);
+            }
+        } catch (Exception ex) {
+            LogDebug("remote skin reset failed: " + ex.Message);
+        }
+    }
+
     static void RestoreBakedSprites(Body body) {
         SpriteRenderer[] renderers = body.GetComponentsInChildren<SpriteRenderer>(true);
         for (int i = 0; i < renderers.Length; i++) {
@@ -484,7 +504,7 @@ internal static class MpBody {
     }
 
     internal static bool ApplyRemoteSkin(uint networkClientId, uint playerId,
-        IReadOnlyDictionary<string, Sprite> sprites, string setName, int species) {
+        IReadOnlyDictionary<string, Sprite> sprites, string setName, int species, string contentHash = null) {
         if (!IsActive || sprites == null) {
             return false;
         }
@@ -527,10 +547,16 @@ internal static class MpBody {
         }
 
         BodySkinBinding binding = body.GetComponent<BodySkinBinding>();
+        if (binding != null && binding.Holds(contentHash)) {
+            _rejected.Remove(key);
+            return true;
+        }
+
         if (binding != null && binding.Wearing(sprites)) {
             int missing = binding.CountMissingRenderers();
             if (missing <= 0) {
                 _rejected.Remove(key);
+                binding.Remember(contentHash);
                 return true;
             }
 
@@ -560,6 +586,7 @@ internal static class MpBody {
         }
 
         WoundViewIntegration.RefreshForBody(body);
+        binding.Remember(contentHash);
         return true;
     }
 
@@ -703,7 +730,8 @@ internal static class MpBody {
             }
 
             int afterChar = _localBody != null ? _localBody.charType : -1;
-            if (_localBody != before || beforeChar != afterChar) {
+            bool swapped = _localBody != before && _localBody != null;
+            if (swapped || beforeChar != afterChar) {
                 _needsApply = true;
                 SkinTrace.Event("local-body",
                     "from=" + (before != null ? before.GetInstanceID() : 0)
@@ -711,6 +739,11 @@ internal static class MpBody {
                     + " fromChar=" + beforeChar
                     + " toChar=" + afterChar
                     + " " + SkinTrace.BodyState(_localBody));
+            }
+            // tutorial (and any regen) builds a new body with a new net id.
+            // the last upload is still recorded under the old id, so peers paint stock.
+            if (swapped) {
+                MpSkinSync.OnLocalBodySwapped();
             }
         } catch (Exception ex) {
             _localBody = null;

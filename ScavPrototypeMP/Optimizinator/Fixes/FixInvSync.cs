@@ -315,12 +315,21 @@ internal static class FixInvSync
                 int key = pair.Key;
                 Wait wait = pair.Value;
                 SyncInfo info = wait.Info;
-                if (info == null)
+                if (info == null || info.IsDestroyed)
                 {
+                    if (info != null)
+                        LeaveGear.MarkDeadSpawn(info);
                     Done.Add(key);
                     continue;
                 }
-                if (info.go == null) {
+                // loose byte has nowhere to sit. CreateObject here rebuilt a dead bag every frame.
+                if (info.go == null && LooseByte(info))
+                {
+                    LeaveGear.MarkLooseSkip(info);
+                    Done.Add(key);
+                    continue;
+                }
+                if (info.go == null && !LeaveGear.OwnerMissing(info)) {
                     try {
                         info.CreateObject();
                     } catch (Exception ex) {
@@ -478,9 +487,9 @@ internal static class FixInvSync
         for (int i = 0; i < Batch.Count; i++)
         {
             SyncInfo info = Batch[i];
-            if (info.container_data1.Value == 0)
+            if (info.IsDestroyed || info.container_data1.Value == 0)
                 continue;
-            if (info.go == null) {
+            if (info.go == null && !LeaveGear.OwnerMissing(info)) {
                 try {
                     info.CreateObject();
                 } catch (Exception ex) {
@@ -495,6 +504,14 @@ internal static class FixInvSync
         Batch.Clear();
         if (added == 0 && Pending.Count == 0)
             _sweepQuiet = true;
+    }
+
+    static bool LooseByte(SyncInfo info) {
+        try {
+            return info != null && info.container_data1.Value == 0;
+        } catch (Exception) {
+            return false;
+        }
     }
 
     // prefix on UpdateItemContainer. false skips it.
@@ -786,6 +803,9 @@ internal static class FixInvSync
         }
         try
         {
+            // a live bag with a stale stamp is still that bag. blocking here hid its contents from the rejoiner.
+            if (!bag.IsDestroyed && bag.container != null)
+                return false;
             return bag.Version != ver;
         }
         catch (Exception)
