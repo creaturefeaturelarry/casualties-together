@@ -1,4 +1,4 @@
-using BepInEx;
+﻿using BepInEx;
 using CasualtiesTogetherUtils;
 using HarmonyLib;
 using KrokV5Optimization;
