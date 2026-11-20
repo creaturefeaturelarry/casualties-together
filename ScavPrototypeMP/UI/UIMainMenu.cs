@@ -1,4 +1,4 @@
-using BepInEx;
+﻿using BepInEx;
 using CasualtiesTogetherUtils;
 using HarmonyLib;
 using KrokV5Optimization;
@@ -2873,6 +2873,7 @@ public static class UIMainMenu {
         (null, "dannad - Auto-updater module, Installer tool, C:T ds Staff"),
         (null, "Gary the cat - playtester, Bug report module, past servers, C:T ds Staff"), //  , past mod \"Cat-Patch\"
         (null, "Todd - external mod \"ChangeSkin\", C:T ds Staff"),
+        (null, "dogederp - external mod \"Player Sprite Replacer\""),
         (null, "ItsVoidSK - playtester, some sprites"),
         (null, "dawn - TimeManipulation patch"),
         (null, "VtLoader - Bug fixes"),

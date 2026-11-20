@@ -81,18 +81,13 @@ internal static class BugReportSettings {
             return _category;
         }
 
-        _category = -1;
-        try {
-            SettingDropdown setting = Settings.Get<SettingDropdown>("spritereplacer.activeSlot");
-            if (setting != null) {
-                _category = (int)setting.category;
-            }
-        } catch (Exception ex) {
-            if (SpriteReplacerPlugin.Log != null) {
-                SpriteReplacerPlugin.Log.LogDebug("Bug report category lookup failed: " + ex.Message);
-            }
+        // set once CUCoreLib accepts the Skin Replacer category.
+        int index = CoreLibIntegration.BugReportCategoryIndex;
+        if (index < 0) {
+            return -1;
         }
 
+        _category = index;
         return _category;
     }
 
