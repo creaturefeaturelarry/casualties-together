@@ -508,7 +508,8 @@ public class BaseSpecialStaticEntityTracker : UnityEngine.MonoBehaviour {
 
     public static T GetAtPos<T>(Vector2 pos) where T : BaseSpecialStaticEntityTracker {
         foreach (var item in UnityEngine.Object.FindObjectsOfType<T>()) {
-            if ((Vector2)(item.transform.position) == (Vector2)(pos)) {
+            // Networked positions can differ by a few centimeters; avoid exact Vector2 matching.
+            if (KM.DistanceCheck_PreSqr(item.transform.position, pos, 0.1f*0.1f)) {
                 return item;
             }
         }
