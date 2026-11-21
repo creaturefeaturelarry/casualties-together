@@ -357,7 +357,7 @@ namespace Together {
             if (body.IsBodyLocal()) {
                 if (Net.IsClient) {
                     // make sure client does not return to the map top after using Drillpod.
-                    if (WorldGeneration.world != null &&
+                    if (Util.IsWorldGenerated() != null &&
                         WorldGeneration.world.generatingWorld && 
                         ClientMain._last_reminderpack_while_generating_received &&
                         __instance.TryGetNetBody(out var nb)) {
