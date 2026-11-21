@@ -24,7 +24,7 @@ internal static class SkinLock {
     internal static bool CanChangeOnce => State.CanChangeOnce;
 
     internal static bool CanChangeLocal =>
-        State.CanChangeLocal(MpBody.IsActive);
+        State.CanChangeLocal(MpBody.IsActive, MpSkinSync.IsCoolingDown);
 
     internal static void Toggle() {
         if (!MpBody.IsHost) {
