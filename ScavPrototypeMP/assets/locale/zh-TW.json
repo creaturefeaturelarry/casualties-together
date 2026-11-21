@@ -307,7 +307,7 @@
   "casualtiestogether_rule_desc_ReviveOnNextLevel": "在下一關重生。經過地層轉換後重生所有死去的玩家。",
   "casualtiestogether_rule_desc_ReviveFromTrader": "透過商人重生。允許「招募」商人，重生隨機一個玩家。",
   "casualtiestogether_rule_name_TraderReviveAsSpecies": "以商人種族復活",
-  "casualtiestogether_rule_desc_TraderReviveAsSpecies": "招募商人時，復活的玩家會成以商人的種竹重生。若開啟 RespawnKeepSkills，他們的技能會維持。若關閉則使用種族的基礎技能。",
+  "casualtiestogether_rule_desc_TraderReviveAsSpecies": "招募商人時，復活的玩家會成以商人的種族重生。若開啟 RespawnKeepSkills，他們的技能會維持。若關閉則使用種族的基礎技能。",
   "casualtiestogether_rule_desc_TrackPlayerDeaths": "追蹤玩家死亡。在聊天室顯示玩家死亡公告、死完標記和存活玩家數量。停用此規則將隱藏這類資訊。",
   "casualtiestogether_rule_desc_PLAYER_COUNT_LIMIT": "玩家數量限制。可同時進入伺服器的最大玩家人數。",
   "casualtiestogether_rule_desc_ShowPlayerDirections": "顯示玩家方向。顯示方向指示幫助你尋找其他玩家。",
