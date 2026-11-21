@@ -1359,7 +1359,9 @@ namespace Together {
 
             if (ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out ScavPlayer plr, out NetBody pb) && ItemSync.TryGetItemSyncInfo(syncid, out SyncInfo si) && ItemSync.CheckIfBodyReachThisItem(si, pb.body, 20, false) && crankProgress.IsFinite()) {
                 if (si.item.IsHandcrank()) {
-                    si.item.battery.DrainCharge(-(crankProgress * CRANK_CHARGE_AMOUNT));
+                    if (si.item.battery != null) {
+                        si.item.battery.DrainCharge(-(crankProgress * CRANK_CHARGE_AMOUNT));
+                    }
                     pb.body.stamina -= crankProgress * CRANK_STAMINA_USE;
                     si.item.condition = Mathf.Clamp01(si.item.condition);
                 } else {

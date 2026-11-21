@@ -1156,7 +1156,9 @@ public static class CraftCommit {
             if (!known.RecipesHasCrafterBefore.Contains(recipe.index)) {
                 known.RecipesHasCrafterBefore.Add(recipe.index);
                 known.body.happiness += 1f;
-                known.body.skills.AddExp(2, 10f);
+                // the crafter's own TryMake already paid them. a remote crafter's client reports the same 10.
+                if (!known.IsLocal)
+                    SkillSync.HostGrant(known.body, 2, 10f);
                 MedicalSync.ForceHealth(known);
             }
             PlayerCheckpoint.SendCrafted(known);

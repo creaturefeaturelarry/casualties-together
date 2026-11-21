@@ -2786,9 +2786,14 @@ namespace Together {
 
         void UpdateBuilding() {
             BuildingEntity b = go.GetComponent<BuildingEntity>();
-            b.SetHealth(condition, false);
+            // the host stores the overkill float. a client shows 0 and the death burst, not a negative bar.
+            float hp = condition;
+            bool dead = hp < 0.5f;
+            if (hp < 0f)
+                hp = 0f;
+            b.SetHealth(hp, false);
             // death fx lives in Update, and the client skips that Update so the loot is not rolled twice.
-            if (Net.IsClient && b.GetHealth() < 0.5f) {
+            if (Net.IsClient && dead) {
                 BuildingEntity_Update_MultiplayerPatch.PlayDeathOnce(b);
             }
 

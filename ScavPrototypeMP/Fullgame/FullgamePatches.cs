@@ -174,26 +174,169 @@ static class ConsoleScript_CheckForCheats_MultiplayerPatch {
 
 
 
+// stock only watches the camera body, so a client far from the host freezes their own copy and the host puts the lava back.
+// the host copy is the one that spends the core: any player within 8 who is hot, or the core sitting in lava.
 [HarmonyPatch(typeof(CustomItemBehaviour), nameof(CustomItemBehaviour.CryoActivate))]
 public static class CustomItemBehaviour_CryoActivate_MultiplayerPatch {
-    static float last_zoomtime = 0;
+    const float Heat = 41.5f;
+    const float Reach = 8f;
+    const string CoreId = "cryogeniccore";
+
+    static readonly Dictionary<knetid, float> _nextAsk = new Dictionary<knetid, float>();
+    static bool _didSpend;
+
+    static CustomItemBehaviour_CryoActivate_MultiplayerPatch() {
+        Multiplayer.RegisterCustomServerReceiver("together.cryo-core", OnAsk);
+    }
 
     static IEnumerable<CodeInstruction> Transpiler(
             IEnumerable<CodeInstruction> instructions,
             ILGenerator generator,
             MethodBase __originalMethod) {
-        IEnumerable<CodeInstruction> codes = instructions;
-
-        codes = BodyGetterOverrider.TranspileAll(codes, generator, __originalMethod.DeclaringType);
-
-        return codes;
+        return BodyGetterOverrider.TranspileAll(instructions, generator, __originalMethod.DeclaringType);
     }
+
     static void Prefix(CustomItemBehaviour __instance) {
-        if (!Net.IsRunning) {
+        _didSpend = false;
+        if (!Net.IsRunning || __instance == null) {
             return;
         }
+        Item item = __instance.GetComponent<Item>();
+        _didSpend = item != null && item.condition > 0f;
         BodyGetterOverrider bgo = __instance.GetOrAddComponent<BodyGetterOverrider>();
-        bgo.SetNearestBody(); // pick nearest body now
+        Body hot = Hottest(item != null ? (Vector2)item.transform.position : (Vector2)__instance.transform.position, Heat);
+        if (hot != null) {
+            bgo.SetBody(hot);
+        } else {
+            bgo.SetNearestBody();
+        }
+    }
+
+    static void Postfix(CustomItemBehaviour __instance) {
+        if (!_didSpend || !Net.IsRunning || !Net.IsServer || __instance == null) {
+            return;
+        }
+        if (WorldChunkSync.singleton != null) {
+            WorldChunkSync.singleton.timer_TilemapFluidSync = 10f;
+        }
+        Vector2 pos = __instance.transform.position;
+        foreach (Body body in ScavPlayer.BodyToPlayerDict.Keys) {
+            if (body == null || Vector2.Distance(pos, body.transform.position) > Reach) {
+                continue;
+            }
+            if (body.TryGetNetBody(out NetBody nb)) {
+                MedicalSync.ForceHealth(nb);
+            }
+        }
+    }
+
+    // stock Update only checks the camera. skip it in mp and decide from every player.
+    [HarmonyPatch(typeof(CustomItemBehaviour), nameof(CustomItemBehaviour.Update))]
+    static class CryoCore_Update {
+        static bool Prefix(CustomItemBehaviour __instance) {
+            if (!Net.IsRunning || __instance == null) {
+                return true;
+            }
+            Item item = __instance.GetComponent<Item>();
+            if (item == null || item.id != CoreId) {
+                return true;
+            }
+            if (Net.IsServer) {
+                if (item.condition > 0f && Hottest(item.transform.position, Heat) != null) {
+                    __instance.CryoActivate();
+                }
+                return false;
+            }
+            Ask(item);
+            return false;
+        }
+    }
+
+    // a client in lava used to spend and destroy its own mesh. the host grid never froze.
+    [HarmonyPatch(typeof(LiquidAffect), "FixedUpdate")]
+    static class CryoCore_Lava {
+        static bool Prefix(LiquidAffect __instance) {
+            if (!Net.IsRunning || Net.IsServer || __instance == null) {
+                return true;
+            }
+            Item item = __instance.GetComponent<Item>();
+            if (item == null || item.id != CoreId) {
+                return true;
+            }
+            Ask(item);
+            return false;
+        }
+    }
+
+    static void Ask(Item item) {
+        if (item == null || item.condition <= 0f || !Net.IsClient) {
+            return;
+        }
+        Body local = Util.GetLocalBody();
+        bool hot = local != null && local.temperature > Heat && Vector2.Distance(local.transform.position, item.transform.position) <= Reach;
+        if (!hot && !InLava(item)) {
+            return;
+        }
+        if (!ItemSync.TryGetSyncInfo(item, out SyncInfo si) || si == null) {
+            return;
+        }
+        float now = Time.unscaledTime;
+        if (_nextAsk.TryGetValue(si.syncId, out float next) && now < next) {
+            return;
+        }
+        _nextAsk[si.syncId] = now + 0.5f;
+        NetDataWriter writer = Multiplayer.CreateNamedWriter("together.cryo-core");
+        writer.Put(si.syncId);
+        Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
+    }
+
+    static void OnAsk(ScavPlayer plr, NetDataReader reader) {
+        reader.Get(out knetid id);
+        if (!ItemSync.TryGetItemSyncInfo(id, out SyncInfo si) || si == null || si.item == null) {
+            return;
+        }
+        Item item = si.item;
+        if (item.id != CoreId || item.condition <= 0f) {
+            return;
+        }
+        bool lava = InLava(item);
+        if (!lava && Hottest(item.transform.position, Heat) == null) {
+            return;
+        }
+        CustomItemBehaviour beh = item.GetComponent<CustomItemBehaviour>();
+        if (beh == null) {
+            return;
+        }
+        beh.CryoActivate();
+        if (lava && item != null && !si.IsDestroyed) {
+            si.Destroy();
+        }
+    }
+
+    static Body Hottest(Vector2 pos, float minTemp) {
+        Body best = null;
+        float bestTemp = minTemp;
+        foreach (Body body in ScavPlayer.BodyToPlayerDict.Keys) {
+            if (body == null || !body.alive) {
+                continue;
+            }
+            if (Vector2.Distance(pos, body.transform.position) > Reach) {
+                continue;
+            }
+            if (body.temperature <= bestTemp) {
+                continue;
+            }
+            bestTemp = body.temperature;
+            best = body;
+        }
+        return best;
+    }
+
+    static bool InLava(Item item) {
+        if (item == null || FluidManager.main == null || WorldGeneration.world == null) {
+            return false;
+        }
+        return FluidManager.main.GetLiquid((Vector2)item.transform.position) == 6;
     }
 }
 

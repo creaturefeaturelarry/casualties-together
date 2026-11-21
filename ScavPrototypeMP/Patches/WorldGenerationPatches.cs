@@ -855,7 +855,7 @@ static class WorldGeneration_IncreaseDepthByLayer_MultiplayerPatch {
             if (body == null || body.skills == null)
                 continue;
             if (!body.IsBodyLocal()) // it was already given to local player
-                body.skills.AddExp(2, 80f);
+                SkillSync.HostGrant(body, 2, 80f);
             if (body.TryGetNetBody(out NetBody nb))
                 MedicalSync.Server_QueueSendCharacterHealth(nb, true);
         }

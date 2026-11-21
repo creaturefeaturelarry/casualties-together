@@ -477,9 +477,9 @@ public class BattleRoyale : GamemodeBase {
             plr_positions[item] = pos;
 
 
-            item.body.skills.AddExp(0, 1000);
-            item.body.skills.AddExp(1, 1000);
-            item.body.skills.AddExp(2, 1000);
+            SkillSync.HostGrant(item.body, 0, 1000);
+            SkillSync.HostGrant(item.body, 1, 1000);
+            SkillSync.HostGrant(item.body, 2, 1000);
 
             item.body.ResetHealth();
             yield return new WaitForSecondsRealtime(0.01f);

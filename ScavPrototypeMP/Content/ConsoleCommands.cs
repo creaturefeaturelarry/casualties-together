@@ -309,6 +309,28 @@ public class Con : CasualtiesTogetherSingleton {
             throw new Exception("Client can't do that.");
         }
     }
+
+    static bool _healReceiver;
+
+    static void HealBody(Body body) {
+        if (body == null) {
+            return;
+        }
+        body.ResetHealth();
+        if (Net.IsServer && body.TryGetNetBody(out NetBody nb)) {
+            MedicalSync.ForceHealth(nb);
+        }
+    }
+
+    static void OnClientHeal(ScavPlayer plr, LiteNetLib.Utils.NetDataReader reader) {
+        if (plr == null || plr.body == null) {
+            return;
+        }
+        if (!CanCheat()) {
+            return;
+        }
+        HealBody(plr.body);
+    }
     public static void ConFailIfNetworkIsRunningAndIsServer() {
         if (Net.IsRunning && Net.IsServer) {
             throw new Exception("Server can't do that.");
@@ -907,9 +929,21 @@ public class Con : CasualtiesTogetherSingleton {
 
             Command heal = ConsoleScript.SearchExact("heal");
             if (heal == null) throw new Exception("vanilla command 'heal' missing");
+            if (!_healReceiver) {
+                _healReceiver = true;
+                Multiplayer.RegisterCustomServerReceiver("together.heal", OnClientHeal);
+            }
             heal.action = delegate (string[] args) {
 
                 con.CheckForWorld();
+
+                // a client heal used to rewrite only their copy. the next host snapshot put it back.
+                if (Net.IsRunning && Net.IsClient && args.Length <= 1) {
+                    LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("together.heal");
+                    Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
+                    con.LogToConsole("Healed the player.");
+                    return;
+                }
 
                 if (args.Length > 1 && Net.IsRunning) {
                     ConFailIfNetworkIsRunningAndIsClient();
@@ -923,7 +957,7 @@ public class Con : CasualtiesTogetherSingleton {
                             con.LogToConsole($"ERROR: Heal: {plr.playerName} has no body.");
                             return;
                         }
-                        plr.body.ResetHealth();
+                        HealBody(plr.body);
 
                         if (!everyone) {
                             con.LogToConsole("Healed: " + plr.playerName);
@@ -944,7 +978,7 @@ public class Con : CasualtiesTogetherSingleton {
                         con.LogToConsole("ERROR: Heal: no local body.");
                         return;
                     }
-                    PlayerCamera.main.body.ResetHealth();
+                    HealBody(PlayerCamera.main.body);
                     con.LogToConsole("Healed the player.");
                 }
 
@@ -1099,15 +1133,15 @@ public class Con : CasualtiesTogetherSingleton {
 
                         switch (args[1]) {
                             case "str":
-                            plr.body.skills.AddExp(0, num5);
+                            SkillSync.HostGrant(plr.body, 0, num5);
                             con.LogToConsole($"Gave {plr.playerName} {Mathf.RoundToInt(num5)} strength experience.");
                             break;
                             case "res":
-                            plr.body.skills.AddExp(1, num5);
+                            SkillSync.HostGrant(plr.body, 1, num5);
                             con.LogToConsole($"Gave {plr.playerName} {Mathf.RoundToInt(num5)} resilience experience.");
                             break;
                             case "int":
-                            plr.body.skills.AddExp(2, num5);
+                            SkillSync.HostGrant(plr.body, 2, num5);
                             con.LogToConsole($"Gave {plr.playerName} {Mathf.RoundToInt(num5)} intelligence experience.");
                             break;
                             default:

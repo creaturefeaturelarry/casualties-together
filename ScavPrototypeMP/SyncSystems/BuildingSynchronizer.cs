@@ -1460,7 +1460,7 @@ public class TrackerSpiderHandler : BaseComponentTracker<SpiderHandler> {
         // make the exp thing apply to all players
         foreach (var item in NetBody.GetBodiesInRadius(og.transform.position, 32f)) {
             if (!Util.IsBodyLocal(item.body)) {// playerCamera.main.body already gets the exp
-                item.body.skills.AddExp(1, og.maxHealth / 100f);
+                SkillSync.HostGrant(item.body, 1, og.maxHealth / 100f);
             }
         }
     }

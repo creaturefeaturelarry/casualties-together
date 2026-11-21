@@ -592,7 +592,7 @@ public static class Body_Attack_MultiplayerPatch {
 
             var total_resilience_exp = Mathf.Abs(totaldamage / 50f);
 
-            target.body.skills.AddExp(1, total_resilience_exp); // add resilience exp to the poor bastard 
+            SkillSync.HostGrant(target.body, 1, total_resilience_exp); // resilience for the hit, on the host copy 
 
 #if !RELEASE
             Plugin.log.LogWarning($"DoFriendlyFireMeleeDamage: add resilience exp to the poor bastard: {total_resilience_exp} total damage: {totaldamage} ");
@@ -621,7 +621,9 @@ public static class Body_Attack_MultiplayerPatch {
         var building_dmg = (be.animal ? atk.damage : atk.structuralDamage) * armstrength * ((atk.metalMoreDamage && be.metallic) ? 10f : 1f);
 
         float healthBefore = be.GetHealth();
-        be.SetHealth(be.GetHealth() - building_dmg);
+        // a pure client used to subtract here and then ignore the host packet. the bar is the host's number.
+        if (!(Net.IsRunning && Net.IsClient))
+            be.SetHealth(be.GetHealth() - building_dmg);
 
         if (Net.IsRunning && be != null) {
             EvidenceBag.Arm();
@@ -773,11 +775,7 @@ public static class Body_Attack_MultiplayerPatch {
             var islocal = Util.IsBodyLocal(LastAttacker);
             var isphysactive = ScavMPBuildingSynchronizer.BuildingHasActivePhysics(b);
 
-            if (islocal) {
-                if (b.TryGetSyncInfo(out var si)) {
-                    si.SetIgnoreTimeForRoundTrip();
-                }
-            }
+            // do not hold the host health packet. the swing still reports the net id.
 
             // the client reported nothing for this swing, so nobody else applies the damage: let the vanilla code do it on the host copy.
             if (StaticHitValidation) {
@@ -825,9 +823,11 @@ public static class Body_Attack_MultiplayerPatch {
         if (!Net.IsRunning) return false;
 
         if (!StaticHitValidation && BodyAttack_CheckIfItWasABody(hit)) {
+            SkillSync.NoteSwallowedSwing();
             return true;
         }
         if (BodyAttack_CheckIfItWasABuilding(hit)) {
+            SkillSync.NoteSwallowedSwing();
             return true;
         }
 
@@ -839,6 +839,7 @@ public static class Body_Attack_MultiplayerPatch {
             _LastHitWasBlock = true;
             if (Net.IsServer && Util.IsBodyLocal(LastAttacker)) {
                 breakTheAttackLoop = true;
+                SkillSync.NoteSwallowedSwing();
                 return true;
             }
         }
@@ -1073,6 +1074,10 @@ public static class Body_Attack_MultiplayerPatch {
         breakTheAttackLoop = false;
 
         var attackerIsLocal = Util.IsBodyLocal(__instance);
+        // vanilla pays strength only after the hit loop sets its flag. a swallowed swing never gets there.
+        if (SkillSync.TakeSwallowedSwing() && attackerIsLocal && hostRerunAttacker == null && __state.candoattack && atk != null && atk.physicalSwing && atk.damage > 0f && __instance.skills != null) {
+            __instance.skills.AddExp(0, atk.damage / 300f);
+        }
 
         if (!attackerIsLocal) {
             PlayerCamera.main.lastAttackCool = __state.PlayerCamera_main_lastAttackCool;// only possible thing to change that i dont really want for remote peers, reset it if its not local body
@@ -1110,13 +1115,7 @@ public static class Body_Attack_MultiplayerPatch {
 
                         float totaldmg = DamageBuilding(__instance, __state.atk, _LastHitBuilding, __state.atkpwr, true, _LastHitPos);
                         WorldGeneration.CreateDamageNumber((Vector2)_LastHitBuilding.transform.position + Vector2.up * 2, (int)totaldmg);
-
-                        if (Net.IsClient && NetObjectRegistry.TryGetSyncInfo(_LastHitBuilding, out var b_si)) {
-                            b_si.SetIgnoreTimeForRoundTrip();
-                            EvidenceBag.Line("hit client ignore sync=" + b_si.syncId + " " + EvidenceBag.Building(_LastHitBuilding));
-                        } else if (_LastHitBuilding != null) {
-                            EvidenceBag.Line("hit client no sync " + EvidenceBag.Building(_LastHitBuilding));
-                        }
+                        EvidenceBag.Line("hit client " + EvidenceBag.Side() + " " + EvidenceBag.Building(_LastHitBuilding));
                     }
 
                 }
@@ -1131,8 +1130,6 @@ public static class Body_Attack_MultiplayerPatch {
                         } else if (_LastHitBuilding != null) {
                             if (NetObjectRegistry.TryGetSyncInfoOrRegister(_LastHitBuilding, out var victim_si)) {
                                 victim_netid = new AnyObjectNetId(victim_si);
-                                victim_si.relaxed_combat_sync = true;
-                                victim_si.SetIgnoreTimeForRoundTrip();
                             }
                         } else if (_LastHitWasBlock) {
                             victim_netid = AnyObjectNetId.ForBlockHit();
@@ -2493,13 +2490,6 @@ public static class TurretScript_Shoot_MultiplayerPatch {
 
             var dmg = TurretScript_Shoot_MultiplayerPatch.Stolen_ShootApplyDamageBuilding(building.building, gst);
 
-            if (Net.IsServer) {
-                //netObjectRegistry.Server_QueueSync(building);
-            } else {
-                if (attackerIsLocal)
-                    building.SetIgnoreTimeForRoundTrip();
-            }
-
 
             {
                 // do the visuals
@@ -2521,7 +2511,9 @@ public static class TurretScript_Shoot_MultiplayerPatch {
 
         var damage = (b.animal ? (gst.og.animalDamage * num) : (gst.og.structureDamage * num));
 
-        b.SetHealth(b.GetHealth() - damage);
+        // host applies the shot from the reported id. the client keeps the sound and waits for that health.
+        if (!(Net.IsRunning && Net.IsClient))
+            b.SetHealth(b.GetHealth() - damage);
         if (b.animal) {
             b.gameObject.SendMessage("AnimalHit", damage);
         }

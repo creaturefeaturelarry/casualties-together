@@ -294,7 +294,7 @@ public class TrackerTrader : BaseComponentTracker<TraderScript> {
             MedicalSync.Server_QueueSendCharacterHealth(witness);
         }
         if (nearest != null && nearest.body != null) {
-            nearest.body.skills.AddExp(1, 60f);
+            SkillSync.HostGrant(nearest.body, 1, 60f);
         }
         Body local = Util.GetLocalBody();
         if (local != null && griefNear.Contains(local)) {
@@ -1191,7 +1191,7 @@ internal static class TraderScript_TryPurchase_MultiplayerPatch {
             } else {
                 trader.talker.Talk(Locale.GetCharacter("traderbuy", trader.character));
                 buyer.happiness += 0.75f;
-                buyer.skills.AddExp(2, 1f);
+                SkillSync.HostGrant(buyer, 2, 1f);
             }
             if (titem.info.HasTag("dressing")) {
                 tracker.og.freeDressing = false;

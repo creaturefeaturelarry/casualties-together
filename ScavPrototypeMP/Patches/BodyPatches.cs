@@ -180,15 +180,258 @@ namespace Together {
 
 
 
+    // owner client is the source for xp its own body actually earns. the host copy does not
+    // carry, hurt, or read, and the next health snapshot writes the host numbers back.
+    // host-only grants (trader, combat, layer skip, console) call HostGrant so they are not dropped.
     [HarmonyPatch(typeof(Skills), nameof(Skills.AddExp))]
-    static class Skills_AddExp_MultiplayerPatch {
-        // the host's copy of a remote player does not walk or carry, so its own
-        // encumbrance tick would miss. that tick is reported by the owner instead.
-        static bool Prefix(Skills __instance, int stat, float xp) {
-            if (Body_HandlePeriodicChecks_MultiplayerPatch.SuppressRemotePassive) {
+    internal static class SkillSync {
+        struct ExpState {
+            public bool skipped;
+            public bool report;
+            public int str;
+            public int res;
+            public int intel;
+            public Body body;
+        }
+
+        struct Stamp {
+            public byte stat;
+            public float amount;
+            public float until;
+        }
+
+        static int _hostGrant;
+        static int _allowVanilla;
+        static bool _swallowedSwing;
+        static float _nextFlush;
+        static readonly float[] _pending = new float[3];
+        static readonly Dictionary<int, Stamp> _recent = new Dictionary<int, Stamp>();
+
+        const float FlushGap = 0.5f;
+        const float GrantCap = 5000f;
+        const float DedupeWindow = 2f;
+
+        static SkillSync() {
+            Multiplayer.RegisterCustomServerReceiver("together.passive-skill", OnPassiveSkill);
+        }
+
+        // a swing the attack patch took away from vanilla, so vanilla never reached its strength grant.
+        internal static void NoteSwallowedSwing() {
+            _swallowedSwing = true;
+        }
+
+        internal static bool TakeSwallowedSwing() {
+            bool swallowed = _swallowedSwing;
+            _swallowedSwing = false;
+            return swallowed;
+        }
+
+        // host-authoritative vanilla (haggle) still has to pay the remote body.
+        internal static void AllowHostVanilla(Action act) {
+            _allowVanilla++;
+            try {
+                act();
+            } finally {
+                _allowVanilla--;
+            }
+        }
+
+        internal static void HostGrant(Body body, int stat, float xp) {
+            if (!Apply(body, stat, xp)) {
+                return;
+            }
+            if (Net.IsServer && body.TryGetNetBody(out NetBody nb)) {
+                MedicalSync.ForceHealth(nb);
+            }
+        }
+
+        internal static void TickFlush() {
+            if (Time.unscaledTime < _nextFlush) {
+                return;
+            }
+            _nextFlush = Time.unscaledTime + FlushGap;
+            Flush();
+        }
+
+        static bool Prefix(Skills __instance, int stat, float xp, ref ExpState __state) {
+            Body body = BodyOf(__instance);
+            __state.body = body;
+            bool remoteHost = IsRemoteOnHost(body);
+            if (remoteHost && _hostGrant == 0 && _allowVanilla == 0) {
+                __state.skipped = true;
                 return false;
             }
+            // stock AddExp toasts and plays the level-up sting on PlayerCamera.main. a remote body must not do that.
+            if (remoteHost) {
+                ApplyQuiet(__instance, stat, xp);
+                __state.skipped = true;
+                return false;
+            }
+            if (ShouldReport(body)) {
+                __state.report = true;
+                __state.str = body.skills.STR;
+                __state.res = body.skills.RES;
+                __state.intel = body.skills.INT;
+            }
             return true;
+        }
+
+        static void Postfix(Skills __instance, int stat, float xp, ref ExpState __state) {
+            if (__state.skipped || !__state.report || __state.body == null) {
+                return;
+            }
+            if (stat < 0 || stat > 2 || xp <= 0f || float.IsNaN(xp) || float.IsInfinity(xp)) {
+                return;
+            }
+            _pending[stat] += xp;
+            bool leveled = __state.body.skills.STR > __state.str
+                || __state.body.skills.RES > __state.res
+                || __state.body.skills.INT > __state.intel;
+            if (xp >= 1f || leveled) {
+                Flush();
+            }
+        }
+
+        static void Flush() {
+            if (!Net.IsClient || Net.IsServer) {
+                return;
+            }
+            float str = _pending[0];
+            float res = _pending[1];
+            float intel = _pending[2];
+            if (str <= 0f && res <= 0f && intel <= 0f) {
+                return;
+            }
+            _pending[0] = _pending[1] = _pending[2] = 0f;
+            NetDataWriter writer = Multiplayer.CreateNamedWriter("together.passive-skill");
+            writer.Put(Cap(str));
+            writer.Put(Cap(res));
+            writer.Put(Cap(intel));
+            Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
+        }
+
+        static void OnPassiveSkill(ScavPlayer plr, LiteNetLib.Utils.NetDataReader reader) {
+            if (plr == null || plr.body == null || plr.body.skills == null) {
+                return;
+            }
+            float str = reader.GetFloat();
+            float res = reader.GetFloat();
+            float intel = reader.GetFloat();
+            bool any = false;
+            any |= ApplyReported(plr.body, 0, str);
+            any |= ApplyReported(plr.body, 1, res);
+            any |= ApplyReported(plr.body, 2, intel);
+            if (any && plr.netBody != null) {
+                MedicalSync.ForceHealth(plr.netBody);
+            }
+        }
+
+        // same math as Skills.AddExp, without the camera alert or the level-up sting.
+        static void ApplyQuiet(Skills skills, int stat, float xp) {
+            if (skills == null || stat < 0 || stat > 2 || xp <= 0f || float.IsNaN(xp) || float.IsInfinity(xp)) {
+                return;
+            }
+            xp *= Skills.xpGainMult;
+            switch (stat) {
+                case 0:
+                    xp *= skills.STRGainMult;
+                    skills.expSTR += xp;
+                    skills.CheckForLevelUp(ref skills.STR, skills.expSTR, ref skills.maxSTR);
+                    break;
+                case 1:
+                    xp *= skills.RESGainMult;
+                    skills.expRES += xp;
+                    skills.CheckForLevelUp(ref skills.RES, skills.expRES, ref skills.maxRES);
+                    break;
+                default:
+                    xp *= skills.INTGainMult;
+                    skills.expINT += xp;
+                    skills.CheckForLevelUp(ref skills.INT, skills.expINT, ref skills.maxINT);
+                    break;
+            }
+        }
+
+        static bool ApplyReported(Body body, int stat, float xp) {
+            if (xp > GrantCap) {
+                return false;
+            }
+            return Apply(body, stat, xp);
+        }
+
+        static bool Apply(Body body, int stat, float xp) {
+            if (body == null || body.skills == null || stat < 0 || stat > 2) {
+                return false;
+            }
+            if (xp <= 0f || float.IsNaN(xp) || float.IsInfinity(xp)) {
+                return false;
+            }
+            if (Duplicate(body, stat, xp)) {
+                return false;
+            }
+            Remember(body, stat, xp);
+            _hostGrant++;
+            try {
+                body.skills.AddExp(stat, xp);
+            } finally {
+                _hostGrant--;
+            }
+            return true;
+        }
+
+        static float Cap(float xp) {
+            if (xp <= 0f || float.IsNaN(xp) || float.IsInfinity(xp)) {
+                return 0f;
+            }
+            return xp > GrantCap ? GrantCap : xp;
+        }
+
+        static bool ShouldReport(Body body) {
+            return _hostGrant == 0 && Net.IsClient && !Net.IsServer && IsLocalOwner(body);
+        }
+
+        static bool IsRemoteOnHost(Body body) {
+            return Net.IsServer && body != null && body.TryGetNetPlayer(out ScavPlayer owner) && owner != null && !owner.IsLocal;
+        }
+
+        static bool IsLocalOwner(Body body) {
+            return body != null && body.skills != null && body.TryGetNetPlayer(out ScavPlayer owner) && owner != null && owner.IsLocal;
+        }
+
+        static Body BodyOf(Skills skills) {
+            if (skills == null) {
+                return null;
+            }
+            PlayerCamera cam = PlayerCamera.main;
+            if (cam != null && cam.body != null && cam.body.skills == skills) {
+                return cam.body;
+            }
+            foreach (Body body in ScavPlayer.BodyToPlayerDict.Keys) {
+                if (body != null && body.skills == skills) {
+                    return body;
+                }
+            }
+            return null;
+        }
+
+        static bool Duplicate(Body body, int stat, float xp) {
+            if (xp < 1f || !_recent.TryGetValue(body.GetInstanceID(), out Stamp stamp)) {
+                return false;
+            }
+            if (Time.unscaledTime > stamp.until || stamp.stat != stat) {
+                return false;
+            }
+            return Mathf.Abs(stamp.amount - xp) < 0.05f;
+        }
+
+        static void Remember(Body body, int stat, float xp) {
+            if (xp < 1f) {
+                return;
+            }
+            _recent[body.GetInstanceID()] = new Stamp {
+                stat = (byte)stat,
+                amount = xp,
+                until = Time.unscaledTime + DedupeWindow,
+            };
         }
     }
 
@@ -263,21 +506,6 @@ namespace Together {
             public bool halfMinuteTick;
             public bool suppressedBrainFx;
             public bool savedForceNoMovement;
-            public bool suppressRemotePassive;
-            public bool trackLocal;
-            public int str;
-            public int res;
-            public float expStr;
-            public float expRes;
-        }
-
-        // host copy of a far player has no walk speed and no carried weight, so the
-        // encumbrance tick never fires there. the owner's machine reports the tick instead.
-        internal static bool SuppressRemotePassive => suppressRemotePassive > 0;
-        static int suppressRemotePassive;
-
-        static Body_HandlePeriodicChecks_MultiplayerPatch() {
-            Multiplayer.RegisterCustomServerReceiver("together.passive-skill", OnPassiveSkill);
         }
 
         static void Prefix(Body __instance, ref PeriodicState __state) {
@@ -286,19 +514,6 @@ namespace Together {
             __state = new PeriodicState {
                 halfMinuteTick = body.halfMinuteCheckTime + Time.deltaTime > 30f,
             };
-
-            if (Net.IsRunning && body != null && body.skills != null && body.TryGetNetPlayer(out ScavPlayer owner) && owner != null) {
-                if (Net.IsServer && !owner.IsLocal) {
-                    suppressRemotePassive++;
-                    __state.suppressRemotePassive = true;
-                } else if (Net.IsClient && owner.IsLocal) {
-                    __state.trackLocal = true;
-                    __state.str = body.skills.STR;
-                    __state.res = body.skills.RES;
-                    __state.expStr = body.skills.expSTR;
-                    __state.expRes = body.skills.expRES;
-                }
-            }
 
             if (!Net.IsRunning || !__state.halfMinuteTick || body.brainHealth >= 95f) {
                 return;
@@ -323,13 +538,8 @@ namespace Together {
         static void Postfix(Body __instance, ref PeriodicState __state) {
             Body body = __instance;
 
-            if (__state.suppressRemotePassive && suppressRemotePassive > 0) {
-                suppressRemotePassive--;
-            }
-
-            if (__state.trackLocal && body != null && body.skills != null) {
-                ReportPassive(body, 0, __state.str, __state.expStr, body.skills.STR, body.skills.expSTR);
-                ReportPassive(body, 1, __state.res, __state.expRes, body.skills.RES, body.skills.expRES);
+            if (Net.IsClient && !Net.IsServer && body != null && Util.IsBodyLocal(body)) {
+                SkillSync.TickFlush();
             }
 
             if (__state.suppressedBrainFx) {
@@ -343,39 +553,6 @@ namespace Together {
             // belt-and-suspenders if any FX still leaked before the suppress
             if (PlayerCamera.main != null && PlayerCamera.main.threatMusicTime == 8f) {
                 PlayerCamera.main.threatMusicTime = 0f;
-            }
-        }
-
-        static void ReportPassive(Body body, byte stat, int levelBefore, float expBefore, int levelAfter, float expAfter) {
-            float gained = 0f;
-            if (levelAfter == levelBefore) {
-                if (expAfter > expBefore) {
-                    gained = expAfter - expBefore;
-                }
-            } else if (levelAfter > levelBefore) {
-                gained = 0.1f * Time.timeScale;
-            }
-            if (gained <= 0f || gained > 2f) {
-                return;
-            }
-            NetDataWriter writer = Multiplayer.CreateNamedWriter("together.passive-skill");
-            writer.Put(stat);
-            writer.Put(gained);
-            Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
-        }
-
-        static void OnPassiveSkill(ScavPlayer plr, LiteNetLib.Utils.NetDataReader reader) {
-            if (plr == null || plr.body == null || plr.body.skills == null) {
-                return;
-            }
-            byte stat = reader.GetByte();
-            float gained = reader.GetFloat();
-            if (stat > 1 || gained <= 0f || gained > 2f) {
-                return;
-            }
-            plr.body.skills.AddExp(stat, gained);
-            if (plr.netBody != null) {
-                MedicalSync.ForceHealth(plr.netBody);
             }
         }
 
