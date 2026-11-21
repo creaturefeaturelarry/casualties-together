@@ -1379,17 +1379,20 @@ public static class Body_Attack_MultiplayerPatch {
 
             plr.body.limbs[1].transform.position = limb1pos;
             plr.body.targetLookPos = targetlookpos;
-            try {
-                Body_Attack_MultiplayerPatch.hostRerunAttacker = plr.body;
-                Body_Attack_MultiplayerPatch.ForceHitResult = didhitconfirmed;
-                if (tool_si == null) {
-                    plr.body.Attack(CombatStuff.default_unarmed_attackinfo, plr.body.handSlot);
-                } else {
-                    ItemSync.BetterUseItem(pb.body, tool_si.item);
+            // this swing already ran on the host. running it again forces a second hit, so the tool wears twice.
+            if (!pb.IsLocal) {
+                try {
+                    Body_Attack_MultiplayerPatch.hostRerunAttacker = plr.body;
+                    Body_Attack_MultiplayerPatch.ForceHitResult = didhitconfirmed;
+                    if (tool_si == null) {
+                        plr.body.Attack(CombatStuff.default_unarmed_attackinfo, plr.body.handSlot);
+                    } else {
+                        ItemSync.BetterUseItem(pb.body, tool_si.item);
+                    }
+                } finally {
+                    Body_Attack_MultiplayerPatch.hostRerunAttacker = null;
+                    Body_Attack_MultiplayerPatch.ForceHitResult = false;
                 }
-            } finally {
-                Body_Attack_MultiplayerPatch.hostRerunAttacker = null;
-                Body_Attack_MultiplayerPatch.ForceHitResult = false;
             }
 
             if (!LastAttackResult && // if the flag wasnt true
