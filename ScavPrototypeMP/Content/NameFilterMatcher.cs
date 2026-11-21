@@ -131,8 +131,8 @@ internal sealed class NameFilterMatcher {
         return hasWeak && BestSplitIsDirty(tok);
     }
 
-    // splits tok into words and blocked terms. fewest pieces wins and a tie goes to the clean split
-    // so assassinmain is assassin main and not ass ass in main
+    // splits tok into words and blocked terms. fewest pieces wins and a tie counts as blocked
+    // so assassinmain is assassin main but fatass cant hide as fa tass
     private bool BestSplitIsDirty(string tok) {
         int n = tok.Length;
         var pieces = new int[n + 1];
@@ -165,8 +165,8 @@ internal sealed class NameFilterMatcher {
         if (count < pieces[at]) {
             pieces[at] = count;
             clean[at] = isClean;
-        } else if (count == pieces[at] && isClean) {
-            clean[at] = true;
+        } else if (count == pieces[at] && !isClean) {
+            clean[at] = false;
         }
     }
 
