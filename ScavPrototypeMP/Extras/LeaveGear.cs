@@ -162,7 +162,6 @@ internal static class LeaveGear {
         if (BlockOnce.Count > 512) {
             BlockOnce.Clear();
         }
-        FindTheBugReports.Say("leavegear", "block " + Describe(si));
     }
 
     // CreateObject on a sync the host already destroyed. the pending list was still holding it.
@@ -172,7 +171,6 @@ internal static class LeaveGear {
         if (id == 0 || !LeakOnce.Add(id ^ 0x40000000)) {
             return;
         }
-        FindTheBugReports.Say("leavegear", "deadspawn " + Describe(si));
     }
 
     // pending wanted a mesh for a loose byte. seating is over, so the optimizer must not build one.
@@ -182,7 +180,6 @@ internal static class LeaveGear {
         if (id == 0 || !BlockOnce.Add(id ^ 0x20000000)) {
             return;
         }
-        FindTheBugReports.Say("leavegear", "looseskip " + Describe(si));
     }
 
     internal static void MarkLeak(SyncInfo si) {
