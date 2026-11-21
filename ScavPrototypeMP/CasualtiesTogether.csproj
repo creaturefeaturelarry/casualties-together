@@ -76,6 +76,7 @@
 		<EmbeddedResource Include="assets\locale\zh-CN.json" />
 		<EmbeddedResource Include="assets\locale\zh-TW.json" />
 		<EmbeddedResource Include="assets\nsfw-server-filter.json" />
+		<EmbeddedResource Include="assets\name-filter-words.txt" />
 		<EmbeddedResource Include="assets\retrogaming.bundle" />
 		<EmbeddedResource Include="assets\textures\dune_stare.png" />
 		<EmbeddedResource Include="assets\textures\alertthing.png" />
