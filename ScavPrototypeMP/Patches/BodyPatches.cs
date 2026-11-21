@@ -356,7 +356,15 @@ namespace Together {
             Body body = __instance;
             if (body.IsBodyLocal()) {
                 if (Net.IsClient) {
-                    __instance.transform.position = ogbodypos;
+                    // make sure client does not return to the map top after using Drillpod.
+                    if (Util.IsWorldGenerated() &&
+                        WorldGeneration.world.generatingWorld && 
+                        ClientMain._last_reminderpack_while_generating_received &&
+                        __instance.TryGetNetBody(out var nb)) {
+                        nb.OnReceiveSyncPacket(ClientMain._last_reminderpack_while_generating, true);
+                    } else {
+                        __instance.transform.position = ogbodypos;
+                    }
                 } else {
                     has_spawn_location = true;
                     Vector2 podSpawn = body.transform.position;

@@ -1264,7 +1264,10 @@ public static class Body_Attack_MultiplayerPatch {
             Plugin.log.LogWarning($"COPYING atkinfo {LastAttackInfo?.damage} ");
 #endif
             var atkinfo = LastAttackInfo.CloneViaSerialization();
-
+            // The attack damage multiplier also applies here.
+            float attackDamageMultiplier = WorldGeneration.GetRunSettingFloat("attackdamage");
+            atkinfo.damage *= attackDamageMultiplier;
+            atkinfo.structuralDamage *= attackDamageMultiplier;
 
             var atkdir = KM.NormalTo(limb1pos, targetlookpos);
             var attackpower = CalculateAttackPower(pb.body, atkinfo);
@@ -1296,6 +1299,9 @@ public static class Body_Attack_MultiplayerPatch {
                         } finally {
                             WorldGenerationDamageBlockAnnouncePatch.cur_damaging_netbody = null;
                         }
+                        // Multiplayer host skips vanilla attack flow, need to addxp.
+                        if (atkinfo.physicalSwing)
+                            pb.body.skills.AddExp(0, atkinfo.damage / 300f);
                         WorldGeneration.CreateDamageNumber(
                             (Vector2)WorldGeneration.world.BlockToWorldPos(blockPos) + Vector2.up * 2f,
                             (int)blockDmg);
