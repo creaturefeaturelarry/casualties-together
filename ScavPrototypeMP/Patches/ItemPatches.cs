@@ -57,6 +57,9 @@ internal static class GeigerCounterAudio_Update_MultiplayerPatch {
             var overider = __instance.GetOrAddComponent<BodyGetterOverrider>();
             if (overider.TryGetBodyFromParent(out var body) && body.TryGetNetBody(out var nb)) {
                 irradiateIntensity = nb.irradiateIntensity;
+            } else if (PlayerCamera.main != null) {
+                // a counter in a bag or chest has no body above it. stock still clicks from the camera.
+                irradiateIntensity = PlayerCamera.main.irradiateIntensity;
             }
 
             int clipIndex = __instance.GetClipIndex(irradiateIntensity);

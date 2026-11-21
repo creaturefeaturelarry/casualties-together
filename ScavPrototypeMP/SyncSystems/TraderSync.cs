@@ -989,6 +989,11 @@ static class Talker_PromptTraderResponse_MultiplayerPatch {
     static bool Prefix(Talker __instance, string textType) {
         if (!Net.IsRunning) return true;
 
+        // weird mindwipe bug
+        if (__instance.body != null && __instance.body.mindWipe != null) {
+            return false;
+        }
+
         if (__instance.body != null && __instance.body.alive) {
             var phys_in_radius = Physics2D.OverlapCircleAll(__instance.body.transform.position, 20);
             var only_traders = phys_in_radius.Where(x => x.GetComponent<TraderScript>() != null).Select(x => x.gameObject);
