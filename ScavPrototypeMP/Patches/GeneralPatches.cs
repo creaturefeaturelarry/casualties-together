@@ -150,6 +150,10 @@ static class RPCManager_GetCurrentRichPresence_MultiplayerPatch {
             ask_to_join = true;
         }
 
+#if TESTING
+        __result.State = $"MP Playtest {Multiplayer.FULL_VERSION_TAG}";
+#endif
+
         if (Net.IsRunning) {
             if (String.IsNullOrEmpty(__result.State)) {
                 if (ScavPlayer.ClientIdToPlayerDict.Count <= 1) {
