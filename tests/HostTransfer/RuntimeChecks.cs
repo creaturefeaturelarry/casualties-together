@@ -46,6 +46,32 @@ public sealed class HostTransferRuntimeChecks : BaseUnityPlugin {
         var plugin = BepInEx.Bootstrap.Chainloader.PluginInfos["CasualtiesMP"].Instance;
         Check(plugin.GetComponent(controller) != null, "persistent host-transfer component initialized");
         Check(plugin.GetComponent(mp.GetType("Together.HostTransferUI", true)) != null, "persistent transfer UI component initialized");
+        Type routing = mp.GetType("Together.SavesystemPatch", true);
+        const string slotKey = "Together.ActiveMpSaveSlot";
+        bool hadSlot = PlayerPrefs.HasKey(slotKey);
+        string oldSlot = PlayerPrefs.GetString(slotKey, "");
+        object oldDebug = routing.GetField("InDebugMap", All).GetValue(null);
+        object oldName = routing.GetField("DebugMapName", All).GetValue(null);
+        try {
+            routing.GetField("InDebugMap", All).SetValue(null, false);
+            routing.GetMethod("SelectHostSave", All).Invoke(null, null);
+            string hostFolder = (string)routing.GetProperty("HostSaveFolder", All).GetValue(null);
+            Check((string)routing.GetProperty("mpsavefolder", All).GetValue(null) == hostFolder, "normal MP callers follow selected reserved host slot");
+            Check(PlayerPrefs.GetString(slotKey) == "HostTransfer", "reserved host selection is persisted for restart");
+            Check(!(bool)routing.GetMethod("ValidDebugMapName", All).Invoke(null, new object[] { "hOsTtRaNsFeR" }), "debug command rejects reserved name regardless of case");
+            routing.GetField("InDebugMap", All).SetValue(null, true);
+            routing.GetField("DebugMapName", All).SetValue(null, "routingtest");
+            Check((string)routing.GetProperty("SessionSaveFolder", All).GetValue(null) == Path.Combine(Application.persistentDataPath, "mp_debug_save", "routingtest"), "debug session retains its existing separate routing");
+            routing.GetField("InDebugMap", All).SetValue(null, false);
+            routing.GetMethod("SelectNormalSave", All).Invoke(null, null);
+            Check((string)routing.GetProperty("mpsavefolder", All).GetValue(null) == Path.Combine(Application.persistentDataPath, "mp_save"), "normal slot can be selected without deleting host slot");
+        } finally {
+            routing.GetField("InDebugMap", All).SetValue(null, oldDebug);
+            routing.GetField("DebugMapName", All).SetValue(null, oldName);
+            if (hadSlot) PlayerPrefs.SetString(slotKey, oldSlot); else PlayerPrefs.DeleteKey(slotKey);
+            PlayerPrefs.Save();
+            routing.GetMethod("UpdatePersistentDataPathCuzMultiplayer", All).Invoke(null, null);
+        }
         Type console = game.GetType("ConsoleScript", true);
         object command = console.GetMethod("SearchExact", All).Invoke(null, new object[] { "transferhost" });
         Check(command == null, "transferhost absent from real console");
@@ -58,10 +84,6 @@ public sealed class HostTransferRuntimeChecks : BaseUnityPlugin {
             Check(info != null && info.Prefixes.Concat(info.Postfixes).Any(p => p.PatchMethod.DeclaringType == mp.GetType("Together.RegenerateWorldPatch")
                 || p.PatchMethod.DeclaringType.DeclaringType == controller), "native " + method + " handoff hook installed");
         }
-        var loadInfo = Harmony.GetPatchInfo(AccessTools.Method(game.GetType("SaveSystem", true), "TryLoadGame"));
-        Check(loadInfo != null && loadInfo.Finalizers.Any(p => p.PatchMethod.DeclaringType.DeclaringType == controller), "QoL slot restoration finalizer installed");
-        var hasInfo = Harmony.GetPatchInfo(AccessTools.Method(game.GetType("SaveSystem", true), "HasSave"));
-        Check(hasInfo != null && hasInfo.Finalizers.Any(p => p.PatchMethod.DeclaringType.DeclaringType == controller), "transferred save visibility hook installed");
         Type multi = mp.GetType("Together.Multiplayer", true);
         foreach (string name in new[] { "_ClientReceivers", "_ServerReceivers" }) {
             var dict = (IDictionary)multi.GetField(name, All).GetValue(null);
@@ -103,18 +125,6 @@ public sealed class HostTransferRuntimeChecks : BaseUnityPlugin {
                     Check(changed["lootmultiplier"] is float number && number == 2.75f && changed.Contains("TestExtraRunSetting"), "run-settings decoder retains nondefault values past unregistered keys");
                 }
             }
-        }
-        var qol = AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType("QoL_Unknown.SaveManager")).FirstOrDefault(t => t != null);
-        var slot = qol?.GetField("CurrentSaveFile", All);
-        Check(slot != null, "installed QoL slot API found");
-        if (slot != null) {
-            object previous = slot.GetValue(null);
-            try {
-                slot.SetValue(null, "test-slot.sv");
-                using ((IDisposable)mp.GetType("Together.TransferTransport").GetMethod("SelectQoLSave", All).Invoke(null, null))
-                    Check((string)slot.GetValue(null) == "save.sv", "transferred save selection scoped to operation");
-                Check((string)slot.GetValue(null) == "test-slot.sv", "prior QoL slot selection restored");
-            } finally { slot.SetValue(null, previous); }
         }
         try {
             var mode = Enum.Parse(controller.GetNestedType("TransferMode", All), "NextLayer");
@@ -168,14 +178,14 @@ public sealed class HostTransferRuntimeChecks : BaseUnityPlugin {
         var dialog = (GameObject)ui.GetField("canvas", All).GetValue(uiComponent);
         Canvas.ForceUpdateCanvases();
         var text = dialog.GetComponentsInChildren<TextMeshProUGUI>(true);
-        Check(text.Any(t => t.text.Contains("replace your active multiplayer expedition") && t.text.Contains("backed up")), "recipient sees replacement warning and backup promise in native dialog");
-        var warning = text.First(t => t.text.Contains("replace your active multiplayer expedition"));
+        Check(text.Any(t => t.text.Contains("separate host-transfer slot") && t.text.Contains("backed up")), "recipient sees replacement warning and backup promise in native dialog");
+        var warning = text.First(t => t.text.Contains("separate host-transfer slot"));
         float preferredHeight = warning.GetPreferredValues(warning.text, warning.rectTransform.rect.width, float.PositiveInfinity).y;
         Logger.LogInfo("WARNING_TEXT preferredHeight=" + preferredHeight + " rect=" + warning.rectTransform.rect.size + " font=" + warning.fontSize);
         Check(preferredHeight <= warning.rectTransform.rect.height + 1, "complete save warning fits its native dialog text area");
-        Check(dialog.GetComponentsInChildren<Button>(true).Any(b => b.GetComponentInChildren<TextMeshProUGUI>(true)?.text == "Accept hosting and replace active save"), "recipient acceptance button names save replacement explicitly");
+        Check(dialog.GetComponentsInChildren<Button>(true).Any(b => b.GetComponentInChildren<TextMeshProUGUI>(true)?.text == "Accept hosting and use transferred save"), "recipient acceptance button names save replacement explicitly");
         ui.GetMethod("Open", All).Invoke(null, new object[] { false });
         dialog = (GameObject)ui.GetField("canvas", All).GetValue(uiComponent);
-        Check(dialog.GetComponentsInChildren<TextMeshProUGUI>(true).Any(t => t.text.Contains("Include my saved multiplayer expedition")), "lobby picker includes optional expedition transfer control");
+        Check(dialog.GetComponentsInChildren<TextMeshProUGUI>(true).Any(t => t.text.Contains("Send your MP save file to them?")), "lobby picker includes optional expedition transfer control");
     }
 }

@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using CasualtiesTogetherUtils;
 using Newtonsoft.Json.Linq;
 using Steamworks;
@@ -85,16 +84,4 @@ internal static class TransferTransport {
         return TransferArchive.NeedsFreshHost(root, local);
     }
 
-    // QoL is optional. Scope its slot override to the save/load call only.
-    internal static IDisposable SelectQoLSave() {
-        Type type = AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType("QoL_Unknown.SaveManager")).FirstOrDefault(t => t != null);
-        FieldInfo field = type?.GetField("CurrentSaveFile", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-        if (type != null && field == null) throw new MissingFieldException("QoL save selection changed.");
-        return new SlotScope(field);
-    }
-    private sealed class SlotScope : IDisposable {
-        private readonly FieldInfo field; private readonly object previous;
-        internal SlotScope(FieldInfo value) { field = value; previous = field?.GetValue(null); field?.SetValue(null, "save.sv"); }
-        public void Dispose() { field?.SetValue(null, previous); }
-    }
 }

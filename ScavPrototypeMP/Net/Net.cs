@@ -159,7 +159,8 @@ namespace Together {
         public int pingMs = -1;
 
         public bool IsJoinable() {
-            return !enforcemodlist_locked && !midjoin_lock_active && Multiplayer.FULL_VERSION_TAG == this.version;
+            bool returning = midjoin_lock_active && steam_lobby_info != null && LobbyHostTransfer.CanRejoinLobby(steam_lobby_info.lobby_steamID);
+            return !enforcemodlist_locked && (!midjoin_lock_active || returning) && Multiplayer.FULL_VERSION_TAG == this.version;
         }
 
         public bool HasPing => pingMs >= 0;
@@ -401,7 +402,7 @@ namespace Together {
         }
 
         // tHIS DOES NOT CHECK THE BAN LIST  !!! BAN LIST IS CHECKED BY THE TRANSPORT, NEAR THIS VALIDATION
-        internal static bool ValidateNewClientHandshake(NetDataReader reader, bool should_validate_name, bool privileged_user, out Multiplayer.IntroductionPlayerInfo userInfo, out string reject_reason) {
+        internal static bool ValidateNewClientHandshake(NetDataReader reader, bool should_validate_name, bool privileged_user, out Multiplayer.IntroductionPlayerInfo userInfo, out string reject_reason, ulong steamId = 0) {
             reject_reason = "The server doesn't like you ig.";
             userInfo = new();
             userInfo.userName = "?????????????????????";
@@ -451,8 +452,11 @@ namespace Together {
 
                     string reject_reason2 = null;
                     if (!Multiplayer.AdditionalApprovalCheck(ref reader, userInfo.userName, ref reject_reason2)) {
-                        reject_reason = (reject_reason2);
-                        return false;
+                        // Only the normal midrun lock is waived for a transferred player, using the transport's authenticated Steam id.
+                        if (reject_reason2 != "<key:deny_game_in_progress>" || !LobbyHostTransfer.CanReturnAfterTransfer(steamId)) {
+                            reject_reason = (reject_reason2);
+                            return false;
+                        }
                     }
                 }
 
@@ -895,7 +899,7 @@ namespace Together {
             Transport.Server_SendToClients(delivery, writer.AsReadOnlySpan(), aaaa);
         }
 
-        public static void Client_Send(in DeliveryMethod delivery, in ReadOnlySpan<byte> data) { // TODO THIS IS TEMPORARY TO TEST, FOR OPTIMIZATION I'LL HAVE TO MAKE SPAN A DEFAULT!!
+        public static void Client_Send(in DeliveryMethod delivery, in ReadOnlySpan<byte> data) { // TODO THIS IS TEMPORARY TO TEST, FOR OPTIMIZATION I'LL HAVE TO MAKE SPAN A DEFAULT!! < nothing more permanent than a temp solution
 #if !RELEASE
             Con.ConFailIfNotConnected();
             {

@@ -651,7 +651,15 @@ public static class SavesystemPatch {
     internal static bool PendingLoadMpSave;
     const string _mpsavefolder_name = "mp_save";
     const string _mpdebugfolder_name = "mp_debug_save";
-    public static string mpsavefolder => Path.Combine(Application.persistentDataPath, _mpsavefolder_name);
+    internal const string ReservedHostSaveName = "HostTransfer";
+    private const string ActiveMpSlotKey = "Together.ActiveMpSaveSlot";
+    internal static string HostSaveFolder => Path.Combine(Application.persistentDataPath, "mp_host_save");
+    private static bool HostSaveSelected => PlayerPrefs.GetString(ActiveMpSlotKey, "") == ReservedHostSaveName;
+    // Keep existing MP save/load callers on the selected expedition. Debug
+    // sessions still choose their own folder through SessionSaveFolder.
+    public static string mpsavefolder => HostSaveSelected && !InDebugMap ? HostSaveFolder : Path.Combine(Application.persistentDataPath, _mpsavefolder_name);
+    internal static void SelectHostSave() { PlayerPrefs.SetString(ActiveMpSlotKey, ReservedHostSaveName); PlayerPrefs.Save(); UpdatePersistentDataPathCuzMultiplayer(); }
+    internal static void SelectNormalSave() { PlayerPrefs.DeleteKey(ActiveMpSlotKey); PlayerPrefs.Save(); UpdatePersistentDataPathCuzMultiplayer(); }
     public static string mpdebugfolder => Path.Combine(Application.persistentDataPath, _mpdebugfolder_name);
     // true for the whole debug-map session. saves for that session stay out of mp_save.
     internal static bool InDebugMap;
@@ -660,7 +668,7 @@ public static class SavesystemPatch {
     internal static string SessionSaveFolder => InDebugMap ? DebugFolder(DebugMapName) : mpsavefolder;
 
     internal static bool ValidDebugMapName(string name) {
-        if (string.IsNullOrEmpty(name) || name.Length > 32)
+        if (string.IsNullOrEmpty(name) || name.Length > 32 || string.Equals(name, ReservedHostSaveName, StringComparison.OrdinalIgnoreCase))
             return false;
         for (int i = 0; i < name.Length; i++) {
             char c = name[i];
@@ -843,7 +851,7 @@ public static class SavesystemPatch {
 
         if (InDebugMap)
             return SessionSaveFolder;
-        if (Net.IsRunning && HasMultiplayerSaveFile()) {
+        if (Net.IsRunning && (HostSaveSelected || HasMultiplayerSaveFile())) {
             return mpsavefolder;
         } else {
             return Application.persistentDataPath;

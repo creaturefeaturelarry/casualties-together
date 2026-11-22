@@ -17,7 +17,7 @@ namespace Together
     {
         internal enum TransferMode : byte { NextLayer, LobbyWithSave, LobbyOnly }
         // The transfer code stays compiled. The singleton loader and the menu button both check this.
-        internal const bool Enabled = false;
+        internal const bool Enabled = true;
         private enum Phase { Idle, Offered, Accepted, Preparing, Ready, CommitApproved, Switching, Reconnecting, Resuming }
         private enum Message : byte { Offer, Answer, Prepare, Begin, Chunk, Ready, Abort, Arrived, Complete, Commit, CommitAck }
         private const string MessageName = "together.host-transfer.v2";
@@ -27,6 +27,11 @@ namespace Together
         private static ulong lobby, originalHost, target;
         private static Phase phase;
         private const string ReadyLobbyKey = "together_transfer_ready";
+        private const string CompleteLobbyKey = "together_transfer_complete", ReturnersLobbyKey = "together_transfer_returners";
+        private const double ReconnectGraceSeconds = 5;
+        private static double reconnectDeadline;
+        private static ulong returnLobby, returnHost;
+        private static readonly HashSet<ulong> returners = new HashSet<ulong>();
         private static bool oldConnectionClosed;
         private static double nextArrival;
         private static double deadline;
@@ -53,11 +58,27 @@ namespace Together
         internal static bool IncludesSave => mode != TransferMode.LobbyOnly;
         internal static bool PauseAutoContinue => HostTransferUI.SelectingAtExit || (id != null && mode == TransferMode.NextLayer && !Accepted);
         internal static string Status => id == null ? (AwaitingTransferredLoad ? "You are hosting the transferred expedition. Select Resume Expedition." : "No transfer queued.")
-            : targetName + ": " + (Switching ? "reconnecting players" : Preparing ? "preparing transfer" : Accepted ? "accepted; waiting to continue" : "waiting for acceptance");
+            : targetName + ": " + (phase == Phase.Reconnecting && Local == target ? "reconnecting players (" + Math.Ceiling(Math.Max(0, reconnectDeadline - Time.realtimeSinceStartupAsDouble)) + "s remaining)"
+                : Switching ? "reconnecting players" : Preparing ? "preparing transfer" : Accepted ? "accepted; waiting to continue" : "waiting for acceptance");
         internal static bool IsCurrentOffer(string token) => id == token && Local == target && phase == Phase.Offered;
         internal static bool Busy => phase >= Phase.Preparing;
         internal static bool AwaitingTransferredLoad => pendingTransferredLoad && Net.IsRunning && Net.IsHost && KSteam.LobbyId.m_SteamID == pendingLoadLobby;
         internal static bool HoldLobbyAutoStart => holdLobbyAutoStart && Net.IsRunning && Net.IsHost && KSteam.LobbyId.m_SteamID == heldLobby;
+
+        // This exception only admits the authenticated Steam identities from the
+        // transferred party. Password, version, capacity and ban checks still apply.
+        internal static bool CanReturnAfterTransfer(ulong steam) => steam != 0 && Net.IsRunningSteam && Net.IsHost
+            && KSteam.LobbyId.m_SteamID == returnLobby && Local == returnHost
+            && SteamMatchmaking.GetLobbyOwner(new CSteamID(returnLobby)).m_SteamID == returnHost && returners.Contains(steam);
+
+        internal static bool CanRejoinLobby(CSteamID value)
+        {
+            if (!KSteam.Loaded) return false;
+            string entry = SteamMatchmaking.GetLobbyData(value, ReturnersLobbyKey);
+            int split = entry.IndexOf(':');
+            return split == 32 && Guid.TryParseExact(entry.Substring(0, split), "N", out _)
+                && entry.Substring(split + 1).Split(',').Contains(Local.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
 
         private void Awake()
         {
@@ -102,15 +123,15 @@ namespace Together
             if (!Net.IsRunningSteam || !Net.IsHost || !Net.IsRunning) throw new InvalidOperationException("Only the Steam lobby host can transfer hosting.");
             if (HasRequest || Busy) throw new InvalidOperationException("Wait for or cancel the existing transfer first.");
             if (recipient == null || recipient.IsLocal || recipient.SteamId == 0 || Find(recipient.SteamId) != recipient)
-                throw new ArgumentException("Choose a connected player.");
+                throw new ArgumentException("Choose a victim to host.");
             if (requestedMode == TransferMode.NextLayer)
             {
-                if (!Util.IsInWorld() || WorldGeneration.world.generatingWorld || WorldGeneration.world.doPod || WorldGeneration.world.biomeDepth == 10 || SavesystemPatch.PreserveSave)
+                if (!Util.IsInWorld() || WorldGeneration.world.generatingWorld || WorldGeneration.world.doPod || WorldGeneration.world.biomeDepth == 10 || SavesystemPatch.PreserveSave || SavesystemPatch.InDebugMap)
                     throw new InvalidOperationException("Transfer from an ordinary expedition layer.");
             }
             else if (!Util.IsInMainMenu()) throw new InvalidOperationException("Lobby transfer requires the main menu.");
             if (requestedMode == TransferMode.LobbyWithSave && !HasSavedExpedition)
-                throw new InvalidOperationException("No multiplayer expedition is available to transfer.");
+                throw new InvalidOperationException("No mp save is available to transfer.");
             mode = requestedMode; continueWhenAccepted = mode == TransferMode.NextLayer;
             id = Guid.NewGuid().ToString("N"); targetName = recipient.playerName; target = recipient.SteamId;
             originalHost = Local; lobby = KSteam.LobbyId.m_SteamID; queuedWorld = WorldGeneration.world;
@@ -123,10 +144,10 @@ namespace Together
             && File.Exists(Path.Combine(SavesystemPatch.mpsavefolder, "mp_rules.json"));
 
         internal static string OfferWarning(TransferMode value) => value == TransferMode.LobbyOnly
-            ? "You will become the lobby host. Your saved expedition will not be replaced. Everyone will stay in the lobby."
-            : "Accepting will replace your active multiplayer expedition with the host's expedition. Your previous multiplayer save will be backed up. Other save slots, including separate QoL slots, are kept.\n\n"
-                + "Your character is restored if it exists in this expedition; otherwise you join with a fresh character.\n\n"
-                + (value == TransferMode.NextLayer ? "After this layer is continued and everyone reconnects, the expedition resumes automatically." : "Everyone stays in the lobby. Choose Resume Expedition when ready.");
+            ? "You will become the lobby host. Your mp save will not be replaced. Everyone will stay in the lobby."
+            : "The host's save will be stored in a separate host-transfer slot. Your normal multiplayer save will be kept. Any previous host-transfer save will be backed up. Open the console and enter openfolder saves to access your save files.\n\n"
+                + "Your character is restored if it exists in this save, otherwise you join with a fresh character.\n\n"
+                + (value == TransferMode.NextLayer ? "After this layer is continued, the new host waits for all player connections, then resumes automatically." : "The handoff waits up to five seconds for reconnections. Everyone stays in the lobby.");
 
         internal static void AnswerOffer(string token, bool yes)
         {
@@ -173,18 +194,16 @@ namespace Together
                     members = new HashSet<ulong>(); for (int i = 0; i < count; i++) members.Add(r.GetULong());
                     if (!members.Contains(Local) || !members.Contains(target) || !members.Contains(originalHost) || members.Count != count) throw new InvalidDataException("Invalid members.");
                     if (phase < Phase.Preparing) phase = Phase.Preparing;
-                    Say(mode == TransferMode.NextLayer ? "Returning to the lobby to transfer hosting and resume the expedition." : "Transferring lobby hosting. Please wait."); return;
+                    Say(mode == TransferMode.NextLayer ? "Returning to the lobby to transfer hosting." : "Transferring lobby hosting. Please wait..."); return;
                 }
                 if (id != token) return;
                 if (kind == Message.Abort && !Switching) { Say("Transfer cancelled; the original host remains in control."); Reset(); return; }
                 if (kind == Message.Commit && (phase == Phase.Ready || phase == Phase.CommitApproved))
                 { phase = Phase.CommitApproved; Reply(Message.CommitAck); return; }
-                if (kind == Message.Complete && Switching && Net.IsClient && KSteam.CURRENT_LOBBY.ownerID.m_SteamID == target)
+                if (kind == Message.Complete && Switching && Net.IsClient && KSteam.CURRENT_LOBBY.ownerID.m_SteamID == target
+                    && SteamMatchmaking.GetLobbyOwner(new CSteamID(lobby)).m_SteamID == target)
                 {
-                    string message = "Host transfer complete. " + targetName + " is now hosting. "
-                        + (mode == TransferMode.NextLayer ? "The expedition is resuming. " : "")
-                        + (Local == originalHost ? "You can safely quit." : "The former host can safely quit.");
-                    Say(message); HostTransferUI.NotifyComplete(message); Reset(); return;
+                    CompleteClient(); return;
                 }
                 if (!Preparing || Local != target) return;
                 if (kind == Message.Begin)
@@ -204,7 +223,7 @@ namespace Together
                     if (received == expectedBytes)
                     {
                         if (TransferArchive.Hash(incoming) != expectedHash) throw new InvalidDataException("Checkpoint hash mismatch.");
-                        stage = TransferArchive.Stage(incoming, SavesystemPatch.mpsavefolder, id);
+                        stage = TransferArchive.Stage(incoming, SavesystemPatch.HostSaveFolder, id);
                         if (mode == TransferMode.NextLayer) TransferArchive.ValidateCheckpoint(stage, target, depth, members);
                         else TransferArchive.ValidateSaved(stage, target);
                         incoming = null; Say("Checkpoint verified and staged; existing saves untouched.");
@@ -232,7 +251,7 @@ namespace Together
                     Say(targetName + " accepted. " + (mode == TransferMode.NextLayer ? "Transfer will run when the layer continues." : "Preparing the lobby transfer."));
                     if (mode != TransferMode.NextLayer)
                     {
-                        if (!Util.IsInMainMenu()) { Abort("The host left the lobby before acceptance."); return; }
+                        if (!Util.IsInMainMenu()) { Abort("The host left the lobby before acceptance. Asshole."); return; }
                         EnterPhase(Phase.Preparing, 120);
                         instance.StartCoroutine(Safe(Prepare()));
                     }
@@ -247,6 +266,8 @@ namespace Together
 
         private void Update()
         {
+            if (returnLobby != 0 && (!Net.IsRunningSteam || !Net.IsHost || KSteam.LobbyId.m_SteamID != returnLobby))
+            { returners.Clear(); returnLobby = returnHost = 0; }
             if (phase == Phase.Resuming)
             {
                 if (!AwaitingTransferredLoad) { phase = Phase.Idle; return; }
@@ -267,6 +288,14 @@ namespace Together
             if (!Switching && (!Net.IsRunningSteam || KSteam.LobbyId.m_SteamID != lobby)) { Reset(); return; }
             if (Switching && (!KSteam.IS_IN_LOBBY || KSteam.LobbyId.m_SteamID != lobby || (phase == Phase.Reconnecting && !Net.IsRunning)))
             { Abort("The lobby disconnected during handoff."); return; }
+            if (phase == Phase.Reconnecting && SteamMatchmaking.GetLobbyOwner(new CSteamID(lobby)).m_SteamID != target)
+            { Abort("The new host left before handoff completed."); return; }
+            // A slow peer may miss the completion packet and connect after the
+            // host has resumed. The lobby token releases its transfer gate too.
+            if (phase == Phase.Reconnecting && Net.IsClient && Net.IsConnected
+                && KSteam.CURRENT_LOBBY.ownerID.m_SteamID == target
+                && SteamMatchmaking.GetLobbyData(new CSteamID(lobby), CompleteLobbyKey) == id)
+            { CompleteClient(); return; }
             if (Time.realtimeSinceStartupAsDouble > deadline) { Abort(Switching ? "Reconnect timed out. Save/backups preserved; do not assume completion." : "Preparation timed out; no transfer confirmed."); return; }
             if (!Switching && Local == originalHost && (!Net.IsHost || Find(target) == null)) { Abort("Host or target disconnected."); return; }
             if (!Busy && Local == originalHost && queuedWorld != WorldGeneration.world) { Abort("Run changed before transfer."); return; }
@@ -282,14 +311,17 @@ namespace Together
                     BeginSwitch(); return;
                 }
                 if (Local != originalHost && phase == Phase.Preparing && Util.IsInMainMenu() && (Local != target || !IncludesSave || stage != null)) { Reply(Message.Ready); phase = Phase.Ready; }
-                if (Local == originalHost && Util.IsInMainMenu() && ready.Count == members.Count - 1)
+                if (Local == originalHost && Util.IsInMainMenu())
                 {
-                    if (!CurrentMembers().SetEquals(members)) { Abort("Lobby membership changed."); return; }
+                    // New arrivals are not part of this checkpoint handshake;
+                    // departed clients can return after the host is ready.
+                    ulong[] peers = members.Where(s => s != originalHost && Find(s) != null).ToArray();
+                    if (!peers.Contains(target) || !peers.All(ready.Contains)) return;
                     // Every peer must know that the old connection is expected to
                     // close before we touch Steam ownership. Steam's lobby-owner
                     // callback can arrive later than a P2P socket-close callback.
                     if (phase != Phase.CommitApproved) { SendAll(Packet(Message.Commit)); phase = Phase.CommitApproved; return; }
-                    if (commitAcks.Count != members.Count - 1) return;
+                    if (!peers.All(commitAcks.Contains)) return;
                     if (!SteamMatchmaking.SetLobbyOwner(new CSteamID(lobby), new CSteamID(target))) { Abort("Steam declined ownership change."); return; }
                     BeginSwitch();
                 }
@@ -297,18 +329,30 @@ namespace Together
             else if (phase == Phase.Reconnecting && Net.IsConnected && Util.IsInMainMenu() && ScavPlayer.LocalPlayer != null && KSteam.CURRENT_LOBBY.ownerID.m_SteamID == target)
             {
                 if (Local != target && Time.realtimeSinceStartupAsDouble >= nextArrival) { Reply(Message.Arrived); nextArrival = Time.realtimeSinceStartupAsDouble + 2; }
-                if (Local == target && arrived.Count == members.Count - 1)
+                if (Local == target && (members.All(s => s == target || (Find(s) != null && arrived.Contains(s)))
+                    || Time.realtimeSinceStartupAsDouble >= reconnectDeadline))
                 {
-                    if (!CurrentMembers().SetEquals(members)) return;
+                    int missing = members.Count(s => s != target && (Find(s) == null || !arrived.Contains(s)));
+                    if (!SteamMatchmaking.SetLobbyData(new CSteamID(lobby), CompleteLobbyKey, id))
+                    { Abort("Could not publish handoff completion."); return; }
                     SendAll(Packet(Message.Complete));
                     bool resume = mode == TransferMode.NextLayer;
                     string message = resume ? "Host transfer complete. You are hosting. Resuming the expedition automatically."
-                        : IncludesSave ? "Host transfer complete. You are hosting the transferred expedition. Select Resume Expedition when ready."
-                        : "Host transfer complete. You are hosting this lobby. Your saved expedition was kept.";
+                        : IncludesSave ? "Host transfer complete. You are hosting the transferred save file. Select Resume Expedition when ready."
+                        : "Host transfer complete. You are hosting this lobby.";
+                    if (missing > 0) message += " " + missing + (missing == 1 ? " player can reconnect later." : " players can reconnect later.");
                     Say(message); HostTransferUI.NotifyComplete(message); Reset();
                     if (resume) { phase = Phase.Resuming; autoResumeDeadline = Time.realtimeSinceStartupAsDouble + 30; }
                 }
             }
+        }
+
+        private static void CompleteClient()
+        {
+            string message = "Host transfer complete. " + targetName + " is now hosting. "
+                + (mode == TransferMode.NextLayer ? "The expedition is resuming. " : "")
+                + (Local == originalHost ? "You can safely quit." : "The former host can safely quit.");
+            Say(message); HostTransferUI.NotifyComplete(message); Reset();
         }
 
         private static void BeginSwitch()
@@ -392,7 +436,7 @@ namespace Together
                 if (PlayerCheckpoint.TryReadSpecies("STEAM_" + s, out string name, out int slot)) species[s] = (name, slot);
             var stamps = members.Select(s => Path.Combine(root, "STEAM_" + s, "save.sv"))
                 .ToDictionary(path => path, path => File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue);
-            using (TransferTransport.SelectQoLSave()) SaveSystem.SaveGame();
+            SaveSystem.SaveGame();
             foreach (var stamp in stamps)
                 if (!File.Exists(stamp.Key) || File.GetLastWriteTimeUtc(stamp.Key) == stamp.Value)
                     throw new IOException("A fresh player save was not written: " + stamp.Key);
@@ -408,7 +452,14 @@ namespace Together
             yield return null;
             if (id != transfer) yield break;
             TransferTransport.Detach();
-            if (host) { if (IncludesSave) TransferArchive.Install(stage, SavesystemPatch.mpsavefolder, transfer); }
+            if (host)
+            {
+                if (IncludesSave)
+                {
+                    TransferArchive.Install(stage, SavesystemPatch.HostSaveFolder, transfer);
+                    SavesystemPatch.SelectHostSave();
+                }
+            }
             else
             {
                 // The new owner publishes this token only after opening its listener.
@@ -425,10 +476,16 @@ namespace Together
                 pendingLoadLobby = lobby;
                 holdLobbyAutoStart = mode != TransferMode.NextLayer;
                 heldLobby = lobby;
+                returners.Clear(); returners.UnionWith(members);
+                returnLobby = lobby; returnHost = target;
+                if (!SteamMatchmaking.SetLobbyData(new CSteamID(lobby), ReturnersLobbyKey,
+                    transfer + ":" + string.Join(",", members.Select(s => s.ToString(System.Globalization.CultureInfo.InvariantCulture)))))
+                    throw new IOException("Could not publish returning-player access.");
                 if (!SteamMatchmaking.SetLobbyData(new CSteamID(lobby), ReadyLobbyKey, transfer))
                     throw new IOException("Could not announce the new host listener.");
+                reconnectDeadline = Time.realtimeSinceStartupAsDouble + ReconnectGraceSeconds;
             }
-            Say(host ? "New host listening; waiting for lobby reconnections." : "Reconnecting to the new host's lobby.");
+            Say(host ? "New host listening up to five seconds for reconnections." : "Reconnecting to the new host's lobby.");
         }
         private static void Abort(string reason)
         {
@@ -449,34 +506,23 @@ namespace Together
             id = targetName = stage = password = runSettings = null; incoming = null;
             lobby = originalHost = target = 0; phase = Phase.Idle; boundaryArmed = false;
             queuedWorld = null; ready.Clear(); arrived.Clear(); members.Clear();
-            nextArrival = 0;
+            nextArrival = reconnectDeadline = 0;
             oldConnectionClosed = false; commitAcks.Clear();
             continueWhenAccepted = false;
             // pendingTransferredLoad survives success until the user's Load Run.
         }
         private static void OnWorldFinished() { if (AwaitingTransferredLoad && Util.IsInWorld()) pendingTransferredLoad = false; }
-        private void OnDestroy() { if (instance == this) { WorldMP.OnWorldgenFinish -= OnWorldFinished; Reset(); instance = null; } }
+        private void OnDestroy() { if (instance == this) { WorldMP.OnWorldgenFinish -= OnWorldFinished; Reset(); returners.Clear(); returnLobby = returnHost = 0; instance = null; } }
 
         internal static bool AllowRun(bool load) {
             if (Busy || (HasRequest && mode != TransferMode.NextLayer)) { Say("Wait for host transfer to finish."); return false; }
             holdLobbyAutoStart = false;
-            if (!load) pendingTransferredLoad = false;
+            if (!load)
+            {
+                pendingTransferredLoad = false;
+                if (Net.IsHost && !SavesystemPatch.InDebugMap && !SavesystemPatch.PreserveSave) SavesystemPatch.SelectNormalSave();
+            }
             return true;
-        }
-
-        // The menu can query HasSave before LoadRun is clicked. An unrelated QoL
-        // slot must not hide the checkpoint; both operations need the same scope.
-        [HarmonyPatch]
-        private static class TransferredSaveSlot
-        {
-            [HarmonyTargetMethods]
-            private static System.Reflection.MethodBase[] TargetMethods() => new[] {
-                typeof(SaveSystem).GetMethod(nameof(SaveSystem.TryLoadGame)),
-                typeof(SaveSystem).GetMethod(nameof(SaveSystem.HasSave))
-            };
-            [HarmonyPrefix, HarmonyPriority(Priority.First)]
-            private static void Prefix(out IDisposable __state) { __state = AwaitingTransferredLoad ? TransferTransport.SelectQoLSave() : null; }
-            [HarmonyFinalizer] private static Exception Finalizer(Exception __exception, IDisposable __state) { __state?.Dispose(); return __exception; }
         }
 
         internal static void ArmBoundary(WorldGeneration world, bool twice) {

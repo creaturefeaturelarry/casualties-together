@@ -2699,7 +2699,7 @@ namespace Together {
                 }
             }
 
-            bool validated = Net.ValidateNewClientHandshake(reader, false, privileged_user, out Multiplayer.IntroductionPlayerInfo userInfo, out string reject_reason);
+            bool validated = Net.ValidateNewClientHandshake(reader, false, privileged_user, out Multiplayer.IntroductionPlayerInfo userInfo, out string reject_reason, steamID);
             if (validated) {
                 if (KnownPersons.IsSteamUserPrivileged(steamID)) { // privileged users
                 } else if (BanList.IsBanned(steamID)) {

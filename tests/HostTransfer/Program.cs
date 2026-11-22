@@ -31,11 +31,12 @@ static class Checks {
     static void RequestAtExit() => LobbyHostTransfer.Request(Player(2), LobbyHostTransfer.TransferMode.NextLayer);
     static void Reset(bool host = true) {
         Call("Reset"); Set("pendingTransferredLoad", false);
+        ((HashSet<ulong>)Field("returners")).Clear(); Set("returnLobby", 0UL); Set("returnHost", 0UL);
         Set("holdLobbyAutoStart", false);
         UnityEngine.MonoBehaviour.Work.Clear();
         KSteam.Local = host ? 1UL : 2UL; KSteam.LobbyId = new(100); KSteam.CURRENT_LOBBY.ownerID = new(1);
         KSteam.IS_IN_LOBBY = true;
-        SteamMatchmaking.Owner = 1; SteamMatchmaking.AllowOwnerChange = true; SteamMatchmaking.Data.Clear();
+        SteamMatchmaking.Owner = 1; SteamMatchmaking.AllowOwnerChange = SteamMatchmaking.AllowLobbyData = true; SteamMatchmaking.Data.Clear();
         WorldGeneration.world = new(); Util.Menu = false; SavesystemPatch.PreserveSave = false;
         Net.IsRunning = Net.IsRunningSteam = true; Net.IsHost = host; Net.Outbox.Clear();
         UnityEngine.Time.realtimeSinceStartupAsDouble = 0; Multiplayer.Logs.Clear();
@@ -46,6 +47,7 @@ static class Checks {
         };
         ScavPlayer.LocalPlayer = Player(KSteam.Local);
         TransferTransport.Starts = TransferTransport.Detaches = 0;
+        TransferTransport.FailStart = false;
         HostTransferUI.SelectingAtExit = false; PreRunScript.instance = new();
     }
     static NetDataWriter Packet(byte kind, string token = null) {
@@ -91,6 +93,15 @@ static class Checks {
             var chunk = Packet(4); chunk.Put(offset); chunk.Put(part.Length); chunk.Put(part);
             Multiplayer.Client(new NetDataReader(chunk.CopyData()));
         }
+    }
+    static string ListenAsNewHost(byte[] checkpoint = null) {
+        Reset(false); Util.Menu = true;
+        SavesystemPatch.mpsavefolder = Path.Combine(Work, Guid.NewGuid().ToString("N"));
+        string token = OfferAndPrepare(checkpoint == null ? LobbyHostTransfer.TransferMode.LobbyOnly : LobbyHostTransfer.TransferMode.NextLayer);
+        if (checkpoint != null) Deliver(checkpoint);
+        Call("Update"); Multiplayer.Client(new NetDataReader(Packet(9).CopyData()));
+        SteamMatchmaking.Owner = 2; Call("Update"); StepWork(); StepWork();
+        return token;
     }
     static string Stage(byte[] bytes) => TransferArchive.Stage(bytes, Path.Combine(Work, Guid.NewGuid().ToString("N")), Guid.NewGuid().ToString("N"));
     static void Save(string root, ulong id, int depth) {
@@ -202,10 +213,12 @@ static class Checks {
             }
             Check(Field("stage") != null, "valid wire chunks hash and stage checkpoint");
             Check(File.Exists(Path.Combine(SavesystemPatch.mpsavefolder, "keep.txt")), "wire delivery preserves existing recipient run before commit");
+            string normalSave = SavesystemPatch.mpsavefolder;
             Call("Update"); Multiplayer.Client(new NetDataReader(Packet(9).CopyData())); SteamMatchmaking.Owner = 2; Call("Update");
             Check(TransferTransport.Starts == 0, "ownership observed before new host transport starts");
             StepWork(); StepWork();
             Check(TransferTransport.Starts == 1 && Net.IsHost && SteamMatchmaking.Data["together_transfer_ready"] == token, "new host opens transport then publishes readiness");
+            Check(SavesystemPatch.mpsavefolder == SavesystemPatch.HostSaveFolder && File.Exists(Path.Combine(normalSave, "keep.txt")), "received save uses reserved host slot and leaves normal MP save intact");
             Check(TransferArchive.ReadSave(Path.Combine(SavesystemPatch.mpsavefolder, "save.sv")).Value<ulong>("owner") == 2, "new host installs delivered character checkpoint");
             Call("Update"); Check(Token != null, "new host waits for all arrival acknowledgements");
             Ready(1, 7); Call("Update"); Check(Token != null, "one missing peer prevents completion");
@@ -264,16 +277,15 @@ static class Checks {
             Check(File.ReadAllText(Path.Combine(SavesystemPatch.mpsavefolder, "prior.txt")) == "preserve", "hosting-only transfer never replaces recipient files");
 
             Reset(false); Util.Menu = true; OfferAndPrepare(LobbyHostTransfer.TransferMode.LobbyWithSave);
-            Check(HostTransferUI.OfferText.Contains("replace your active multiplayer expedition") && HostTransferUI.OfferText.Contains("backed up"), "save replacement warning shown before recipient acceptance");
-            Check(HostTransferUI.OfferText.Contains("QoL"), "warning explains separate QoL slots without promising an exemption");
+            Check(HostTransferUI.OfferText.Contains("separate host-transfer slot") && HostTransferUI.OfferText.Contains("backed up"), "save replacement warning shown before recipient acceptance");
             SavesystemPatch.mpsavefolder = Path.Combine(Work, "saved-lobby-target"); Directory.CreateDirectory(SavesystemPatch.mpsavefolder);
-            string qoslot = SavesystemPatch.mpsavefolder + "-qol-slot.sv"; File.WriteAllText(qoslot, "separate slot");
+            string otherSlot = SavesystemPatch.mpsavefolder + "-other-slot.sv"; File.WriteAllText(otherSlot, "separate slot");
             Deliver(savedBundle); Check(Field("stage") != null, "lobby saved expedition validates without imposing next-layer rules");
             Call("Update"); Multiplayer.Client(new NetDataReader(Packet(9).CopyData())); SteamMatchmaking.Owner = 2; Call("Update"); StepWork(); StepWork();
             Ready(1, 7); Ready(3, 7); Call("Update"); Call("Update");
             Check(PreRunScript.instance.Loads == 0 && LobbyHostTransfer.AwaitingTransferredLoad, "saved lobby transfer awaits manual Resume Expedition");
             Check(LobbyHostTransfer.HoldLobbyAutoStart && LobbyHostTransfer.AllowRun(true) && !LobbyHostTransfer.HoldLobbyAutoStart, "explicit lobby resume releases autostart hold");
-            Check(File.ReadAllText(qoslot) == "separate slot", "separate save-slot file outside active multiplayer folder preserved");
+            Check(File.ReadAllText(otherSlot) == "separate slot", "separate save-slot file outside active multiplayer folder preserved");
 
             Reset(); Util.Menu = true; SavesystemPatch.mpsavefolder = saved;
             LobbyHostTransfer.Request(Player(2), LobbyHostTransfer.TransferMode.LobbyOnly); Answer(2);
@@ -319,6 +331,73 @@ static class Checks {
             continuation.MoveNext(); StepWork();
             Check(Token == null && InPhase("Idle") && !Util.Menu, "stale checkpoint stops handoff before returning players to the lobby");
             Check(!continuation.MoveNext() && WorldGeneration.world.ClearCalls == 1, "failed capture falls back to the original continuation");
+
+            token = ListenAsNewHost(built);
+            UnityEngine.Time.realtimeSinceStartupAsDouble = 4.99; Call("Update");
+            Check(Token == token && PreRunScript.instance.Loads == 0, "missing players receive the full five-second reconnect grace");
+            UnityEngine.Time.realtimeSinceStartupAsDouble = 5; Call("Update");
+            Check(Token == null && InPhase("Resuming") && Net.IsRunning, "new host completes after five seconds without missing clients");
+            Check(SteamMatchmaking.Data["together_transfer_complete"] == token, "completion token remains available to late clients");
+            Check(members.All(p => File.Exists(Path.Combine(SavesystemPatch.mpsavefolder, "STEAM_" + p, "save.sv"))), "missing players retain transferred character checkpoints");
+            Call("Update"); Check(PreRunScript.instance.Loads == 1, "five-second completion resumes next-layer transfer once");
+            Check(LobbyHostTransfer.CanReturnAfterTransfer(1) && LobbyHostTransfer.CanReturnAfterTransfer(3)
+                && !LobbyHostTransfer.CanReturnAfterTransfer(4) && !LobbyHostTransfer.CanReturnAfterTransfer(0), "return access is restricted to the authenticated transferred party");
+            KSteam.Local = 1;
+            Check(LobbyHostTransfer.CanRejoinLobby(new CSteamID(100)), "former host can find a joinable transferred lobby after countdown");
+            KSteam.Local = 4;
+            Check(!LobbyHostTransfer.CanRejoinLobby(new CSteamID(100)), "outsider does not receive return access from lobby metadata");
+            KSteam.Local = 2; KSteam.LobbyId = new CSteamID(101);
+            Check(!LobbyHostTransfer.CanReturnAfterTransfer(1), "return permission cannot leak into a different lobby");
+
+            ListenAsNewHost(); ScavPlayer.AllPlayers.Remove(Player(1)); Ready(3, 7);
+            UnityEngine.Time.realtimeSinceStartupAsDouble = 5; Call("Update");
+            Check(Token == null && Net.IsRunning && PreRunScript.instance.Loads == 0, "former host can leave after listener readiness without closing the handed-over lobby");
+            Check(LobbyHostTransfer.HoldLobbyAutoStart, "five-second menu handoff stays in lobby until explicit start or resume");
+            Net.IsRunning = Net.IsRunningSteam = false;
+            Check(!LobbyHostTransfer.CanReturnAfterTransfer(1), "return permission ends when the hosted session closes");
+
+            ListenAsNewHost();
+            ScavPlayer.AllPlayers.Add(new() { SteamId = 4, playerId = 3, playerName = "new arrival" });
+            Ready(1, 7); Ready(3, 7); Call("Update");
+            Check(Token == null && Net.IsRunning, "additional player never blocks early completion for the original party");
+
+            ListenAsNewHost(); Ready(1, 7); Ready(3, 7); ScavPlayer.AllPlayers.Remove(Player(3)); Call("Update");
+            Check(Token != null, "arrival acknowledgement does not count a player who has since left");
+            UnityEngine.Time.realtimeSinceStartupAsDouble = 5; Call("Update");
+            Check(Token == null && Net.IsRunning, "player leaving during grace does not restart or extend the countdown");
+
+            Reset(false); KSteam.Local = 3; ScavPlayer.LocalPlayer = Player(3); Util.Menu = true;
+            token = Guid.NewGuid().ToString("N");
+            var latePrepare = Packet(2, token); latePrepare.Put(100UL); latePrepare.Put(1UL); latePrepare.Put(2UL); latePrepare.Put("meow");
+            latePrepare.Put((byte)LobbyHostTransfer.TransferMode.NextLayer); latePrepare.Put(""); latePrepare.Put("settings");
+            latePrepare.Put(4); latePrepare.Put(3); foreach (ulong p in members) latePrepare.Put(p);
+            Multiplayer.Client(new NetDataReader(latePrepare.CopyData())); Call("Update");
+            Multiplayer.Client(new NetDataReader(Packet(9).CopyData())); SteamMatchmaking.Owner = 2;
+            SteamMatchmaking.Data["together_transfer_ready"] = token; Call("Update"); StepWork(); StepWork();
+            SteamMatchmaking.Data["together_transfer_complete"] = "stale-transfer"; Call("Update");
+            Check(Token == token && LobbyHostTransfer.Busy, "stale completion token cannot finish a different handoff");
+            SteamMatchmaking.Data["together_transfer_complete"] = token; Util.Menu = false; Call("Update");
+            Check(Token == null && !LobbyHostTransfer.Busy && Net.IsRunning, "late client releases transfer gate after host already resumed");
+
+            ListenAsNewHost(built); SteamMatchmaking.Owner = 3; Call("Update");
+            Check(Token == null && !Net.IsRunning && File.Exists(Path.Combine(SavesystemPatch.mpsavefolder, "save.sv")), "new host ownership loss aborts with installed save preserved");
+
+            Reset(false); Util.Menu = true; OfferAndPrepare(LobbyHostTransfer.TransferMode.LobbyOnly); Call("Update");
+            Multiplayer.Client(new NetDataReader(Packet(9).CopyData())); SteamMatchmaking.Owner = 2;
+            TransferTransport.FailStart = true; Call("Update"); StepWork(); StepWork();
+            Check(Token == null && !SteamMatchmaking.Data.ContainsKey("together_transfer_ready")
+                && !SteamMatchmaking.Data.ContainsKey("together_transfer_complete"), "failed listener never starts grace or claims completion");
+
+            Reset(); RequestAtExit(); Answer(2); SetPhase("Preparing"); Set("members", new HashSet<ulong>(members)); Util.Menu = true;
+            ScavPlayer.AllPlayers.Add(new() { SteamId = 4, playerId = 3, playerName = "new arrival" });
+            Ready(2, 5); Ready(3, 5); Call("Update"); Ready(2, 10); Ready(3, 10); Call("Update");
+            Check(SteamMatchmaking.Owner == 2, "new arrival during preparation does not invalidate the checkpoint party");
+            Reset(); RequestAtExit(); Answer(2); SetPhase("Preparing"); Set("members", new HashSet<ulong>(members)); Util.Menu = true;
+            ScavPlayer.AllPlayers.Remove(Player(3)); Ready(2, 5); Call("Update"); Ready(2, 10); Call("Update");
+            Check(SteamMatchmaking.Owner == 2, "departed non-host does not prevent prepared recipient taking ownership");
+            Reset(); RequestAtExit(); Answer(2); SetPhase("Preparing"); Set("members", new HashSet<ulong>(members)); Util.Menu = true;
+            ScavPlayer.AllPlayers.Remove(Player(2)); Call("Update");
+            Check(Token == null && SteamMatchmaking.Owner == 1, "recipient leaving before ownership change cancels safely");
 
             var rejected = new List<string>();
             var defaults = new Dictionary<string, object> { ["unchipped"] = false, ["lootmultiplier"] = 1f, ["ambientlight"] = 0 };

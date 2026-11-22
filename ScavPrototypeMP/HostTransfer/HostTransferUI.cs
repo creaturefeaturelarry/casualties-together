@@ -109,12 +109,12 @@ internal sealed class HostTransferUI : CasualtiesTogetherSingleton {
         else if (view == View.Offer) {
             Label(offerHost + " would like you to become the host.", 87, 74, 25);
             Label(LobbyHostTransfer.OfferWarning(offerMode), 166, 350, 20);
-            AddButton(offerMode == LobbyHostTransfer.TransferMode.LobbyOnly ? "Accept hosting" : "Accept hosting and replace active save", 533, () => Try(() => { LobbyHostTransfer.AnswerOffer(offerToken, true); Close(); }));
+            AddButton(offerMode == LobbyHostTransfer.TransferMode.LobbyOnly ? "Accept hosting" : "Accept hosting and use transferred save", 533, () => Try(() => { LobbyHostTransfer.AnswerOffer(offerToken, true); Close(); }));
             AddButton("Decline", 599, () => Try(() => { LobbyHostTransfer.AnswerOffer(offerToken, false); Close(); }));
         }
         else if (view == View.Progress) {
             statusLabel = Label(LobbyHostTransfer.Status, 100, 180, 27);
-            Label("Keep your game open until the transfer completes. Every player must reconnect before the expedition can resume.", 302, 120, 23);
+            Label("Keep your game open until the transfer completes.", 302, 120, 23);
             cancelButton = AddButton("Cancel transfer", 443, () => Try(() => { LobbyHostTransfer.Cancel(); Close(); }));
             AddButton("Close this window", 509, Close);
         }
@@ -129,7 +129,7 @@ internal sealed class HostTransferUI : CasualtiesTogetherSingleton {
         if (atExit) Label("Choose the next host. Once they accept, this layer will continue and the expedition will resume automatically.", 80, 90, 23);
         else {
             AddButton((copySave ? "[X] " : "[ ] ") + "Send your MP save file to them?", 82, () => { copySave = !copySave; Render(); }).interactable = LobbyHostTransfer.HasSavedExpedition;
-            Label(copySave ? "The recipient must accept replacing their active multiplayer save. A backup is kept."
+            Label(copySave ? "The recipient must accept replacing their active multiplayer save. A backup of their replaced file is kept."
                 : "Transfer hosting only. The new host keeps their own saved expedition.", 150, 70, 22);
         }
         var players = ScavPlayer.AllPlayers.Where(p => p != null && !p.IsLocal && p.SteamId != 0).OrderBy(p => p.playerName).ToArray();
@@ -143,7 +143,7 @@ internal sealed class HostTransferUI : CasualtiesTogetherSingleton {
                 LobbyHostTransfer.Request(player, mode); view = View.Progress; Render();
             }));
         }
-        if (players.Length == 0) Label("No other players are connected.", 250, 80, 25);
+        if (players.Length == 0) Label("No other players are connected, Womp womp.", 250, 80, 25);
         if (pages > 1) AddButton($"Next players ({page + 1}/{pages})", 480, () => { page = (page + 1) % pages; Render(); });
         AddButton("Back", 548, Close);
     }
