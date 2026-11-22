@@ -1433,6 +1433,10 @@ namespace Together {
         }
 
         public static void PutArray(this NetDataWriter writer, knetid[] array) {
+            // LiteNetLib 2.1.4 calls AsSpan on the array. A null list throws and the packet never leaves.
+            if (array == null) {
+                array = Array.Empty<knetid>();
+            }
             writer.PutUnmanagedArray(array);
         }
         public static void GetArray(this NetDataReader reader, out knetid[] result) {

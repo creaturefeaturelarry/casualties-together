@@ -626,8 +626,10 @@ public static class CharacterSelectWait {
             return;
         }
 
-        // stock Next may show species select without calling StartRun - catch that page
-        if (!Waiting && IsSpeciesSelectPageVisible(prs)) {
+        // stock Next may show species select without calling StartRun - catch that page.
+        // clients must not open the gate. OpenLobbyGate sets Waiting before the broadcast,
+        // and the client loop above then refuses to leave.
+        if (Net.IsServer && !Waiting && IsSpeciesSelectPageVisible(prs)) {
             OpenLobbyGate();
             return;
         }
@@ -833,7 +835,7 @@ public static class CharacterSelectWait {
 
     static void BroadcastAbort() {
         LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.CLIENT_CharSelectProgress);
-        writer.PutArray((knetid[]) null);
+        writer.PutArray(new knetid[0]);
         writer.Put(-1);
         Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, clientIds: ServerMain.AllClientIdsExceptHost);
     }
