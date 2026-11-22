@@ -2559,6 +2559,26 @@ namespace Together {
     public static class ProsthesisRepair_RememberPatchCount {
         public static readonly Dictionary<ushort, int> PatchCount = new Dictionary<ushort, int>();
 
+        // Item.GlobalItems picks these in useLimbAction. The count belongs to the item type, not the sync id.
+        static readonly Dictionary<string, int> StockPatches = new Dictionary<string, int> {
+            { "scrapmetal", 16 },
+            { "scrapcube", 16 },
+            { "scrappanel", 2 },
+            { "scraptube", 6 },
+            { "woodscraps", 10 },
+            { "woodcube", 10 },
+            { "woodpanel", 1 },
+            { "stick", 4 },
+            { "titaniumslab", 50 },
+            { "titaniumsheet", 10 },
+            { "titaniumrod", 25 },
+        };
+
+        internal static bool TryStock(string itemType, out int holeCount) {
+            holeCount = 0;
+            return itemType != null && StockPatches.TryGetValue(itemType, out holeCount) && holeCount > 0;
+        }
+
         static void Prefix(Item item, int holeCount) {
             if (item == null || holeCount < 1) {
                 return;
@@ -2661,17 +2681,17 @@ namespace Together {
                 if (limb == null || limb.dismembered || limb.dislocated || !limb.HasProsthetic()) {
                     return;
                 }
-                // patch count used to live only in the host's dictionary, filled when the HOST opened the minigame.
-                // clients open it on their own machine, so every client repair was dropped here. take theirs as a fallback.
-                if (!ProsthesisRepair_RememberPatchCount.PatchCount.TryGetValue(itemId, out int holeCount) || holeCount < 1) {
+                // the count is a property of the item type. a sync id is reused, so the dictionary
+                // can belong to an item that is already gone. a mod kit is not in the table:
+                // the client sends the count it used, and that number is not stored.
+                int holeCount;
+                if (!ProsthesisRepair_RememberPatchCount.TryStock(itemSi.item.id, out holeCount)) {
                     if (args.Length < 6 || !int.TryParse(args[5], out holeCount)) {
                         return;
                     }
-                    // stock kits use 1..50 patches. anything else is garbage.
                     if (holeCount < 1 || holeCount > 64) {
                         return;
                     }
-                    ProsthesisRepair_RememberPatchCount.PatchCount[itemId] = holeCount;
                 }
                 bool placed = false;
                 int holes = limb.prostheticInfo.maxHoles;
