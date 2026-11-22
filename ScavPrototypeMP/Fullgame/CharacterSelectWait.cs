@@ -19,7 +19,7 @@ namespace Together;
 public static class CharacterSelectWait {
     public static bool Waiting { get; private set; }
     public static bool LocalConfirmed { get; private set; }
-    public static int ReadyCount { get; private set; }
+    public static List<knetid> ReadyPlayers { get; } = new();
     public static int MaxCount { get; private set; }
     // client mid-run pick before WaitLoad
     public static bool LateJoinPicking { get; private set; }
@@ -131,7 +131,7 @@ public static class CharacterSelectWait {
         }
         RefreshCountsFromLobby();
         BroadcastProgress();
-        if (ReadyCount >= MaxCount && MaxCount > 0 && ReadyCount > 0) {
+        if (ReadyPlayers.Count >= MaxCount && MaxCount > 0) {
             ScheduleProceed();
         } else {
             CancelProceed();
@@ -234,7 +234,7 @@ public static class CharacterSelectWait {
         LateJoinPicking = true;
         Waiting = true;
         LocalConfirmed = false;
-        ReadyCount = 0;
+        ReadyPlayers.Clear();
         MaxCount = 1;
         if (PreRunScript.instance != null) {
             Traverse.Create(PreRunScript.instance).Method("UpdateCharacterText").GetValue();
@@ -335,7 +335,7 @@ public static class CharacterSelectWait {
         _selections.Clear();
         LocalConfirmed = false;
         Waiting = true;
-        ReadyCount = 0;
+        ReadyPlayers.Clear();
         MaxCount = Mathf.Max(1, ScavPlayer.ClientIdToPlayerDict.Count);
         ApplyLocalWaitUi();
         BroadcastWaitBegin();
@@ -378,7 +378,8 @@ public static class CharacterSelectWait {
             plr.selectedCharacter = chr;
             _selections[plr.playerId] = chr;
         }
-        ReadyCount = _selections.Count;
+        ReadyPlayers.Clear();
+        ReadyPlayers.AddRange(_selections.Keys);
         MaxCount = Mathf.Max(1, ScavPlayer.ClientIdToPlayerDict.Count);
         HostProceed();
     }
@@ -447,7 +448,7 @@ public static class CharacterSelectWait {
         Waiting = false;
         LateJoinPicking = false;
         LocalConfirmed = false;
-        ReadyCount = 0;
+        ReadyPlayers.Clear();
         MaxCount = 0;
         _pendingLoadSave = false;
         _pendingTutorial = false;
@@ -562,13 +563,14 @@ public static class CharacterSelectWait {
         }
     }
 
-    public static void Client_EnterWait(int ready, int max, int suggestedChar, bool speciesLocked = false) {
+    public static void Client_EnterWait(knetid[] ready, int max, int suggestedChar, bool speciesLocked = false) {
         EnsureNetHooks();
         CancelProceed();
         LateJoinPicking = false;
         Waiting = true;
         LocalConfirmed = false;
-        ReadyCount = ready;
+        ReadyPlayers.Clear();
+        ReadyPlayers.AddRange(ready);
         MaxCount = Mathf.Max(1, max);
         int chr = CharacterSpawn.ClampChar(suggestedChar);
         _pendingLoadSave = speciesLocked;
@@ -586,14 +588,15 @@ public static class CharacterSelectWait {
         ApplyLocalWaitUi();
     }
 
-    public static void Client_UpdateProgress(int ready, int max) {
+    public static void Client_UpdateProgress(knetid[] ready, int max) {
         // host backed out of the gate. a normal progress packet is never negative.
-        if (ready < 0) {
+        if (max < 0) {
             Reset();
             ReleaseMenuDim();
             return;
         }
-        ReadyCount = ready;
+        ReadyPlayers.Clear();
+        ReadyPlayers.AddRange(ready);
         MaxCount = Mathf.Max(1, max);
         ForceCharSelectReadyVisual(PreRunScript.instance);
     }
@@ -690,7 +693,7 @@ public static class CharacterSelectWait {
             HostProceed();
             return;
         }
-        if (ReadyCount >= MaxCount && MaxCount > 0) {
+        if (ReadyPlayers.Count >= MaxCount && MaxCount > 0) {
             ScheduleProceed();
         } else {
             CancelProceed();
@@ -713,7 +716,8 @@ public static class CharacterSelectWait {
                 _selections.Remove(stale[i]);
             }
         }
-        ReadyCount = _selections.Count;
+        ReadyPlayers.Clear();
+        ReadyPlayers.AddRange(_selections.Keys);
     }
 
     static void ScheduleProceed() {
@@ -733,7 +737,7 @@ public static class CharacterSelectWait {
             if (token != _proceedToken || !Waiting || !Net.IsServer) {
                 yield break;
             }
-            if (ReadyCount < MaxCount || MaxCount <= 0) {
+            if (ReadyPlayers.Count < MaxCount || MaxCount <= 0) {
                 yield break;
             }
             t += Time.unscaledDeltaTime;
@@ -742,7 +746,7 @@ public static class CharacterSelectWait {
         if (token != _proceedToken || !Waiting || !Net.IsServer) {
             yield break;
         }
-        if (ReadyCount < MaxCount || MaxCount <= 0) {
+        if (ReadyPlayers.Count < MaxCount || MaxCount <= 0) {
             yield break;
         }
         HostProceed();
@@ -799,7 +803,7 @@ public static class CharacterSelectWait {
         }
         _selections.Clear();
         LocalConfirmed = false;
-        ReadyCount = 0;
+        ReadyPlayers.Clear();
         MaxCount = 0;
         _pendingLoadSave = false;
         _pendingTutorial = false;
@@ -826,8 +830,8 @@ public static class CharacterSelectWait {
 
     static void BroadcastAbort() {
         LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.CLIENT_CharSelectProgress);
+        writer.PutArray((knetid[]) null);
         writer.Put(-1);
-        writer.Put(0);
         Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, clientIds: ServerMain.AllClientIdsExceptHost);
     }
 
@@ -851,7 +855,7 @@ public static class CharacterSelectWait {
             plr.selectedCharacter = saved;
         }
         LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.CLIENT_CharSelectWait);
-        writer.Put(ReadyCount);
+        writer.PutArray(ReadyPlayers.ToArray());
         writer.Put(MaxCount);
         writer.Put(suggested);
         writer.Put(lockSpecies);
@@ -860,7 +864,7 @@ public static class CharacterSelectWait {
 
     static void BroadcastProgress() {
         LiteNetLib.Utils.NetDataWriter writer = Net.CreateWriter(NetmsgId.CLIENT_CharSelectProgress);
-        writer.Put(ReadyCount);
+        writer.PutArray(ReadyPlayers.ToArray());
         writer.Put(MaxCount);
         Net.Server_SendToClients(DeliveryMethod.ReliableOrdered, writer, clientIds: ServerMain.AllClientIdsExceptHost);
         ForceCharSelectReadyVisual(PreRunScript.instance);
@@ -1122,9 +1126,9 @@ public static class CharacterSelectWait {
             return "Start";
         }
         if (LocalConfirmed) {
-            return $"Ready [{ReadyCount}/{MaxCount}]";
+            return $"Ready [{ReadyPlayers.Count}/{MaxCount}]";
         }
-        return $"Ready up [{ReadyCount}/{MaxCount}]";
+        return $"Ready up [{ReadyPlayers.Count}/{MaxCount}]";
     }
 
     static void RestoreReadyButtons() {
@@ -1163,7 +1167,7 @@ public static class CharacterSelectWait {
 
     [ClientReceiver((byte)NetmsgId.CLIENT_CharSelectWait)]
     static void Client_CharSelectWait(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-        reader.Get(out int ready);
+        reader.GetArray(out knetid[] ready);
         reader.Get(out int max);
         int suggested = 0;
         if (reader.AvailableBytes >= 4) {
@@ -1178,7 +1182,7 @@ public static class CharacterSelectWait {
 
     [ClientReceiver((byte)NetmsgId.CLIENT_CharSelectProgress)]
     static void Client_CharSelectProgress(knetid _, LiteNetLib.Utils.NetDataReader reader) {
-        reader.Get(out int ready);
+        reader.GetArray(out knetid[] ready);
         reader.Get(out int max);
         Client_UpdateProgress(ready, max);
     }

@@ -285,6 +285,13 @@ public static class UIMainMenu {
 
             var textsize = GUI.skin.label.CalcSize(txtcontent);
 
+            if (CharacterSelectWait.Waiting && CharacterSelectWait.ReadyPlayers.Contains(plr.playerId)) {
+                GUILayoutUtility.GetRect(GUIContent.none, GUI.skin.label, GUILayout.Width(textsize.y), GUILayout.Height(textsize.y));
+                var rect = GUILayoutUtility.GetLastRect().ShrinkBorder(-1 * GetMenuUIScale());
+                GUI.DrawTexture(rect, CoopModAssets.check.texture, ScaleMode.StretchToFill, true, 1, Color.green, 0, 0);
+                curXOffset += textsize.y;
+            }
+
             foreach (var item in plr.KnownUserTagIcons) {
                 GUILayout.Label(item.texture, GUILayout.Width(textsize.y), GUILayout.Height(textsize.y));
                 curXOffset += textsize.y;

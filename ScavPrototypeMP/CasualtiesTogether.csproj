@@ -111,6 +111,7 @@
 		<EmbeddedResource Include="assets\textures\mp_green.png" />
 		<EmbeddedResource Include="assets\textures\recruit.png" />
 		<EmbeddedResource Include="assets\textures\shittycross.png" />
+		<EmbeddedResource Include="assets\textures\shittycheck.png" />
 		<EmbeddedResource Include="assets\textures\shop\1.png" />
 		<EmbeddedResource Include="assets\textures\shop\2.png" />
 		<EmbeddedResource Include="assets\textures\shop\3.png" />
