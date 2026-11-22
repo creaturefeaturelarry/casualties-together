@@ -26,7 +26,8 @@ public static class RuleCategories {
     // Order is the order on screen. Anything a future rule adds that is not listed here lands in OtherId.
     public static readonly Category[] All = {
         new Category("lobby", "Lobby and Joining",
-            nameof(MultiplayerGameRules.PLAYER_COUNT_LIMIT), nameof(MultiplayerGameRules.LateJoinAllowed),
+            nameof(MultiplayerGameRules.PLAYER_COUNT_LIMIT), nameof(MultiplayerGameRules.LobbyTimeoutSeconds),
+            nameof(MultiplayerGameRules.LateJoinAllowed),
             nameof(MultiplayerGameRules.LateJoinSpectate), nameof(MultiplayerGameRules.SpawnOnPlayer),
             nameof(MultiplayerGameRules.UnchippedIsIndividual)),
         new Category("hud", "Nametags and HUD",

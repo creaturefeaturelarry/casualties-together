@@ -2190,6 +2190,20 @@ public class Con : CasualtiesTogetherSingleton {
                 ConsoleScript.instance.LogToConsole($"snowbg {PlayerCamera.main.backgroundSnow.activeSelf} ");
             }, null));
 
+            RegisterCommand_LocalOnly(new Command("crimsonbg", "MP dev", (string[] splited) => {
+                var world = WorldGeneration.world;
+                if (world == null || world.crimsonParticle == null) {
+                    ConsoleScript.instance.LogToConsole("crimsonbg unavailable");
+                    return;
+                }
+                var target = !world.crimsonParticle.activeSelf;
+                if (splited.Length > 1) {
+                    target = ParseBool01(splited[1]);
+                }
+                world.crimsonParticle.SetActive(target);
+                ConsoleScript.instance.LogToConsole($"crimsonbg {world.crimsonParticle.activeSelf} ");
+            }, null));
+
             RegisterCommand(new Command("map", "MP dev", (string[] splited) => {
                 ConFailIfNetworkIsRunningAndIsClient();
 

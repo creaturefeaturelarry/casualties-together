@@ -754,6 +754,7 @@ namespace Together {
         public const string LOBBYDATAKEY_RUNSETTINGS = _LOBBYDATAKEYPREFIX + "RUNSETTINGS";
         public const string LOBBYDATAKEY_MODS = _LOBBYDATAKEYPREFIX + "MODS";
         public const string LOBBYDATAKEY_LANGUAGE = _LOBBYDATAKEYPREFIX + "LANGUAGE";
+        public const string LOBBYDATAKEY_CONNECT_TIMEOUT = _LOBBYDATAKEYPREFIX + "CONNECTTIMEOUT";
         static string GetMyModListAsString() {
             return String.Join(":", Multiplayer.GetModGUIDs().Select(x => x.Replace(":", "")));
         }
@@ -785,6 +786,7 @@ namespace Together {
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_MIDJOIN_LOCKED, (Net.MyServerInfo.midjoin_lock_active) ? "1" : "0");
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_RUNSETTINGS, WorldMP.CompileRunSettings());
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_LANGUAGE, Locale.currentLangName);
+            SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_CONNECT_TIMEOUT, TransportSteamworks.LobbyTimeoutMs().ToString());
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_MODS, GetMyModListAsString());
 
             SteamMatchmaking.SetLobbyData(LobbyId, "bucket", bucket.ToString());
@@ -1586,6 +1588,7 @@ namespace Together {
             }
 
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_VERSION, Multiplayer.FULL_VERSION_TAG);
+            SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_CONNECT_TIMEOUT, TransportSteamworks.LobbyTimeoutMs().ToString());
             SteamMatchmaking.SetLobbyData(LobbyId, "bucket", bucket.ToString());
             Util.DelayCallLambda(0.5f, () => {
                 if (!IS_IN_LOBBY) {
@@ -2208,6 +2211,55 @@ namespace Together {
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> onConnectionChange = null;
         public SteamNetworkingConfigValue_t[] options = new SteamNetworkingConfigValue_t[0];
+
+        // Steam leaves TimeoutInitial / TimeoutConnected at 10s when options is empty. The host rule replaces that.
+        public static int LobbyTimeoutMs() {
+            float seconds = 10f;
+            try {
+                seconds = Multiplayer.rules.LobbyTimeoutSeconds;
+            } catch {
+            }
+            if (seconds < 5f) seconds = 5f;
+            if (seconds > 120f) seconds = 120f;
+            return (int)(seconds * 1000f);
+        }
+
+        static int ConnectTimeoutMs() {
+            int ms = LobbyTimeoutMs();
+            try {
+                if (KSteam.CURRENT_LOBBY.metadata != null) {
+                    foreach (var kv in KSteam.CURRENT_LOBBY.metadata) {
+                        if (kv.Key == null || !kv.Key.Equals(KSteam.LOBBYDATAKEY_CONNECT_TIMEOUT, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (int.TryParse(kv.Value, out int fromLobby) && fromLobby >= 5000 && fromLobby <= 120000) {
+                            ms = fromLobby;
+                        }
+                        break;
+                    }
+                }
+            } catch {
+            }
+            return ms;
+        }
+
+        static void ApplySteamConnectTimeout(int ms) {
+            SetSteamInt(ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_TimeoutInitial, ms);
+            SetSteamInt(ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_TimeoutConnected, ms);
+        }
+
+        static void SetSteamInt(ESteamNetworkingConfigValue key, int value) {
+            GCHandle handle = GCHandle.Alloc(value, GCHandleType.Pinned);
+            try {
+                SteamNetworkingUtils.SetConfigValue(
+                    key,
+                    ESteamNetworkingConfigScope.k_ESteamNetworkingConfig_Global,
+                    IntPtr.Zero,
+                    ESteamNetworkingConfigDataType.k_ESteamNetworkingConfig_Int32,
+                    handle.AddrOfPinnedObject()
+                );
+            } finally {
+                if (handle.IsAllocated) handle.Free();
+            }
+        }
         public HSteamListenSocket listenSocket { get; private set; }
         internal SteamConnectionData serverUser { get; private set; }
         internal readonly Dictionary<ulong, SteamConnectionData> connectionMapping = new Dictionary<ulong, SteamConnectionData>();
@@ -2238,6 +2290,9 @@ namespace Together {
                 options = new SteamNetworkingConfigValue_t[0];
             }
 
+            int timeoutMs = LobbyTimeoutMs();
+            ApplySteamConnectTimeout(timeoutMs);
+
             if (is_steamserver) {
                 listenSocket = SteamGameServerNetworkingSockets.CreateListenSocketP2P(0, options.Length, options);
             } else {
@@ -2251,6 +2306,7 @@ namespace Together {
 
             log.l("[steam] listen role=host socket=" + listenSocket.m_HSteamListenSocket
                 + " ok=" + (listenSocket != HSteamListenSocket.Invalid ? 1 : 0)
+                + " timeoutMs=" + timeoutMs
                 + " " + RelayBits()
                 + " " + LobbyBits());
 
@@ -2271,6 +2327,8 @@ namespace Together {
             }
 
             var ConnectToSteamID = KSteam.CURRENT_LOBBY.ownerID;
+            int timeoutMs = ConnectTimeoutMs();
+            ApplySteamConnectTimeout(timeoutMs);
 
             serverUser = new SteamConnectionData((CSteamID)(ConnectToSteamID));
 
@@ -2295,6 +2353,7 @@ namespace Together {
                 log.l("[steam] connect role=client target=" + (ulong)ConnectToSteamID
                     + " conn=" + serverUser.connection.m_HSteamNetConnection
                     + " ok=" + (ok ? 1 : 0)
+                    + " timeoutMs=" + timeoutMs
                     + " " + RelayBits()
                     + " " + RouteBits(serverUser.connection)
                     + " " + LobbyBits());

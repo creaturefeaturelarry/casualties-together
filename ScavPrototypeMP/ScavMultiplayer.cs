@@ -188,6 +188,9 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
     public float PVPDamageMultiplier = 1f;
 
     public bool LateJoinAllowed = true;
+    // Steam's unset connect timeout is 10s. Hosts raise this when a join dies before the handshake finishes.
+    [MultiplayerRuleFloat(5, 120, "s")]
+    public float LobbyTimeoutSeconds = 10f;
     public bool LateJoinSpectate = false;
     public bool SpawnOnPlayer = true;
 
