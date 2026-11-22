@@ -1263,8 +1263,12 @@ public static class TutorialHandler_Update_MarkiplierPatch {
 
         if (!Net.IsRunning) return;
 
-        foreach (var item in ScavPlayer.BodyToPlayerDict.Keys) {
-            PreventFromDying_Stolen(item);
+        // stock only does this while the tutorial is keeping the player alive. running it on every
+        // multiplayer body snaps any headshot back to 96, so a full brain only keeps 4 damage.
+        if (Util.IsTutorialWorld()) {
+            foreach (var item in ScavPlayer.BodyToPlayerDict.Keys) {
+                PreventFromDying_Stolen(item);
+            }
         }
 
         if (Net.IsServer) {

@@ -1255,8 +1255,9 @@ internal static class CeilingTurretHostSim {
             + " vel=" + vel);
     }
 
-    // stock compares rigidbody speed. that value stays high on a copy after the player lets go,
-    // and a one-frame position jump looks like a sprint. use the keys plus travel over a short window.
+    // stock uses rigidbody speed over 15. a remote copy keeps that speed after the player stops,
+    // and the host usually has no movement keys for them, so a grounded run was never fast enough.
+    // distance over a short window is the same 15, and it stays true for a real run.
     static bool MovingFast(Body body) {
         if (body == null) {
             return false;
@@ -1265,10 +1266,6 @@ internal static class CeilingTurretHostSim {
         StaleIds.Prune<Body, MoveSample>(_moveSample, ref _movePruneAt);
         Vector2 pos = body.transform.position;
         float now = Time.time;
-        if (body.grounded && body.moveDir.sqrMagnitude < 0.04f) {
-            _moveSample[id] = new MoveSample { Pos = pos, Time = now, Fast = false };
-            return false;
-        }
         if (!_moveSample.TryGetValue(id, out MoveSample sample)) {
             _moveSample[id] = new MoveSample { Pos = pos, Time = now, Fast = false };
             return false;
