@@ -1784,6 +1784,49 @@ public class Con : CasualtiesTogetherSingleton {
             }, null));
 
 
+            RegisterCommand(new Command("timedcommand", "MP - announce a command that will run after a delay", (string[] splited) => {
+                ConFailIfNetworkNotRunning();
+                ConFailIfNetworkIsRunningAndIsClient();
+                Con.con.CheckArgumentCount(splited, 3);
+
+                if (!int.TryParse(splited[1], out var seconds) || seconds <= 0)
+                    throw new Exception("The delay must be a positive integer.");
+
+                var title = splited[2].Replace('_', ' ');
+                var command = splited[3].Replace('_', ' ');
+
+                ConsoleScript.instance.StartCoroutine(CountdownCoro(seconds, title, command));
+
+                return;
+
+                static IEnumerator CountdownCoro(int seconds, string title, string command) {
+                    var deadline = Time.realtimeSinceStartup + seconds;
+                    var prevRemaining = seconds;
+
+                    Chat.Server_ChatAnnouncement($"{title} in {seconds} seconds!");
+
+                    while (true) {
+                        yield return null;
+                        if (!Net.IsRunning || Net.IsClient)
+                            yield break;
+
+                        var remaining = (int)Mathf.Ceil(deadline - Time.realtimeSinceStartup);
+                        if (remaining <= 0)
+                            break;
+
+                        if (remaining != prevRemaining) {
+                            prevRemaining = remaining;
+                            // Announcement every minute -> every 15 seconds -> every second
+                            if (remaining <= 10 || (remaining <= 60 ? remaining % 15 == 0 : remaining % 60 == 0)) {
+                                Chat.Server_ChatAnnouncement($"{title} in {remaining} seconds!");
+                            }
+                        }
+                    }
+
+                    Chat.Server_ChatAnnouncement($"{title}!!!");
+                    Con.con.ExecuteCommand(command);
+                }
+            }, null, ("delay", "execution delay in seconds"), ("title", "title to use for the chat announcements"), ("command", "command to run")));
 
             RegisterCommand(new Command("mpopenmenu", "MP", (string[] splited) => {
                 ConFailIfNetworkIsRunningAndIsClient();
