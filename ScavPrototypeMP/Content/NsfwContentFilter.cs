@@ -14,27 +14,18 @@ public static class NsfwContentFilter {
     public const string DefaultSafeServerName = "Expedition Redacted";
 
     private const string ResourceSuffix = "nsfw-server-filter.json";
+    private const string WordsResourceSuffix = "name-filter-words.txt";
 
-    private static string[] _terms;
+    private static NameFilterMatcher _matcher;
     private static bool _loaded;
     public static bool LastCreateWasRejected { get; private set; }
 
     public static bool ContainsBlocked(string text) {
         EnsureLoaded();
-        if (_terms == null || _terms.Length == 0 || string.IsNullOrEmpty(text)) {
+        if (_matcher == null || string.IsNullOrEmpty(text)) {
             return false;
         }
-        string hay = Normalize(text);
-        if (hay.Length == 0) {
-            return false;
-        }
-        for (int i = 0; i < _terms.Length; i++) {
-            string term = _terms[i];
-            if (term.Length > 0 && hay.IndexOf(term, StringComparison.Ordinal) >= 0) {
-                return true;
-            }
-        }
-        return false;
+        return _matcher.ContainsBlocked(text);
     }
 
     public static bool IsListingBlocked(string name, string description) {
@@ -100,36 +91,7 @@ public static class NsfwContentFilter {
         }
     }
 
-    internal static string Normalize(string input) {
-        if (string.IsNullOrEmpty(input)) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder(input.Length);
-        foreach (char c in input) {
-            char mapped = MapLeet(char.ToLowerInvariant(c));
-            if (char.IsLetterOrDigit(mapped)) {
-                sb.Append(mapped);
-            }
-        }
-        return sb.ToString();
-    }
-
-    private static char MapLeet(char c) {
-        switch (c) {
-            case '0': return 'o';
-            case '1': return 'i';
-            case '!': return 'i';
-            case '|': return 'i';
-            case '3': return 'e';
-            case '4': return 'a';
-            case '@': return 'a';
-            case '5': return 's';
-            case '$': return 's';
-            case '7': return 't';
-            case '+': return 't';
-            default: return c;
-        }
-    }
+    internal static string Normalize(string input) => NameFilterMatcher.Normalize(input);
 
     private static void EnsureLoaded() {
         if (_loaded) {
@@ -140,7 +102,7 @@ public static class NsfwContentFilter {
             LoadFromEmbedded();
         } catch (Exception e) {
             Plugin.log?.LogError("NsfwContentFilter load failed: " + e);
-            _terms = Array.Empty<string>();
+            _matcher = null;
         }
     }
 
@@ -155,44 +117,63 @@ public static class NsfwContentFilter {
         }
         if (resourceName == null) {
             Plugin.log?.LogError("NsfwContentFilter: embedded " + ResourceSuffix + " not found");
-            _terms = Array.Empty<string>();
             return;
         }
 
-        using Stream stream = asm.GetManifestResourceStream(resourceName);
-        if (stream == null) {
-            _terms = Array.Empty<string>();
+        string json = ReadResource(asm, resourceName);
+        if (json == null) {
             return;
         }
-        using StreamReader reader = new StreamReader(stream, Encoding.UTF8);
-        string json = reader.ReadToEnd();
         JObject root = JObject.Parse(json);
-        HashSet<string> set = new HashSet<string>(StringComparer.Ordinal);
-
-        void AddRaw(string raw) {
-            if (string.IsNullOrWhiteSpace(raw)) {
-                return;
-            }
-            string n = Normalize(raw);
-            if (n.Length > 0) {
-                set.Add(n);
-            }
-        }
-
+        var terms = new List<string>();
+        var phrases = new List<string>();
         if (root["blocked"] is JArray blocked) {
             foreach (JToken t in blocked) {
-                AddRaw(t?.ToString());
+                terms.Add(t?.ToString());
             }
         }
-        if (root["blocked_phrases"] is JArray phrases) {
-            foreach (JToken t in phrases) {
-                AddRaw(t?.ToString());
+        if (root["blocked_phrases"] is JArray blockedPhrases) {
+            foreach (JToken t in blockedPhrases) {
+                phrases.Add(t?.ToString());
             }
         }
 
-        _terms = new string[set.Count];
-        set.CopyTo(_terms);
-        Array.Sort(_terms, (a, b) => b.Length.CompareTo(a.Length));
-        Plugin.log?.LogInfo($"NsfwContentFilter loaded {_terms.Length} terms from {resourceName}");
+        // without the word list every term is strong so it acts like the old substring filter
+        var words = new List<string>();
+        string wordsResource = null;
+        foreach (string name in asm.GetManifestResourceNames()) {
+            if (name.EndsWith(WordsResourceSuffix, StringComparison.OrdinalIgnoreCase)) {
+                wordsResource = name;
+                break;
+            }
+        }
+        string wordsText = wordsResource == null ? null : ReadResource(asm, wordsResource);
+        if (wordsText == null) {
+            Plugin.log?.LogError("NsfwContentFilter: embedded " + WordsResourceSuffix + " not found");
+        } else {
+            foreach (string line in wordsText.Split('\n')) {
+                string w = line.Trim();
+                if (w.Length == 0 || w[0] == '#') {
+                    continue;
+                }
+                if (w[0] == '!') {
+                    terms.Add(w.Substring(1));
+                } else {
+                    words.Add(w);
+                }
+            }
+        }
+
+        _matcher = new NameFilterMatcher(terms, phrases, words);
+        Plugin.log?.LogInfo($"NsfwContentFilter loaded {_matcher.StrongCount} strong + {_matcher.WeakCount} weak terms and {_matcher.WordCount} words");
+    }
+
+    private static string ReadResource(Assembly asm, string resourceName) {
+        using Stream stream = asm.GetManifestResourceStream(resourceName);
+        if (stream == null) {
+            return null;
+        }
+        using StreamReader reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
     }
 }
