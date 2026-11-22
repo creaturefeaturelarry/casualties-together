@@ -9,7 +9,7 @@ using UnityEngine.UI;
 
 internal static class SkinMenuUI {
     private const float WindowWidth = 780f;
-    private const float WindowHeight = 636f;
+    private const float WindowHeight = 640f;
     private const string CommunityUrl = "https://casutogether.com/";
     private const string SkinFileFilter =
         "Skin files (*.json;*.zip;*.casutogether)\0*.json;*.zip;*.casutogether\0All files\0*.*\0";
@@ -46,13 +46,15 @@ internal static class SkinMenuUI {
     private static Button _shareButton;
     private static Button _downloadButton;
     private static Button _cacheButton;
+    private static Button _defaultButton;
     private static readonly Button[] _speciesButtons = new Button[3];
     private static readonly string[] _speciesLabels = { "Expie", "Milky", "Dune" };
     private static int _browseSpecies;
     private static bool _openOnShow;
     private static bool _cooldownShown;
     private static RectTransform _menuButtonRt;
-    private static Transform _menuButtonHome;
+    private static GameObject _menuButtonGo;
+    private static Image _menuButtonImage;
 
     internal static bool IsFolderBrowserOpen => _browserWindow != null;
 
@@ -101,6 +103,10 @@ internal static class SkinMenuUI {
 
         _canvas.SetActive(visible);
 
+        if (_menuButtonGo != null) {
+            _menuButtonGo.SetActive(visible);
+        }
+
         if (visible) {
             AlignMenuButtonBesideMp();
         }
@@ -111,50 +117,75 @@ internal static class SkinMenuUI {
         }
     }
 
-    // park the square skin icon flush left of the mp menu button
+    // the icon is a child of the mp menu button, so it fades and hides with it.
+    // it is recreated when the main menu canvas is destroyed.
     internal static void AlignMenuButtonBesideMp() {
-        if (_menuButtonRt == null) {
+        if (_canvas == null) {
             return;
         }
 
+        EnsureTopButton();
+
         GameObject mpObj = UIManager.MP_MENU_BUTTON;
-        if (mpObj == null) {
-            if (_menuButtonHome != null && _menuButtonRt.parent != _menuButtonHome) {
-                _menuButtonRt.SetParent(_menuButtonHome, false);
-                SetRect(_menuButtonRt, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
-                    new Vector2(20f, -20f), new Vector2(64f, 64f));
-            }
+        if (mpObj == null || !mpObj.activeInHierarchy) {
+            SetCornerButton();
             return;
         }
 
         RectTransform mp = mpObj.GetComponent<RectTransform>();
-        if (mp == null || mp.parent == null) {
+        if (mp == null || _menuButtonRt == null) {
+            SetCornerButton();
             return;
         }
 
-        if (_menuButtonRt.parent != mp.parent) {
-            _menuButtonRt.SetParent(mp.parent, false);
+        if (_menuButtonRt.parent != mp) {
+            _menuButtonRt.SetParent(mp, false);
         }
 
-        // match mp button vertical stretch; park a square flush on its left edge.
-        const float gap = 8f;
-        _menuButtonRt.pivot = new Vector2(1f, 0.5f);
-        _menuButtonRt.anchorMin = new Vector2(mp.anchorMin.x, mp.anchorMin.y);
-        _menuButtonRt.anchorMax = new Vector2(mp.anchorMin.x, mp.anchorMax.y);
         float height = mp.rect.height;
-        if (height < 1f) {
-            RectTransform parentRt = mp.parent as RectTransform;
-            if (parentRt != null) {
-                height = (mp.anchorMax.y - mp.anchorMin.y) * parentRt.rect.height;
-            }
-        }
         if (height < 1f) {
             height = 64f;
         }
-        _menuButtonRt.offsetMin = new Vector2(-height - gap, 0f);
-        _menuButtonRt.offsetMax = new Vector2(-gap, 0f);
+
+        _menuButtonRt.anchorMin = new Vector2(0f, 0f);
+        _menuButtonRt.anchorMax = new Vector2(0f, 1f);
+        _menuButtonRt.pivot = new Vector2(1f, 0.5f);
+        _menuButtonRt.sizeDelta = new Vector2(height, 0f);
+        _menuButtonRt.anchoredPosition = new Vector2(-8f, 0f);
         _menuButtonRt.localScale = Vector3.one;
-        _menuButtonRt.SetSiblingIndex(mp.GetSiblingIndex());
+
+        // adaptive menu buttons fade their own image. copy that alpha.
+        Image mpImage = mpObj.GetComponent<Image>();
+        if (mpImage != null && _menuButtonImage != null) {
+            Color color = _menuButtonImage.color;
+            color.a = mpImage.color.a;
+            _menuButtonImage.color = color;
+        }
+    }
+
+    private static void EnsureTopButton() {
+        if (_menuButtonRt != null) {
+            return;
+        }
+
+        CreateTopButton(_canvas.transform);
+        if (_menuButtonGo != null) {
+            _menuButtonGo.SetActive(_visible);
+        }
+    }
+
+    private static void SetCornerButton() {
+        if (_menuButtonRt == null || _canvas == null) {
+            return;
+        }
+
+        if (_menuButtonRt.parent != _canvas.transform) {
+            _menuButtonRt.SetParent(_canvas.transform, false);
+        }
+
+        SetRect(_menuButtonRt, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+            new Vector2(20f, -20f), new Vector2(64f, 64f));
+        _menuButtonRt.localScale = Vector3.one;
     }
 
     internal static void RefreshSelection() {
@@ -171,6 +202,16 @@ internal static class SkinMenuUI {
 
             if (_cardOutlines.TryGetValue(pair.Key, out Outline outline) && outline != null) {
                 outline.effectColor = active ? GameTheme.AccentColor : GameTheme.BorderColor;
+            }
+        }
+
+        if (_defaultButton != null) {
+            TMP_Text label = _defaultButton.GetComponentInChildren<TMP_Text>();
+            if (label != null) {
+                label.color = string.Equals(marked, SkinSettings.DefaultFolder,
+                    StringComparison.OrdinalIgnoreCase)
+                    ? GameTheme.AccentColor
+                    : GameTheme.TextColor;
             }
         }
     }
@@ -218,6 +259,10 @@ internal static class SkinMenuUI {
             if (pair.Value != null) {
                 pair.Value.interactable = canChange && SpriteReplacerPlugin.CharacterFolderExists(pair.Key, _browseSpecies);
             }
+        }
+
+        if (_defaultButton != null) {
+            _defaultButton.interactable = canChange;
         }
 
         UpdateCooldownLabel();
@@ -321,7 +366,7 @@ internal static class SkinMenuUI {
     private static void CreateTopButton(Transform parent) {
         GameObject buttonObj = new GameObject("MenuButton");
         buttonObj.transform.SetParent(parent, false);
-        _menuButtonHome = parent;
+        _menuButtonGo = buttonObj;
 
         RectTransform rect = buttonObj.AddComponent<RectTransform>();
         _menuButtonRt = rect;
@@ -330,6 +375,7 @@ internal static class SkinMenuUI {
             new Vector2(20f, -20f), new Vector2(64f, 64f));
 
         Image image = buttonObj.AddComponent<Image>();
+        _menuButtonImage = image;
         image.sprite = _placeholder;
         // fill the square next to the MP button (same height); don't letterbox inside the rect
         image.preserveAspect = false;
@@ -339,11 +385,13 @@ internal static class SkinMenuUI {
         button.targetGraphic = image;
         button.onClick.AddListener(TogglePopup);
 
-        _rateLimitLabel = CreateText(parent, "RateLimit", "", 16, GameTheme.DangerColor,
-            TextAlignmentOptions.TopLeft);
-        SetRect(_rateLimitLabel.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(0f, 1f), new Vector2(20f, -88f), new Vector2(260f, 24f));
-        _rateLimitLabel.gameObject.SetActive(false);
+        if (_rateLimitLabel == null) {
+            _rateLimitLabel = CreateText(parent, "RateLimit", "", 16, GameTheme.DangerColor,
+                TextAlignmentOptions.TopLeft);
+            SetRect(_rateLimitLabel.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f),
+                new Vector2(0f, 1f), new Vector2(20f, -88f), new Vector2(260f, 24f));
+            _rateLimitLabel.gameObject.SetActive(false);
+        }
 
         AlignMenuButtonBesideMp();
     }
@@ -432,28 +480,13 @@ internal static class SkinMenuUI {
         bar.transform.SetParent(window.transform, false);
         RectTransform barRect = bar.AddComponent<RectTransform>();
         SetRect(barRect, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f),
-            Vector2.zero, new Vector2(0f, 96f));
+            Vector2.zero, new Vector2(0f, 60f));
         bar.AddComponent<Image>().color = GameTheme.HeaderColor;
 
         TextMeshProUGUI title = CreateText(bar.transform, "Title", "Skin Replacer", 30,
-            GameTheme.TextColor, TextAlignmentOptions.BottomLeft);
-        SetRect(title.rectTransform, new Vector2(0f, 0.62f), new Vector2(0f, 1f), new Vector2(0f, 0f),
-            new Vector2(24f, 2f), new Vector2(420f, 0f));
-
-        TextMeshProUGUI community = CreateText(bar.transform, "Community",
-            "Visit <link=\"" + CommunityUrl + "\"><color=#" + ColorUtility.ToHtmlStringRGB(GameTheme.AccentColor)
-            + "><u>casutogether.com</u></color></link> to browse community made skins or make your own!",
-            13, GameTheme.MutedColor, TextAlignmentOptions.MidlineLeft);
-        community.raycastTarget = true;
-        community.gameObject.AddComponent<LinkClickHandler>().Text = community;
-        SetRect(community.rectTransform, new Vector2(0f, 0.32f), new Vector2(0f, 0.62f), new Vector2(0f, 0.5f),
-            new Vector2(24f, 0f), new Vector2(520f, 0f));
-
-        TextMeshProUGUI hint = CreateText(bar.transform, "Hint",
-            "Numpad 0 = default, 1-9 = slots.",
-            13, GameTheme.MutedColor, TextAlignmentOptions.TopLeft);
-        SetRect(hint.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 0.32f), new Vector2(0f, 1f),
-            new Vector2(24f, -2f), new Vector2(420f, 0f));
+            GameTheme.TextColor, TextAlignmentOptions.MidlineLeft);
+        SetRect(title.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f),
+            new Vector2(24f, 0f), new Vector2(360f, 0f));
 
         Button close = CreateButton(bar.transform, "Close", "X", GameTheme.DangerColor, 20);
         SetRect(close.GetComponent<RectTransform>(), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
@@ -470,34 +503,47 @@ internal static class SkinMenuUI {
         SetRect(_lockStatus.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
             new Vector2(1f, 0.5f), new Vector2(-70f, 0f), new Vector2(300f, 32f));
 
-        // toggles get their own row under the header
-        _shareButton = CreateButton(window.transform, "Share", "Visible to others: ON",
+        TextMeshProUGUI hint = CreateText(window.transform, "Hint",
+            "Numpad 0 = default, 1-9 = slots.",
+            14, GameTheme.MutedColor, TextAlignmentOptions.MidlineLeft);
+        hint.enableWordWrapping = false;
+        SetRect(hint.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+            new Vector2(24f, -64f), new Vector2(330f, 28f));
+
+        _shareButton = CreateButton(window.transform, "Share", "Share: ON",
             GameTheme.SuccessColor, 14);
         SetRect(_shareButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(0f, 1f), new Vector2(24f, -102f), new Vector2(190f, 28f));
+            new Vector2(0f, 1f), new Vector2(360f, -64f), new Vector2(120f, 28f));
         _shareButton.onClick.AddListener(ToggleShare);
 
-        _downloadButton = CreateButton(window.transform, "Download", "View skins of others: ON",
+        _downloadButton = CreateButton(window.transform, "Download", "Download: ON",
             GameTheme.SuccessColor, 14);
         SetRect(_downloadButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(0f, 1f), new Vector2(222f, -102f), new Vector2(220f, 28f));
+            new Vector2(0f, 1f), new Vector2(488f, -64f), new Vector2(150f, 28f));
         _downloadButton.onClick.AddListener(ToggleDownload);
 
         _cacheButton = CreateButton(window.transform, "Cache", "Clear cache",
             GameTheme.MutedColor, 14);
         SetRect(_cacheButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(0f, 1f), new Vector2(450f, -102f), new Vector2(110f, 28f));
+            new Vector2(0f, 1f), new Vector2(646f, -64f), new Vector2(110f, 28f));
         _cacheButton.onClick.AddListener(ClearCache);
 
-        // species tabs on their own row, same buttons as the toggles above
+        // species tabs own the page below them. each page has its own slots.
         for (int s = 0; s < _speciesLabels.Length; s++) {
             int species = s;
             Button tab = CreateButton(window.transform, "Species" + s, _speciesLabels[s], GameTheme.TextColor, 14);
             SetRect(tab.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f),
-                new Vector2(0f, 1f), new Vector2(24f + s * 148f, -138f), new Vector2(140f, 28f));
+                new Vector2(0f, 1f), new Vector2(24f + s * 148f, -100f), new Vector2(140f, 28f));
             tab.onClick.AddListener(() => ShowSpecies(species));
             _speciesButtons[s] = tab;
         }
+
+        _defaultButton = CreateButton(window.transform, "Default", "Default (0)",
+            GameTheme.TextColor, 14);
+        SetRect(_defaultButton.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f),
+            new Vector2(1f, 1f), new Vector2(-24f, -100f), new Vector2(140f, 28f));
+        _defaultButton.onClick.AddListener(SelectDefaultSlot);
+
         _browseSpecies = SpriteReplacerPlugin.ActiveSpecies;
         RefreshSpeciesTabs();
 
@@ -528,24 +574,23 @@ internal static class SkinMenuUI {
 
         RectTransform gridRect = gridObj.AddComponent<RectTransform>();
         SetRect(gridRect, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-            new Vector2(0f, -174f), new Vector2(740f, 434f));
+            new Vector2(0f, -136f), new Vector2(740f, 464f));
         _grid = gridObj;
 
         const int columns = 3;
         const float cellWidth = 236f;
-        // default + slots 1-9 = 10 cards / 4 rows; keep the grid height under the window.
-        const float cellHeight = 112f;
+        // slots 1-9 only. the default button sits on the tab row.
+        const float cellHeight = 148f;
         const float gap = 10f;
         float startX = -(columns * cellWidth + (columns - 1) * gap) / 2f + cellWidth / 2f;
 
-        // card 0 is default (not slot0). Cards 1-9 are custom slots.
-        for (int i = 0; i <= SpriteReplacerPlugin.SlotCount; i++) {
-            int row = i / columns;
-            int column = i % columns;
+        for (int i = 1; i <= SpriteReplacerPlugin.SlotCount; i++) {
+            int index = i - 1;
+            int row = index / columns;
+            int column = index % columns;
             float x = startX + column * (cellWidth + gap);
             float y = -(row * (cellHeight + gap) + cellHeight / 2f);
-            string folder = i == 0 ? SkinSettings.DefaultFolder : SlotFolders.SlotId(i);
-            CreateCard(gridObj.transform, folder, x, y, cellWidth, cellHeight);
+            CreateCard(gridObj.transform, SlotFolders.SlotId(i), x, y, cellWidth, cellHeight);
         }
 
         RefreshSelection();
@@ -581,26 +626,34 @@ internal static class SkinMenuUI {
         GameObject previewObj = new GameObject("Preview");
         previewObj.transform.SetParent(card.transform, false);
         RectTransform previewRect = previewObj.AddComponent<RectTransform>();
-        SetRect(previewRect, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-            new Vector2(0f, -4f), new Vector2(216f, 44f));
+        SetRect(previewRect, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+            new Vector2(0f, 14f), new Vector2(216f, 96f));
 
         Image preview = previewObj.AddComponent<Image>();
         preview.sprite = LoadHeadPreview(slot);
         preview.preserveAspect = true;
         preview.color = hasSkin ? Color.white : new Color(1f, 1f, 1f, 0.35f);
 
-        string title = SlotFolders.DisplayName(slot);
-        if (string.Equals(slot, SkinSettings.DefaultFolder, StringComparison.OrdinalIgnoreCase)) {
-            title = hasSkin ? "Default (0)" : "Default (0, empty)";
-        } else if (!hasSkin) {
-            title += " (empty)";
-        }
+        // the slot number sits in the top-left corner. there is no text under the preview.
+        GameObject numberObj = new GameObject("SlotNumber");
+        numberObj.transform.SetParent(card.transform, false);
+        RectTransform numberRect = numberObj.AddComponent<RectTransform>();
+        SetRect(numberRect, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+            new Vector2(6f, -6f), new Vector2(30f, 26f));
 
-        TextMeshProUGUI label = CreateText(card.transform, "SlotLabel",
-            title,
-            16, hasSkin ? GameTheme.TextColor : GameTheme.MutedColor, TextAlignmentOptions.Center);
-        SetRect(label.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-            new Vector2(0f, -50f), new Vector2(216f, 20f));
+        Image numberBackground = numberObj.AddComponent<Image>();
+        numberBackground.color = GameTheme.HeaderColor;
+
+        Outline numberOutline = numberObj.AddComponent<Outline>();
+        numberOutline.effectColor = GameTheme.BorderColor;
+        numberOutline.effectDistance = new Vector2(1f, -1f);
+        numberOutline.useGraphicAlpha = false;
+
+        TextMeshProUGUI numberLabel = CreateText(numberObj.transform, "Number",
+            (SlotFolders.Index(slot) + 1).ToString(), 16,
+            hasSkin ? GameTheme.TextColor : GameTheme.MutedColor, TextAlignmentOptions.Center);
+        SetRect(numberLabel.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f),
+            Vector2.zero, Vector2.zero);
 
         Button select = CreateButton(card.transform, "Select", "Select", GameTheme.TextColor, 13);
         SetRect(select.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
@@ -662,9 +715,13 @@ internal static class SkinMenuUI {
         RefreshSelection();
     }
 
+    private static void SelectDefaultSlot() {
+        SelectBrowsedSlot(SkinSettings.DefaultFolder);
+    }
+
     // the head a card shows, by species. old slots keep the experiment names, so they are the later choices.
     private static readonly string[][] PreviewNames = {
-        new[] { "experimentHeadBack", "experimentHead" },
+        new[] { "experimentHead", "experimentHeadBack" },
         new[] { "milkyheadback", "experimentHeadBack" },
         new[] { "duneHeadBack", "experimentHeadBack" }
     };

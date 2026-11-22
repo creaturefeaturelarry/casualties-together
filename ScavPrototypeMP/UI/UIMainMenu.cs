@@ -1,4 +1,4 @@
-using BepInEx;
+﻿using BepInEx;
 using CasualtiesTogetherUtils;
 using HarmonyLib;
 using KrokV5Optimization;
@@ -284,6 +284,13 @@ public static class UIMainMenu {
             var txtcontent = FixGuiContent.Content(txt, 11);
 
             var textsize = GUI.skin.label.CalcSize(txtcontent);
+
+            if (CharacterSelectWait.Waiting && CharacterSelectWait.ReadyPlayers.Contains(plr.playerId)) {
+                GUILayoutUtility.GetRect(GUIContent.none, GUI.skin.label, GUILayout.Width(textsize.y), GUILayout.Height(textsize.y));
+                var rect = GUILayoutUtility.GetLastRect().ShrinkBorder(-1 * GetMenuUIScale());
+                GUI.DrawTexture(rect, CoopModAssets.check.texture, ScaleMode.StretchToFill, true, 1, Color.green, 0, 0);
+                curXOffset += textsize.y;
+            }
 
             foreach (var item in plr.KnownUserTagIcons) {
                 GUILayout.Label(item.texture, GUILayout.Width(textsize.y), GUILayout.Height(textsize.y));
@@ -2885,6 +2892,7 @@ public static class UIMainMenu {
         (null, "dannad - Auto-updater module, Installer tool, C:T ds Staff"),
         (null, "Gary the cat - playtester, Bug report module, past servers, C:T ds Staff"), //  , past mod \"Cat-Patch\"
         (null, "Todd - external mod \"ChangeSkin\", C:T ds Staff"),
+        (null, "dogederp - external mod \"Player Sprite Replacer\""),
         (null, "ItsVoidSK - playtester, some sprites"),
         (null, "dawn - TimeManipulation patch"),
         (null, "VtLoader - Bug fixes"),

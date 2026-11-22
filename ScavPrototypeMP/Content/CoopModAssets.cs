@@ -153,6 +153,7 @@ namespace Together {
         public static Sprite @lock;
         public static Sprite happy;
         public static Sprite cross;
+        public static Sprite check;
 
         public static void LoadAssets() {
 
@@ -169,6 +170,7 @@ namespace Together {
             happy = LoadSprite("happy.png");
             @lock = LoadSprite("lock.png");
             cross = LoadSprite("shittycross.png");
+            check = LoadSprite("shittycheck.png");
 
             icon_crown = LoadSprite("king.png");
             icon_steam = LoadSprite("steam.png");

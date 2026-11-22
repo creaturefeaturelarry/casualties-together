@@ -27,8 +27,7 @@ internal static class MpSkinSync {
         new Dictionary<uint, string>();
     private static readonly HashSet<uint> Waiting = new HashSet<uint>();
     private static readonly MpUploadPolicy UploadPolicy = new MpUploadPolicy();
-    private static readonly Dictionary<uint, SendWindow> UploadWindows =
-        new Dictionary<uint, SendWindow>();
+    private static readonly MpRateLimiter UploadLimiter = new MpRateLimiter(8, 10f);
     private static readonly MpRateLimiter RequestLimiter = new MpRateLimiter(4, 10f);
     private static readonly MpRateLimiter FetchLimiter = new MpRateLimiter(4, 10f);
     private static readonly Stopwatch Clock = Stopwatch.StartNew();
@@ -562,10 +561,16 @@ internal static class MpSkinSync {
                 return SkinLock.Payload(false);
             }
 
-            if (!TakeUploadSlot(ownerPlayer, ServerTime)) {
-                Log("dropped skin from player " + ownerPlayer + ". wire limit is "
-                    + WireLimit + " per second.");
-                return new JValue("busy");
+            MpRateLimiter.Result limit = UploadLimiter.Check(ownerPlayer, ServerTime);
+            if (!limit.Allowed && !limit.AcceptOnce) {
+                Log("rate limited upload from player " + ownerPlayer + " for "
+                    + limit.RetryIn.ToString("0") + "s, strike " + limit.Strikes + ".");
+                return SkinLock.Payload(false, limit.RetryIn, limit.Strikes);
+            }
+
+            if (limit.AcceptOnce) {
+                Log("rate limit tripped for player " + ownerPlayer + " for "
+                    + limit.RetryIn.ToString("0") + "s, strike " + limit.Strikes + ".");
             }
 
             MpSkinPackage package = Parse(payload);
@@ -604,6 +609,10 @@ internal static class MpSkinSync {
             }
 
             MultiplayerApi.Broadcast(ApplyChannel, payload, false, true);
+
+            if (limit.AcceptOnce) {
+                return SkinLock.Payload(allow, limit.RetryIn, limit.Strikes, true);
+            }
 
             return SkinLock.Payload(allow);
         } catch (Exception ex) {
@@ -1186,7 +1195,7 @@ internal static class MpSkinSync {
         _nextSample = 0f;
         _manualChoice = false;
         _localWire = new SendWindow();
-        UploadWindows.Clear();
+        UploadLimiter.Clear();
         HashSet<MpSkinPackage> packages = new HashSet<MpSkinPackage>(Skins.Values);
         foreach (MpSkinPackage package in Pending.Values) {
             packages.Add(package);
@@ -1333,13 +1342,6 @@ internal static class MpSkinSync {
 
         window.Count++;
         return true;
-    }
-
-    private static bool TakeUploadSlot(uint player, float now) {
-        UploadWindows.TryGetValue(player, out SendWindow window);
-        bool taken = TakeSendSlot(ref window, now);
-        UploadWindows[player] = window;
-        return taken;
     }
 
     private static void Log(string message) {
