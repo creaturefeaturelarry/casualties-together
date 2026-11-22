@@ -649,7 +649,32 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
     public bool announce_reliable = true;
     readonly HashSet<ScavPlayer> _told = new();
     SpriteRenderer[] _sprites;
-    const float RopeSeeDistSqr = 64f * 64f;
+
+    // one chunk used to be the whole check, so a vine near a far player never left the host.
+    // the sim window is four chunks around every loaded player.
+    static float SeeDistSqr() {
+        int chunk = WorldGeneration.CHUNKSIZE;
+        if (chunk < 1)
+            chunk = 64;
+        float dist = chunk * KrokV5Optimization.FixSimRange.WindowRadius;
+        return dist * dist;
+    }
+
+    // worldgen positions are not bit-identical. an exact match told the client a real vine was missing.
+    internal static TrackerClimbableEntity FindNear(Vector2 pos) {
+        TrackerClimbableEntity best = null;
+        float bestSqr = 1f;
+        foreach (TrackerClimbableEntity item in UnityEngine.Object.FindObjectsOfType<TrackerClimbableEntity>()) {
+            if (item == null)
+                continue;
+            float sqr = ((Vector2)item.transform.position - pos).sqrMagnitude;
+            if (sqr < bestSqr) {
+                bestSqr = sqr;
+                best = item;
+            }
+        }
+        return best;
+    }
 
     protected override bool WantsAnotherPass() {
         if (!Net.IsServer)
@@ -757,7 +782,7 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         int last = climbable.points.Count - 1;
         for (int i = 0; i < last; i++) {
             var closest = KM.v2getClosestPointOnLine(climbable.points[i], climbable.points[i + 1], pos);
-            if ((closest - pos).sqrMagnitude < RopeSeeDistSqr)
+            if ((closest - pos).sqrMagnitude < SeeDistSqr())
                 return true;
         }
         return false;
@@ -768,10 +793,10 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
             _sprites = GetComponentsInChildren<SpriteRenderer>(true);
         for (int i = 0; i < _sprites.Length; i++) {
             var sprite = _sprites[i];
-            if (sprite != null && sprite.bounds.SqrDistance(pos) <= RopeSeeDistSqr)
+            if (sprite != null && sprite.bounds.SqrDistance(pos) <= SeeDistSqr())
                 return true;
         }
-        return ((Vector2)transform.position - pos).sqrMagnitude < RopeSeeDistSqr;
+        return ((Vector2)transform.position - pos).sqrMagnitude < SeeDistSqr();
     }
 
 
@@ -786,7 +811,7 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         log.warn($"Client_NoTheresNoRopeFuckOff {pos}");
 #endif
 
-        var sv = GetAtPos<TrackerClimbableEntity>(pos);
+        var sv = FindNear(pos);
         if (sv != null) {
             GameObject.Destroy(sv.gameObject);
         }
@@ -804,7 +829,7 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         reader.Get(out Vector2 rope_pos);
         reader.Get(out string rope_resourceid, true);
 
-        var rope = GetAtPos<TrackerClimbableEntity>(rope_pos);
+        var rope = FindNear(rope_pos);
         if (rope == null) {
             rope = UnityEngine.Object.Instantiate(Resources.Load(rope_resourceid), rope_pos, Quaternion.identity).GetOrAddComponent<TrackerClimbableEntity>();
         }// repeat 100 0 explode_player
@@ -857,7 +882,7 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         reader.Get(out Vector2 pos);
 
 
-        var thing = GetAtPos<TrackerClimbableEntity>(pos);
+        var thing = FindNear(pos);
         if (thing == null) {
             var writer = Net.CreateWriter(NetmsgId.CLIENT_NoTheresNoRopeFuckOff);
 

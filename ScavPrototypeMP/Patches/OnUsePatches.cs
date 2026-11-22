@@ -185,9 +185,9 @@ public static class DrillPod_OnUse_MultiplayerPatch {
 #endif
 
             OnUseRewritten(body, drel);
-            // if kit was already gone on host inventory, still force the pod working
             if (!drel.working) {
-                ForceRepairDrill(drel);
+                // why the fuck did i use use forcerepairdrill here ?
+                return;
             }
             ServerMain.Server_AnnounceSound(si.go.transform.position, "drillpodrepair", ServerMain.GetListOfClientIdsExceptThisAndHost(clientId));
 
