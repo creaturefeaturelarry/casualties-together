@@ -2616,8 +2616,29 @@ namespace Together {
     [HarmonyPatch(typeof(Item), nameof(Item.TryProsthesisRepair))]
     public static class ProsthesisRepair_RememberPatchCount {
         public static readonly Dictionary<ushort, int> PatchCount = new Dictionary<ushort, int>();
-        // sync ids are reused once an item is gone, so remember which item the count was for
-        static readonly Dictionary<ushort, string> PatchItem = new Dictionary<ushort, string>();
+        // sync ids are reused. item.id is only the type, so two scrap cubes compare equal.
+        // the count is kept for the object that opened the minigame, not for the type.
+        static readonly Dictionary<ushort, int> PatchInstance = new Dictionary<ushort, int>();
+
+        // Item.GlobalItems picks these in useLimbAction. A stock kit does not need a remembered count.
+        static readonly Dictionary<string, int> StockPatches = new Dictionary<string, int> {
+            { "scrapmetal", 16 },
+            { "scrapcube", 16 },
+            { "scrappanel", 2 },
+            { "scraptube", 6 },
+            { "woodscraps", 10 },
+            { "woodcube", 10 },
+            { "woodpanel", 1 },
+            { "stick", 4 },
+            { "titaniumslab", 50 },
+            { "titaniumsheet", 10 },
+            { "titaniumrod", 25 },
+        };
+
+        internal static bool TryStock(string itemType, out int holeCount) {
+            holeCount = 0;
+            return itemType != null && StockPatches.TryGetValue(itemType, out holeCount) && holeCount > 0;
+        }
 
         static void Prefix(Item item, int holeCount) {
             if (item == null || holeCount < 1) {
@@ -2627,15 +2648,17 @@ namespace Together {
                 return;
             }
             PatchCount[si.syncId.id] = holeCount;
-            PatchItem[si.syncId.id] = item.id;
+            PatchInstance[si.syncId.id] = item.gameObject.GetInstanceID();
         }
 
         public static bool TryGet(ushort syncId, Item item, out int holeCount) {
-            if (!PatchCount.TryGetValue(syncId, out holeCount) || holeCount < 1) {
+            holeCount = 0;
+            if (item == null || !PatchCount.TryGetValue(syncId, out holeCount) || holeCount < 1) {
                 return false;
             }
-            if (item == null || !PatchItem.TryGetValue(syncId, out string id) || id != item.id) {
-                // left over from an item that had this id before
+            if (!PatchInstance.TryGetValue(syncId, out int instance) || item.gameObject.GetInstanceID() != instance) {
+                PatchCount.Remove(syncId);
+                PatchInstance.Remove(syncId);
                 holeCount = 0;
                 return false;
             }
@@ -2646,7 +2669,7 @@ namespace Together {
         static void Init() {
             WorldMP.OnWorldgenFinish += () => {
                 PatchCount.Clear();
-                PatchItem.Clear();
+                PatchInstance.Clear();
             };
         }
     }
@@ -2736,7 +2759,11 @@ namespace Together {
                 if (limb == null || limb.dismembered || limb.dislocated || !limb.HasProsthetic()) {
                     return;
                 }
-                if (!ProsthesisRepair_RememberPatchCount.TryGet(itemId, itemSi.item, out int holeCount)) {
+                // stock kits are spent by item type. the remembered count is only for a kit this
+                // host opened, and only while that same object is still the one on this sync id.
+                int holeCount;
+                if (!ProsthesisRepair_RememberPatchCount.TryStock(itemSi.item.id, out holeCount)
+                    && !ProsthesisRepair_RememberPatchCount.TryGet(itemId, itemSi.item, out holeCount)) {
                     return;
                 }
                 bool placed = false;
