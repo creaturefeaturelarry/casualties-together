@@ -51,7 +51,7 @@ static class Checks {
 
         string[] blocked = {
             "bitchassnigger", "bitch ass", "fuck", "f u c k", "fu ck", "sh1t", "b!tch", "assface", "sexy", "sexy lobby",
-            "shitty", "motherfucker", "pornhub", "ass", "a s s", "ass69", "whorehouse", "jackass", "bitchier", "BITCH4SS", "fatass", "cuminmyass",
+            "shitty", "motherfucker", "pornhub", "ass", "a s s", "ass69", "whorehouse", "jackass", "assclown", "dumbass", "asshat", "cockgoblin", "bitchier", "BITCH4SS", "fatass", "cuminmyass",
         };
         foreach (string s in blocked) {
             Check(m.ContainsBlocked(s), "blocked " + s);

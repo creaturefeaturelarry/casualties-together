@@ -9,17 +9,16 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILTER = os.path.join(ROOT, "ScavPrototypeMP", "assets", "nsfw-server-filter.json")
 DENYLIST = os.path.join(ROOT, "scripts", "name_filter_denylist.txt")
+EXTRA = os.path.join(ROOT, "scripts", "name_filter_extra_words.txt")
 OUT = os.path.join(ROOT, "ScavPrototypeMP", "assets", "name-filter-words.txt")
 
 LIST_FILE = re.compile(r"^(english|american|british)-(words|upper|proper-names|contractions)\.(\d+)$")
-# size 50 is the normal spellchecker size and decides which terms are weak. bigger lists are full of junk words
+# size 50 is the normal spellchecker size and decides which terms are weak
 FULL_SIZE = 50
-# only common words get shipped for splitting stuff like assface. size 20 is about 11k words
-COMMON_SIZE = 20
 
 HEADER = """\
 # words NsfwContentFilter treats as normal english. built by scripts/build_name_filter_words.py from SCOWL
-# so dont edit by hand. it has every size 50 word with a weak term in it plus the size 20 common words
+# so dont edit by hand. it has every size 50 word with a weak term in it plus name_filter_extra_words.txt
 # lines with ! are from name_filter_denylist.txt and always block. SCOWL license below
 #
 # Copyright 2000-2018 by Kevin Atkinson
@@ -59,12 +58,10 @@ def main():
     deny = {normalize(w) for w in read_list(DENYLIST)}
 
     words = set()
-    common = set()
     for name in os.listdir(final):
         m = LIST_FILE.match(name)
         if not m or int(m.group(3)) > FULL_SIZE:
             continue
-        size = int(m.group(3))
         with open(os.path.join(final, name), encoding="latin-1") as f:
             for line in f:
                 w = line.strip()
@@ -74,8 +71,6 @@ def main():
                 n = normalize(w)
                 if len(n) >= 2 or n in ("a", "i"):
                     words.add(n)
-                    if size <= COMMON_SIZE:
-                        common.add(n)
 
     words -= blocked
     # only the ones scowl actually has. the rest of the denylist is already caught by the json terms
@@ -89,7 +84,9 @@ def main():
     weak = [t for t in terms if t in everything]
     keep = {w for w in words if any(t in w for t in weak)}
     full_count = len(words)
-    words = keep | (common & words)
+    # extra words dont have to be in scowl. gamer and noob arent
+    extra = {normalize(w) for w in read_list(EXTRA)} - blocked - deny
+    words = keep | extra
 
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:
         f.write(HEADER)
@@ -97,7 +94,7 @@ def main():
             f.write("!" + w + "\n")
         for w in sorted(words):
             f.write(w + "\n")
-    print(f"wrote {len(words)} of {full_count} words ({len(keep)} with a weak term) and {len(denied)} denylist words to {OUT}")
+    print(f"wrote {len(words)} of {full_count} words ({len(keep)} with a weak term and {len(extra)} extra) and {len(denied)} denylist words to {OUT}")
 
 
 if __name__ == "__main__":
