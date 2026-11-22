@@ -2640,6 +2640,26 @@ namespace Together {
             return itemType != null && StockPatches.TryGetValue(itemType, out holeCount) && holeCount > 0;
         }
 
+        // Item.GlobalItems picks these in useLimbAction. The count belongs to the item type, not the sync id.
+        static readonly Dictionary<string, int> StockPatches = new Dictionary<string, int> {
+            { "scrapmetal", 16 },
+            { "scrapcube", 16 },
+            { "scrappanel", 2 },
+            { "scraptube", 6 },
+            { "woodscraps", 10 },
+            { "woodcube", 10 },
+            { "woodpanel", 1 },
+            { "stick", 4 },
+            { "titaniumslab", 50 },
+            { "titaniumsheet", 10 },
+            { "titaniumrod", 25 },
+        };
+
+        internal static bool TryStock(string itemType, out int holeCount) {
+            holeCount = 0;
+            return itemType != null && StockPatches.TryGetValue(itemType, out holeCount) && holeCount > 0;
+        }
+
         static void Prefix(Item item, int holeCount) {
             if (item == null || holeCount < 1) {
                 return;
@@ -2728,9 +2748,15 @@ namespace Together {
             if (!limb.body.TryGetNetBody(out NetBody nb)) {
                 return;
             }
+            // the host never ran TryProsthesisRepair for this item, so it can't know the patch count. send ours.
+            int holeCount = 0;
+            ProsthesisRepair_RememberPatchCount.PatchCount.TryGetValue(si.syncId.id, out holeCount);
+            if (holeCount < 1) {
+                holeCount = Traverse.Create(repair).Field("maxPatches").GetValue<int>();
+            }
             si.SetIgnoreTimeForRoundTrip();
             LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("CustomCommand");
-            writer.Put("prosthesis_patch " + si.syncId.id.ToString() + " " + nb.netId.id.ToString() + " " + Util.GetLimbIndex(limb).ToString() + " " + flags.ToString());
+            writer.Put("prosthesis_patch " + si.syncId.id.ToString() + " " + nb.netId.id.ToString() + " " + Util.GetLimbIndex(limb).ToString() + " " + flags.ToString() + " " + holeCount.ToString());
             Net.Client_Send(DeliveryMethod.ReliableOrdered, writer);
         }
 
@@ -2759,12 +2785,17 @@ namespace Together {
                 if (limb == null || limb.dismembered || limb.dislocated || !limb.HasProsthetic()) {
                     return;
                 }
-                // stock kits are spent by item type. the remembered count is only for a kit this
-                // host opened, and only while that same object is still the one on this sync id.
+                // the count is a property of the item type. a sync id is reused, so the dictionary
+                // can belong to an item that is already gone. a mod kit is not in the table:
+                // the client sends the count it used, and that number is not stored.
                 int holeCount;
-                if (!ProsthesisRepair_RememberPatchCount.TryStock(itemSi.item.id, out holeCount)
-                    && !ProsthesisRepair_RememberPatchCount.TryGet(itemId, itemSi.item, out holeCount)) {
-                    return;
+                if (!ProsthesisRepair_RememberPatchCount.TryStock(itemSi.item.id, out holeCount)) {
+                    if (args.Length < 6 || !int.TryParse(args[5], out holeCount)) {
+                        return;
+                    }
+                    if (holeCount < 1 || holeCount > 64) {
+                        return;
+                    }
                 }
                 bool placed = false;
                 int holes = limb.prostheticInfo.maxHoles;

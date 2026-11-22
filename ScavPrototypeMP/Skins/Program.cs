@@ -217,6 +217,7 @@ public class SpriteReplacerPlugin : MonoBehaviour {
         SyncSpeciesCache();
         SkinMenuUI.EnsureCanvas();
         SkinMenuUI.SetVisible(false);
+        KeybindRecovery.Apply();
         ApplyToAll();
     }
 
@@ -284,6 +285,14 @@ public class SpriteReplacerPlugin : MonoBehaviour {
             return false;
         }
         slot = normalized;
+
+        if (MpSkinSync.IsCoolingDown) {
+            SkinMenuUI.ShowStatus("Skin changes paused. Try again in "
+                + MpSkinSync.CooldownSeconds + "s.", GameTheme.WarningColor);
+            CoreLibIntegration.StoreActiveSlot(_activeSlot);
+            Log.LogInfo("Skin change blocked: rate limited.");
+            return false;
+        }
 
         if (!SkinLock.CanChangeLocal) {
             SkinMenuUI.ShowStatus("Skins locked by host.", GameTheme.WarningColor);

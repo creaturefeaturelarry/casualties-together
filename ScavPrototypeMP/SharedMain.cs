@@ -36,7 +36,6 @@ namespace Together {
                 && Multiplayer.rules.ScatterMinGroupSize > 0;
         }
 
-        //TODO Occasionally theres a nullreference !!!! when its called from MedicalSync.LateUpdate 
         public static bool CheckIfShouldActivateDispersionPunishmentProtocol(ScavPlayer plr, out float max_recorded_dist, out int count_plrs_in_range, out int required_count_plrs_in_range) {
 
             count_plrs_in_range = ScavPlayer.AllLivingPlayers.Count;
@@ -56,7 +55,7 @@ namespace Together {
             List<ScavPlayer> plrs = new List<ScavPlayer>(ScavPlayer.AllLivingPlayers);
             plrs.RemoveAll(x => (
                     // || x.body.isCriticallyDying // commented cuz i wanna make them euthanize dying comrades
-                    x.levelPlayTime < 20
+                    x.body == null || x.levelPlayTime < 20
             ));
             if (Net.IsServer) {
                 plrs.RemoveAll(
@@ -83,7 +82,8 @@ namespace Together {
             presqr *= presqr;
             Vector3 pos = plr.body.transform.position;
             count_plrs_in_range = 0;
-            foreach (ScavPlayer x in ScavPlayer.AllLivingPlayers) {
+            // count from the same filtered list the required count came from
+            foreach (ScavPlayer x in plrs) {
                 float d = KM.DistanceSqr(x.body.transform.position, pos);
                 if (d < presqr) {
                     count_plrs_in_range++;
