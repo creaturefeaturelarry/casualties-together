@@ -1299,9 +1299,6 @@ public static class Body_Attack_MultiplayerPatch {
                         } finally {
                             WorldGenerationDamageBlockAnnouncePatch.cur_damaging_netbody = null;
                         }
-                        // Multiplayer host skips vanilla attack flow, need to addxp.
-                        if (atkinfo.physicalSwing)
-                            pb.body.skills.AddExp(0, atkinfo.damage / 300f);
                         WorldGeneration.CreateDamageNumber(
                             (Vector2)WorldGeneration.world.BlockToWorldPos(blockPos) + Vector2.up * 2f,
                             (int)blockDmg);
