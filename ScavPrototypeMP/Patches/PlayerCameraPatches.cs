@@ -746,17 +746,20 @@ static class PlayerCamera_HandleWhileDragging_MultiplayerPatch {
             foreach (RaycastResult uiCast in uiCasts) {
 
                 if (uiCast.gameObject == __instance.liquidDrainObject) {
-                    //OG:  PlayerCamera.HandleWhileDragging  V5t4 + LiquidAffect check
-                    if ((bool)__instance.dragItem && !dragItem.IsInWater()) {
-
-                        if (ItemSync.TryGetSyncInfo(__instance.dragItem, out var si)) {
+                    // wasWater stays true after a pickup, because LiquidAffect stops once the body is no longer simulated.
+                    // stock pours whenever the cell under the canteen is dry, so the host report has to use that same test.
+                    bool dry = (bool)dragItem && __instance.body != null && WorldGeneration.world != null && FluidManager.main != null
+                        && !FluidManager.main.HasLiquid(WorldGeneration.world.WorldToBlockPos(dragItem.transform.position))
+                        && __instance.body.DoPickupCheck(dragItem, true);
+                    if (dry) {
+                        if (ItemSync.TryGetSyncInfo(dragItem, out var si)) {
                             si.SetIgnoreTimeForRoundTrip();
                         }
 
-                        WaterContainerItem component = __instance.dragItem.GetComponent<WaterContainerItem>();
+                        WaterContainerItem component = dragItem.GetComponent<WaterContainerItem>();
                         //component.Drain(component.CalculateDrain(0.2f * Time.deltaTime * component.Capacity)); done by the original
 
-                        currently_draining = component.CurrentTotal > 0;
+                        currently_draining = component != null && component.CurrentTotal > 0;
                     }
                     break;
                 }

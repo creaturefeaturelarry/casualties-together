@@ -1149,6 +1149,10 @@ internal static class CeilingTurretHostSim {
             if (!ct.alwaysSee && !MovingFast(body)) {
                 continue;
             }
+            // stock only thinks while the gun is on screen. OnWillRenderObject never runs for a turret the camera cannot see.
+            if (!OnScreen(ct, body)) {
+                continue;
+            }
             bool clear = true;
             RaycastHit2D[] hits = Physics2D.LinecastAll(ct.transform.position, body.transform.position, mask);
             for (int i = 0; i < hits.Length; i++) {
@@ -1169,6 +1173,28 @@ internal static class CeilingTurretHostSim {
         }
         seeing = best != null;
         return best;
+    }
+
+    // default camera is 37.5 units tall. a gun past that never rendered in singleplayer, so it never fired.
+    const float ScreenHalfHeight = 37.5f;
+
+    static bool OnScreen(CeilingTurret ct, Body body) {
+        Camera cam = Camera.main;
+        float halfH = ScreenHalfHeight;
+        float aspect = 16f / 9f;
+        if (cam != null) {
+            if (cam.orthographicSize > 1f && cam.orthographicSize < 80f) {
+                halfH = cam.orthographicSize;
+            }
+            if (cam.aspect > 0.5f) {
+                aspect = cam.aspect;
+            }
+        }
+        // the renderer is visible a little before the pivot enters the frustum.
+        halfH += 6f;
+        float halfW = halfH * aspect;
+        Vector2 delta = (Vector2)ct.transform.position - (Vector2)body.transform.position;
+        return Mathf.Abs(delta.x) <= halfW && Mathf.Abs(delta.y) <= halfH;
     }
 
     struct MoveSample {

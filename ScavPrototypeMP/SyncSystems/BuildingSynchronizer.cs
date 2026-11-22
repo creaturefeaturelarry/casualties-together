@@ -649,6 +649,40 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
     public bool announce_reliable = true;
     readonly HashSet<ScavPlayer> _told = new();
     SpriteRenderer[] _sprites;
+    GameObject _capTop;
+    GameObject _capBot;
+    static float _capSweep;
+
+    // worldgen builds these beside the climbable. they are not part of the rope object.
+    internal static bool IsDecoration(GameObject go) {
+        if (go == null || !go.TryGetComponent(out BuildingEntity build))
+            return false;
+        if (go.GetComponent<Climbable>() != null)
+            return false;
+        string id = build.id;
+        if (id == "veintop" || id == "veinbottom" || id == "sandvine" || id == "sandvinehook" || id == "mushroomropeend")
+            return true;
+        string name = go.name;
+        return name != null && (name.StartsWith("veintop") || name.StartsWith("veinbottom") || name.StartsWith("sandvinehook") || name.StartsWith("mushroomropeend"));
+    }
+
+    // a client cap that is not hanging off a confirmed rope is a leftover from local worldgen.
+    internal static void SweepOrphanDecorations(bool force) {
+        if (!Net.IsClient || Net.IsServer)
+            return;
+        if (!force && Time.realtimeSinceStartup < _capSweep)
+            return;
+        _capSweep = Time.realtimeSinceStartup + 0.5f;
+        BuildingEntity[] builds = UnityEngine.Object.FindObjectsOfType<BuildingEntity>();
+        for (int i = 0; i < builds.Length; i++) {
+            BuildingEntity build = builds[i];
+            if (build == null || !IsDecoration(build.gameObject))
+                continue;
+            if (build.GetComponentInParent<TrackerClimbableEntity>() != null)
+                continue;
+            UnityEngine.Object.Destroy(build.gameObject);
+        }
+    }
 
     // one chunk used to be the whole check, so a vine near a far player never left the host.
     // the sim window is four chunks around every loaded player.
@@ -764,7 +798,8 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
 
 
     public override bool CheckDist(Vector2 pos) {
-
+        if (Net.IsClient)
+            SweepOrphanDecorations(false);
 
         var climbable = GetComponent<Climbable>();
         if (climbable == null) { // it may be sandvine begining and end decorations, i dont need to sync those
@@ -815,6 +850,7 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         if (sv != null) {
             GameObject.Destroy(sv.gameObject);
         }
+        SweepOrphanDecorations(true);
     }
 
 
@@ -833,6 +869,7 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         if (rope == null) {
             rope = UnityEngine.Object.Instantiate(Resources.Load(rope_resourceid), rope_pos, Quaternion.identity).GetOrAddComponent<TrackerClimbableEntity>();
         }// repeat 100 0 explode_player
+        rope.transform.position = rope_pos;
         rope.was_synced = true;
 
 
@@ -866,8 +903,51 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         }
 
         climbable.CalculateTotalLength();
+        rope.EnsureCaps();
+        SweepOrphanDecorations(false);
+    }
 
+    // the host already has the caps from worldgen. a client hangs new ones on the confirmed rope so they die with it.
+    void EnsureCaps() {
+        if (!Net.IsClient || Net.IsServer)
+            return;
+        Climbable climb = GetComponent<Climbable>();
+        if (climb == null || climb.points == null || climb.points.Count < 2)
+            return;
+        Vector2 first = climb.points[0];
+        Vector2 last = climb.points[climb.points.Count - 1];
+        Vector2 floor = first.y <= last.y ? first : last;
+        Vector2 ceil = first.y <= last.y ? last : first;
+        if (is_veinloop) {
+            PlaceCap(ref _capTop, "Special/veintop", ceil + Vector2.down * 0.5f, false);
+            PlaceCap(ref _capBot, "Special/veinbottom", floor + Vector2.up * 0.5f, false);
+        } else if (is_sandvine) {
+            WorldGeneration world = WorldGeneration.world;
+            if (world == null)
+                return;
+            Vector2 hook = world.BlockToWorldPos(world.WorldToBlockPos(ceil - Vector2.up * 0.5f));
+            PlaceCap(ref _capTop, "Special/sandvinehook", hook, true);
+        } else if (is_mushroomrope) {
+            PlaceCap(ref _capBot, "Special/mushroomropeend", floor + Vector2.down * 0.5f, true);
+        }
+    }
 
+    void PlaceCap(ref GameObject cap, string resource, Vector2 worldPos, bool flip) {
+        if (cap == null) {
+            GameObject prefab = Resources.Load<GameObject>(resource);
+            if (prefab == null)
+                return;
+            cap = UnityEngine.Object.Instantiate(prefab, worldPos, Quaternion.identity, transform);
+            cap.transform.localScale = Vector3.one;
+            SpriteRenderer created = cap.GetComponent<SpriteRenderer>();
+            if (created != null && flip)
+                created.flipX = UnityEngine.Random.value > 0.5f;
+        }
+        cap.transform.position = worldPos;
+        SpriteRenderer ropeSprite = GetComponent<SpriteRenderer>();
+        SpriteRenderer capSprite = cap.GetComponent<SpriteRenderer>();
+        if (ropeSprite != null && capSprite != null)
+            capSprite.color = ropeSprite.color;
     }
 
 

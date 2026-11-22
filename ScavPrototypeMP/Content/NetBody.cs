@@ -2566,14 +2566,16 @@ public class NetBody : MonoBehaviour {
         }
     }
 
-    // dune player "Feed on" / K / auto-hunger -> consent (skipped if uncon), traderbite damage + eatFlesh + +35 hunger
+    // dune player "Feed on" / K / auto-hunger -> consent (skipped if uncon), traderbite damage + eatFlesh.
+    // a full dune pukes instead of gaining hunger. a bite is refused while that puke is still running.
     static class DuneBiteSession {
         const float AskDistance = 5f;
         const float HealthPanelRangeMult = 2f;
         const float RequestCooldown = 0.1f;
         const float AutoHungerMax = 10f;
         const float AutoChance = 0.05f;
-        const float HungerGain = 35f;
+        const float HungerGain = 7f;
+        const float FullHunger = 100f;
         const float UnconsciousAmpChance = 0.01f;
 
         static readonly string[] BiteLines = {
@@ -2632,6 +2634,12 @@ public class NetBody : MonoBehaviour {
             if (!IsDune(self.body) || !Biteable(other.body)) {
                 return;
             }
+            if (Puking(self.body)) {
+                if (PlayerCamera.main != null) {
+                    PlayerCamera.main.DoAlert("Can't bite while puking.");
+                }
+                return;
+            }
             if (!Near(self.body, other.body, AskDistance)) {
                 if (PlayerCamera.main != null) {
                     PlayerCamera.main.DoAlert(Lang.Get("interact_obstructed"));
@@ -2656,11 +2664,15 @@ public class NetBody : MonoBehaviour {
             if (from.netBody == null || target.netBody == null || from.ServerPlayerState == null) {
                 return;
             }
-            if (!from.ServerPlayerState.Cooldown("dune_bite", RequestCooldown)) {
-                from.Server_DoAlertSingle("<key:hug_soon>");
+            if (!IsDune(from.body) || !Biteable(target.body)) {
                 return;
             }
-            if (!IsDune(from.body) || !Biteable(target.body)) {
+            if (Puking(from.body)) {
+                from.Server_DoAlertSingle("Can't bite while puking.");
+                return;
+            }
+            if (!from.ServerPlayerState.Cooldown("dune_bite", RequestCooldown)) {
+                from.Server_DoAlertSingle("<key:hug_soon>");
                 return;
             }
             if (!Near(from.body, target.body, AskDistance * 1.2f)) {
@@ -2716,7 +2728,7 @@ public class NetBody : MonoBehaviour {
                 if (dunePlr == null || dunePlr.netBody == null || dunePlr.body == null) {
                     continue;
                 }
-                if (!IsDune(dunePlr.body) || dunePlr.body.hunger > AutoHungerMax) {
+                if (!IsDune(dunePlr.body) || dunePlr.body.hunger > AutoHungerMax || Puking(dunePlr.body)) {
                     continue;
                 }
                 if (UnityEngine.Random.value >= AutoChance) {
@@ -2748,6 +2760,12 @@ public class NetBody : MonoBehaviour {
             if (dune == null || victim == null || dune.body == null || victim.body == null) {
                 return;
             }
+            if (Puking(dune.body)) {
+                if (dune.plr != null) {
+                    dune.plr.Server_DoAlertSingle("Can't bite while puking.");
+                }
+                return;
+            }
             Body bitten = victim.body;
             List<Limb> limbs = bitten.limbs.Skip(3).Where(x => x != null && !x.dismembered).ToList();
             if (limbs.Count == 0) {
@@ -2770,7 +2788,13 @@ public class NetBody : MonoBehaviour {
                 }
             }
 
-            dune.body.hunger = Mathf.Clamp(dune.body.hunger + HungerGain, -50f, 125f);
+            if (dune.body.hunger >= FullHunger) {
+                if (dune.body.vomiter != null) {
+                    dune.body.vomiter.Vomit();
+                }
+            } else {
+                dune.body.hunger = Mathf.Clamp(dune.body.hunger + HungerGain, -50f, 125f);
+            }
 
             victim.OnDamageEvent(new BodyDamageEvent(dune, victim, null, 30f));
             MedicalSync.ForceHealth(victim);
@@ -2800,6 +2824,10 @@ public class NetBody : MonoBehaviour {
                 string line = BiteLines[UnityEngine.Random.Range(0, BiteLines.Length)];
                 Talker_Talk_MultiplayerPatch.Force(duneBody.talker, new List<string> { line }, null, true, true);
             }
+        }
+
+        static bool Puking(Body body) {
+            return body != null && body.vomiter != null && body.vomiter.vomiting;
         }
 
         static bool IsDune(Body body) {

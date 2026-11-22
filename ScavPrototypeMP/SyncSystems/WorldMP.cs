@@ -762,6 +762,17 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 registered = NetObjectRegistry.IsRegistered(x);
             } catch (Exception) {
             }
+            // vine caps are not synced buildings. the client's own worldgen leaves them in the wrong place after the rope is removed.
+            if (TrackerClimbableEntity.IsDecoration(x)) {
+                try {
+                    GameObject.Destroy(x);
+                    destroyed++;
+                } catch (Exception ex) {
+                    failed++;
+                    log.error("[join] vine cap " + ex.Message);
+                }
+                continue;
+            }
             // first visit keeps synced objects. a rejoin has to drop the previous world's copies or the new generate stacks onto them.
             if (NetObjectRegistry.ObjectShouldNotBeSynced(x) || onBody || (registered && !rejoin)) {
                 kept++;
