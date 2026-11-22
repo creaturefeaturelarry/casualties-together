@@ -282,22 +282,14 @@ public static class CharacterSelectWait {
         }
     }
 
+    // this will be called alongside the stock back handler, as such it's just for network messages.
+    // if the menu is closed while we're still waiting, it has to be restored in TickUi.
     static void OnCharSelectBackClicked() {
-        if (LateJoinPicking) {
-            // mid-run join: stuck on species until Join (no presets to return to)
-            return;
-        }
-        if (!Waiting) {
-            return;
-        }
         // back to presets, or back to the title if Tutorial opened this screen.
-        // host has to tell the lobby. a local Reset left them in the gate with no bodies.
-        if (Net.IsServer) {
+        // host has to tell the lobby.
+        if (Net.IsServer && Waiting) {
             AbortLobbyGate();
-            return;
         }
-        Reset();
-        ReleaseMenuDim();
     }
 
     // tutorial / new-run gate was still open. drop it before a world load or a Back,
@@ -602,6 +594,14 @@ public static class CharacterSelectWait {
     }
 
     public static void TickUi() {
+        if (Waiting && !Net.IsRunning && PreRunScript.instance != null) {
+            // waiting aborted unceremoniously, clean up afterward
+            Waiting = false;
+            Reset();
+            ReleaseMenuDim();
+            return;
+        }
+
         if (!Net.IsRunning || !Util.IsInMainMenu()) {
             return;
         }
@@ -611,21 +611,23 @@ public static class CharacterSelectWait {
         }
         EnsureUiHooks(prs);
 
-        if (LateJoinPicking) {
+        // clients can never back out.
+        if (Net.IsClient && Waiting) {
+            // stock Back can hide the page without our listener, so ensure the ui is present every tick.
             ApplyLocalWaitUi();
             ForceCharSelectReadyVisual(prs);
             return;
         }
 
-        // stock Back can hide the page without our listener. Waiting would stay set
-        // and the next world would spawn nobody.
-        if (Net.IsServer && Waiting && Util.IsInMainMenu() && !IsSpeciesSelectPageVisible(prs)) {
+        // for sanity? AbortLobbyGate should already be called when Back is pressed
+        // idk how you'd be able to achieve this, but sure.
+        if (Waiting && Util.IsInMainMenu() && !IsSpeciesSelectPageVisible(prs)) {
             AbortLobbyGate();
             return;
         }
 
         // stock Next may show species select without calling StartRun - catch that page
-        if (Net.IsServer && !Waiting && IsSpeciesSelectPageVisible(prs)) {
+        if (!Waiting && IsSpeciesSelectPageVisible(prs)) {
             OpenLobbyGate();
             return;
         }
@@ -635,6 +637,7 @@ public static class CharacterSelectWait {
             return;
         }
 
+        // ensure ui is present for host
         EnsureHostLobbyGate();
         SetCharBrowseInteractable(prs, !_speciesLocked);
         if (_speciesLocked) {
