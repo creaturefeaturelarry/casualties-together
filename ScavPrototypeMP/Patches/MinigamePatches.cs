@@ -2640,26 +2640,6 @@ namespace Together {
             return itemType != null && StockPatches.TryGetValue(itemType, out holeCount) && holeCount > 0;
         }
 
-        // Item.GlobalItems picks these in useLimbAction. The count belongs to the item type, not the sync id.
-        static readonly Dictionary<string, int> StockPatches = new Dictionary<string, int> {
-            { "scrapmetal", 16 },
-            { "scrapcube", 16 },
-            { "scrappanel", 2 },
-            { "scraptube", 6 },
-            { "woodscraps", 10 },
-            { "woodcube", 10 },
-            { "woodpanel", 1 },
-            { "stick", 4 },
-            { "titaniumslab", 50 },
-            { "titaniumsheet", 10 },
-            { "titaniumrod", 25 },
-        };
-
-        internal static bool TryStock(string itemType, out int holeCount) {
-            holeCount = 0;
-            return itemType != null && StockPatches.TryGetValue(itemType, out holeCount) && holeCount > 0;
-        }
-
         static void Prefix(Item item, int holeCount) {
             if (item == null || holeCount < 1) {
                 return;
