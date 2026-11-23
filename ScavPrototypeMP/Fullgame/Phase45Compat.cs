@@ -258,6 +258,10 @@ static class FanTrap_OnWillRenderObject_HostSim_MultiplayerPatch {
 
     static void Postfix(FanTrap __instance) {
         if (Net.IsServer && __instance != null) {
+            // stock already set dislodged. keep the sim-range body, or the next
+            // stock update pins it static and the fan never leaves the hole.
+            if (TrapSupport.FanIsLoose(__instance.GetComponent<BuildingEntity>()))
+                TrapSupport.DislodgeFan(__instance);
             Push(__instance, false);
         }
     }

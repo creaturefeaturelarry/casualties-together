@@ -1734,6 +1734,10 @@ public static class PlayerCamera_ToggleWoundView_MultiplayerPatch {
         }
         return true;
     }
+
+    static void Postfix() {
+        if (IsOpen()) WoundViewOpenLog.Dump();
+    }
 }
 
 

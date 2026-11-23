@@ -220,6 +220,11 @@ static class WorldGenerationSetBlockNoUpdatePatch {
         WorldGeneration_SetBlock_MultiplayerPatch.QueueBlockChange(__instance, pos, block, true);
         return true;
     }
+
+    static void Postfix(WorldGeneration __instance, Vector2Int pos, ushort block) {
+        if (block == 0)
+            TrapSupport.OnBlockCleared(__instance, pos);
+    }
 }
 [HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.SetBlock), new[] { typeof(Vector2Int), typeof(ushort) })]
 public static class WorldGeneration_SetBlock_MultiplayerPatch {
@@ -320,6 +325,11 @@ public static class WorldGeneration_SetBlock_MultiplayerPatch {
     static bool Prefix(WorldGeneration __instance, Vector2Int pos, ushort block) {
         QueueBlockChange(__instance, pos, block, false);
         return true;
+    }
+
+    static void Postfix(WorldGeneration __instance, Vector2Int pos, ushort block) {
+        if (block == 0)
+            TrapSupport.OnBlockCleared(__instance, pos);
     }
 }
 

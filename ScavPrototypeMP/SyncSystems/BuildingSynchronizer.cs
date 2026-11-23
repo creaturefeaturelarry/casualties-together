@@ -1099,6 +1099,130 @@ internal static class BuildingEntity_CheckSeating_MultiplayerPatch {
     }
 }
 
+// stock subscribes CheckSeating to ChunkUpdated while placing the trap. that listener
+// does not survive onto the objects that stay in a multiplayer world, and a fan
+// only lets go inside OnWillRenderObject, which the host then pins static again.
+internal static class TrapSupport {
+    static readonly FieldInfo FanDislodged = AccessTools.Field(typeof(FanTrap), "dislodged");
+    static readonly Collider2D[] Hits = new Collider2D[96];
+    static readonly HashSet<int> Seen = new HashSet<int>();
+
+    static readonly List<BuildingEntity> Pending = new List<BuildingEntity>();
+
+    internal static void OnBlockCleared(WorldGeneration world, Vector2Int pos) {
+        if (!Net.IsRunning || !Net.IsServer || world == null || world.generatingWorld || !world.worldExists)
+            return;
+        Vector2 center = world.BlockToWorldPos(pos);
+        Seen.Clear();
+        Pending.Clear();
+        // a fence sits several units above its cell. a ceiling trap hangs just below it.
+        int n = Physics2D.OverlapBoxNonAlloc(center + Vector2.up * 2f, new Vector2(6f, 16f), 0f, Hits);
+        for (int i = 0; i < n; i++) {
+            Collider2D hit = Hits[i];
+            Hits[i] = null;
+            if (hit == null)
+                continue;
+            Note(hit.GetComponentInParent<BuildingEntity>());
+        }
+        // chunk sleep turns the collider off. the registry still has the pad.
+        Dictionary<GameObject, SyncInfo> registry = NetObjectRegistry.SyncRegistry;
+        if (registry != null) {
+            foreach (KeyValuePair<GameObject, SyncInfo> pair in registry) {
+                GameObject go = pair.Key;
+                if (go == null)
+                    continue;
+                Vector3 at = go.transform.position;
+                float dx = at.x - center.x;
+                float dy = at.y - center.y;
+                if (dx * dx + dy * dy > 81f)
+                    continue;
+                if (!go.TryGetComponent(out BuildingEntity building))
+                    continue;
+                Note(building);
+            }
+        }
+        for (int i = 0; i < Pending.Count; i++) {
+            BuildingEntity building = Pending[i];
+            if (building == null || building.GetHealth() < 0.5f)
+                continue;
+            if (!Supports(world, building, pos))
+                continue;
+            Release(building, pos);
+        }
+        Pending.Clear();
+    }
+
+    static void Note(BuildingEntity building) {
+        if (building == null || !Seen.Add(building.GetInstanceID()))
+            return;
+        if (!building.requireGround && building.GetComponent<FanTrap>() == null && building.GetComponent<StalactiteDropper>() == null)
+            return;
+        Pending.Add(building);
+    }
+
+    // worldgen stores the cell half a unit along the placement ray. the tile you mine
+    // is often the one under the sprite, one step off that stored cell.
+    static bool Supports(WorldGeneration world, BuildingEntity building, Vector2Int pos) {
+        if (building.blockPlacedOn == pos)
+            return true;
+        Vector2 at = building.transform.position;
+        if (world.WorldToBlockPos(at) == pos)
+            return true;
+        if (world.WorldToBlockPos(at + Vector2.down * 0.51f) == pos)
+            return true;
+        if (world.WorldToBlockPos(at + Vector2.down * 1.01f) == pos)
+            return true;
+        if (world.WorldToBlockPos(at + Vector2.up * 0.51f) == pos)
+            return true;
+        if (world.WorldToBlockPos(at + Vector2.up * 1.01f) == pos)
+            return true;
+        if (building.blockPlacedOn == default)
+            return false;
+        int dx = building.blockPlacedOn.x - pos.x;
+        int dy = building.blockPlacedOn.y - pos.y;
+        return dx == 0 && dy >= -1 && dy <= 1;
+    }
+
+    static void Release(BuildingEntity building, Vector2Int pos) {
+        building.blockPlacedOn = pos;
+        if (building.TryGetComponent(out FanTrap fan)) {
+            DislodgeFan(fan);
+            return;
+        }
+        if (building.TryGetComponent(out StalactiteDropper stalactite)) {
+            stalactite.CheckSeating();
+            return;
+        }
+        if (!building.requireGround)
+            return;
+        building.CheckSeating();
+        if (building != null && building.GetHealth() >= 0.5f)
+            building.SetHealth(0f, true);
+    }
+
+    internal static void DislodgeFan(FanTrap fan) {
+        if (fan == null)
+            return;
+        if (FanDislodged != null)
+            FanDislodged.SetValue(fan, true);
+        Rigidbody2D rb = fan.GetComponent<Rigidbody2D>();
+        if (rb != null) {
+            rb.bodyType = RigidbodyType2D.Dynamic;
+            rb.mass = 20f;
+            rb.gravityScale = 1f;
+            rb.simulated = true;
+        }
+        if (fan.TryGetComponent(out BuildingEntity building))
+            building.ignoreBodyOptimize = false;
+    }
+
+    internal static bool FanIsLoose(BuildingEntity building) {
+        if (building == null || FanDislodged == null || !building.TryGetComponent(out FanTrap fan))
+            return false;
+        return (bool)FanDislodged.GetValue(fan);
+    }
+}
+
 [HarmonyPatch(typeof(BuildingEntity), nameof(BuildingEntity.Update))]
 public static class BuildingEntity_Update_MultiplayerPatch {
 
@@ -1110,6 +1234,10 @@ public static class BuildingEntity_Update_MultiplayerPatch {
             PlayDeathOnce(__instance);
             return false;
         }
+        // a loose fan used to stay on the stock path, which forces Static whenever
+        // the host chunk renderer is off and wipes the fall on the next step.
+        if (Net.IsRunning && TrapSupport.FanIsLoose(__instance))
+            __instance.ignoreBodyOptimize = false;
         // stock sets Static when the host chunk renderer is off. putting Dynamic
         // back in the same update zeros velocity, so a fall far from the host
         // never gets past one physics step.
