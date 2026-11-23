@@ -487,7 +487,9 @@ internal static class TraderCommit {
                 case Op.Haggle:
                 bool bite = (trader.character == 2) && (trader.totalValueGiven < MAX_VALUE_GIVEN);
                 Vector2 biteAt = (actor != null) ? (Vector2)actor.transform.position : (Vector2)trader.transform.position;
-                trader.TryHaggle();
+                SkillSync.AllowHostVanilla(() => trader.TryHaggle());
+                if (actor != null && actor.TryGetNetBody(out NetBody haggled))
+                    MedicalSync.ForceHealth(haggled);
                 if (bite) {
                     RelaySound(trader, actor, "eatFlesh", biteAt);
                     // stock wrote the limbs on the host copy. living players upload their own

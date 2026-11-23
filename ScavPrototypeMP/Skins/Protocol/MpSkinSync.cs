@@ -86,6 +86,34 @@ internal static class MpSkinSync {
         try { return Cache.TotalBytes(); } catch { return 0; }
     }
 
+    // same slot as last time, but the body and its net id are new. publish again.
+    internal static void OnLocalBodySwapped() {
+        SkinTrace.Event("body-swap",
+            "sent=" + (_sentSignature ?? "-")
+            + " stored=" + Skins.Count
+            + " slot=" + (SpriteReplacerPlugin.ActiveSlot ?? "-"));
+        HashSet<MpSkinPackage> packages = new HashSet<MpSkinPackage>(Skins.Values);
+        foreach (MpSkinPackage package in Pending.Values) {
+            packages.Add(package);
+        }
+        foreach (MpSkinPackage package in packages) {
+            if (package != null) {
+                package.Dispose();
+            }
+        }
+        Skins.Clear();
+        Pending.Clear();
+        PlayerIds.Clear();
+        LastContent.Clear();
+        Waiting.Clear();
+        _sentSignature = null;
+        _pendingSignature = null;
+        _awaiting = false;
+        _resend = true;
+        _requested = false;
+        _nextSample = 0f;
+    }
+
     internal static void OnLocalSkinChanged() {
         _resend = false;
         if (SkinLock.CanChangeOnce) {
@@ -114,7 +142,7 @@ internal static class MpSkinSync {
         }
 
         uint network = MpBody.GetNetworkIdForBody(body);
-        if (network == 0) {
+        if (network == 0 || !SpriteReplacerPlugin.DownloadSkins) {
             return null;
         }
 
@@ -151,7 +179,7 @@ internal static class MpSkinSync {
         }
 
         uint network = MpBody.GetNetworkIdForBody(body);
-        if (network == 0) {
+        if (network == 0 || !SpriteReplacerPlugin.DownloadSkins) {
             return null;
         }
 
@@ -180,6 +208,24 @@ internal static class MpSkinSync {
         _lastSharedSlot = SkinSettings.DefaultFolder;
         ClearLocalSkin();
         SkinLock.HasLocalSkin = false;
+    }
+
+    // view-others was turned off. packages stay stored, but nothing on screen may keep them.
+    internal static void ReleaseShownRemoteSkins() {
+        MpBody.ResetRemoteSkins();
+        WoundViewIntegration.ApplyAll();
+    }
+
+    internal static void ShowStoredRemoteSkins() {
+        if (!SpriteReplacerPlugin.DownloadSkins) {
+            return;
+        }
+
+        foreach (KeyValuePair<uint, MpSkinPackage> pair in Skins) {
+            if (pair.Value != null) {
+                Pending[pair.Key] = pair.Value;
+            }
+        }
     }
 
     internal static void OnLockChanged() {
@@ -310,7 +356,7 @@ internal static class MpSkinSync {
             ApplyPending();
         }
 
-        // failsafe for a skin that never landed. already-worn packages return immediately.
+        // heartbeat: same hash and the same renderers skip the bind. a new zip or a new limb still applies.
         if (joinReady && Time.unscaledTime >= _nextReapply) {
             _nextReapply = Time.unscaledTime + 3f;
             if (SpriteReplacerPlugin.DownloadSkins) {
@@ -322,7 +368,7 @@ internal static class MpSkinSync {
                     uint player = PlayerIds.TryGetValue(pair.Key, out uint id) ? id : 0;
                     // keep incomplete bodies in Pending until head/face exists
                     if (!MpBody.ApplyRemoteSkin(pair.Key, player, pair.Value.Sprites, pair.Value.SetName,
-                        pair.Value.Species)) {
+                        pair.Value.Species, SkinStamp(pair.Value))) {
                         Pending[pair.Key] = pair.Value;
                     }
                 }
@@ -381,7 +427,7 @@ internal static class MpSkinSync {
 
         Pending[network] = package;
         uint player = PlayerIds.TryGetValue(network, out uint id) ? id : 0;
-        if (MpBody.ApplyRemoteSkin(network, player, package.Sprites, package.SetName, package.Species)) {
+        if (MpBody.ApplyRemoteSkin(network, player, package.Sprites, package.SetName, package.Species, SkinStamp(package))) {
             Pending.Remove(network);
             Waiting.Remove(network);
         }
@@ -420,7 +466,7 @@ internal static class MpSkinSync {
 
         uint player = PlayerIds.TryGetValue(network, out uint id) ? id : 0;
         SkinTrace.Event("limb-rebuilt", SkinTrace.Ids(network, player) + " " + SkinTrace.BodyState(body));
-        if (MpBody.ApplyRemoteSkin(network, player, package.Sprites, package.SetName, package.Species)) {
+        if (MpBody.ApplyRemoteSkin(network, player, package.Sprites, package.SetName, package.Species, SkinStamp(package))) {
             Pending.Remove(network);
             Waiting.Remove(network);
         }
@@ -559,7 +605,7 @@ internal static class MpSkinSync {
                 + " " + SkinTrace.PackageSummary(package));
             if (SpriteReplacerPlugin.DownloadSkins) {
                 MpBody.ApplyRemoteSkin(ownerNetwork, ownerPlayer, package.Sprites, package.SetName,
-                    package.Species);
+                    package.Species, SkinStamp(package));
             }
 
             MultiplayerApi.Broadcast(ApplyChannel, payload, false, true);
@@ -1010,7 +1056,30 @@ internal static class MpSkinSync {
         // clearRemoteSkin resolves remotes only and used to hit another player when
         // netBody.netId collided with their playerId (net=3 -> Sauce plrid 3).
         if (ownerNetwork != MpBody.LocalClientId && ownerPlayer != MpBody.LocalPlayerId) {
+            // drop the lookup first. refresh used to reapply the package, then dispose
+            // destroyed those sprites under the wound view and left black limb boxes.
+            MpSkinPackage shown = null;
+            Skins.TryGetValue(ownerNetwork, out shown);
+            MpSkinPackage waiting = null;
+            Pending.TryGetValue(ownerNetwork, out waiting);
+            Skins.Remove(ownerNetwork);
+            Pending.Remove(ownerNetwork);
+            PlayerIds.Remove(ownerNetwork);
+            Waiting.Remove(ownerNetwork);
+            if (ownerPlayer != 0) {
+                LastContent.Remove(ownerPlayer);
+            }
+
             MpBody.ClearRemoteSkin(ownerNetwork, ownerPlayer);
+            WoundViewIntegration.ApplyAll();
+
+            if (shown != null) {
+                shown.Dispose();
+            }
+            if (waiting != null && !ReferenceEquals(waiting, shown)) {
+                waiting.Dispose();
+            }
+            return;
         }
 
         if (Skins.TryGetValue(ownerNetwork, out MpSkinPackage package)) {
@@ -1081,7 +1150,7 @@ internal static class MpSkinSync {
 
             MpSkinPackage package = Pending[owner];
             uint player = PlayerIds.TryGetValue(owner, out uint id) ? id : 0;
-            if (MpBody.ApplyRemoteSkin(owner, player, package.Sprites, package.SetName, package.Species)) {
+            if (MpBody.ApplyRemoteSkin(owner, player, package.Sprites, package.SetName, package.Species, SkinStamp(package))) {
                 Pending.Remove(owner);
                 Waiting.Remove(owner);
                 SkinTrace.Event("pending-ok", SkinTrace.Ids(owner, player)
@@ -1147,6 +1216,18 @@ internal static class MpSkinSync {
         Cooldown.Clear();
         SkinLock.Reset();
         MpBody.ClearRejected();
+    }
+
+    static string SkinStamp(MpSkinPackage package) {
+        if (package == null) {
+            return "";
+        }
+
+        if (!string.IsNullOrEmpty(package.ContentHash)) {
+            return package.ContentHash;
+        }
+
+        return package.Hash ?? "";
     }
 
     private static string CurrentSignature() {

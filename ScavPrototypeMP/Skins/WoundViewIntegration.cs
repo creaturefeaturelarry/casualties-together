@@ -89,20 +89,25 @@ internal static class WoundViewIntegration {
             }
 
             int id = image.GetInstanceID();
+            Sprite current = image.sprite;
+            bool missing = current == null;
             Sprite original;
             if (!Originals.TryGetValue(id, out original) || original == null) {
-                original = image.sprite;
+                if (missing) {
+                    continue;
+                }
+                original = current;
                 Originals[id] = original;
             }
             // only sample the box while stock art is showing. a custom sprite's size is the one we just wrote.
-            if (image.sprite == original) {
+            if (!missing && current == original) {
                 StockSizes[id] = image.rectTransform.sizeDelta;
             }
             DefaultSpriteExport.Capture(original);
 
             Sprite replacement;
             if (sprites != null && sprites.TryGetValue(original.name, out replacement) && replacement != null) {
-                if (image.sprite != replacement) {
+                if (current != replacement) {
                     image.sprite = replacement;
                     // custom wound art is often larger/square vs stock; match vanilla Start() sizing.
                     image.SetNativeSize();
@@ -111,8 +116,10 @@ internal static class WoundViewIntegration {
                 // setNativeSize was ignoring that slot, and our sprites are 8 pixels per unit, so they blew up.
                 FitToStock(image, id, original, replacement);
                 replaced.Add(replacement.name);
-            } else if (image.sprite != original) {
-                image.sprite = original;
+            } else if (missing || current != original) {
+                if (original != null) {
+                    image.sprite = original;
+                }
                 if (StockSizes.TryGetValue(id, out Vector2 stockSize)) {
                     image.rectTransform.sizeDelta = stockSize;
                 }
@@ -124,9 +131,14 @@ internal static class WoundViewIntegration {
                 continue;
             }
 
+            Sprite current = renderer.sprite;
+            bool missing = current == null;
             Sprite original;
             if (!Originals.TryGetValue(renderer.GetInstanceID(), out original) || original == null) {
-                original = renderer.sprite;
+                if (missing) {
+                    continue;
+                }
+                original = current;
                 Originals[renderer.GetInstanceID()] = original;
             }
             DefaultSpriteExport.Capture(original);
@@ -135,7 +147,7 @@ internal static class WoundViewIntegration {
             if (sprites != null && sprites.TryGetValue(original.name, out replacement) && replacement != null) {
                 renderer.sprite = replacement;
                 replaced.Add(replacement.name);
-            } else {
+            } else if (missing || current != original) {
                 renderer.sprite = original;
             }
         }

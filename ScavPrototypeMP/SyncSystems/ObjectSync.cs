@@ -272,6 +272,13 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
             return;
         }
 
+        // the level tool is dragging this. a chunk stamp would leave the turn a step behind.
+        if (syncInfo.placeGhost.Value) {
+            visualUpdateTimer = 0;
+            syncInfo.WriteObjectIntoPacket();
+            return;
+        }
+
         // worn and held items follow the body every physics step.
         if (HeldByBody()) {
             _wasLoose = false;
@@ -377,6 +384,10 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
     public static Dictionary<GameObject, SyncInfo> SyncRegistry = new Dictionary<GameObject, SyncInfo>();
     public static Dictionary<knetid, SyncInfo> NetIdToSyncInfoDict = new Dictionary<knetid, SyncInfo>();
+
+    // CreateObject is inside Instantiate. Item.Start runs before the tracker is registered,
+    // and NewGO used to destroy that copy. depth covers a prefab that instantiates another.
+    internal static int ClientSpawnDepth;
 
 
 
@@ -607,9 +618,41 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
 
     // disconnect save parks gear under SAVESTATE_. kill the SyncInfo so clients drop
     // their copy, but leave the host mesh for PlayerSavedState.Apply.
+    // a bag destroy also destroys the sync records nested under it. those still
+    // pointed at the real items, so the bag came back empty. unhook every mesh first.
     public static void DetachSyncKeepMesh(GameObject go) {
         if (!Net.IsServer || go == null) {
             return;
+        }
+        Item[] items = go.GetComponentsInChildren<Item>(true);
+        var doomed = new List<SyncInfo>(items != null ? items.Length + 1 : 1);
+        if (items != null) {
+            for (int i = 0; i < items.Length; i++) {
+                if (items[i] == null) {
+                    continue;
+                }
+                SyncInfo si = UnhookMesh(items[i].gameObject);
+                if (si != null) {
+                    doomed.Add(si);
+                }
+            }
+        }
+        SyncInfo root = UnhookMesh(go);
+        if (root != null) {
+            doomed.Add(root);
+        }
+        for (int i = 0; i < doomed.Count; i++) {
+            SyncInfo si = doomed[i];
+            if (si != null && !si.IsDestroyed) {
+                si.Destroy();
+            }
+        }
+    }
+
+    // drop the sync link and keep the GameObject. safe to call twice.
+    static SyncInfo UnhookMesh(GameObject go) {
+        if (go == null) {
+            return null;
         }
         SyncInfo si = null;
         if (SyncRegistry.TryGetValue(go, out SyncInfo listed) && listed != null && !listed.IsDestroyed) {
@@ -618,7 +661,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
             si = existing.syncInfo;
         }
         if (si == null) {
-            return;
+            return null;
         }
         if (go.TryGetComponent(out SyncInfoGameObjectTracker tracker)) {
             tracker.syncInfo = null;
@@ -626,9 +669,7 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
         SyncRegistry.Remove(go);
         si.tracker = null;
         si.go = null;
-        if (!si.IsDestroyed) {
-            si.Destroy();
-        }
+        return si;
     }
 
 
@@ -645,6 +686,8 @@ public class NetObjectRegistry : CasualtiesTogetherSingleton {
         if (Net.IsServer) {
             //safeNewGO(obj); // its done by the system now
             Server_EnsureItemIsNetworkRegistered(obj);
+        } else if (ClientSpawnDepth > 0) {
+            // this Start belongs to the replica CreateObject is still building.
         } else {
             if (!NetObjectRegistry.SyncRegistry.TryGetValue(obj, out var isi)) {
                 SafeDestroyObject(obj);

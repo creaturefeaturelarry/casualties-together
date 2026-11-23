@@ -72,19 +72,23 @@ public static class SaveSystem_SaveGame_MultiplayerPatch {
 
     static bool Prefix() {
         wrote = false;
-        // a practice world must not overwrite the real mp_save. saveandquit still returns to the menu.
-        if (SavesystemPatch.PreserveSave && !force)
+        // a practice world must not overwrite the real mp_save.
+        // debug map with the host setting off still keeps saveandquit as a map-only write.
+        if (SavesystemPatch.PreserveSave && !force) {
+            if (SavesystemPatch.InDebugMap)
+                SavesystemPatch.WriteDebugWorld();
             return false;
+        }
         if (!force) {
-            SavesystemPatch.savedatapathreplacement = SavesystemPatch.mpsavefolder;
+            SavesystemPatch.savedatapathreplacement = SavesystemPatch.SessionSaveFolder;
             var OG_LOCAL_BODY = Util.GetLocalBody();
 
             try {
 
                 if (Multiplayer.IsNetworkActiveAndIsServer()) {
 
-                    if (!Directory.Exists(SavesystemPatch.mpsavefolder)) {
-                        Directory.CreateDirectory(SavesystemPatch.mpsavefolder);
+                    if (!Directory.Exists(SavesystemPatch.SessionSaveFolder)) {
+                        Directory.CreateDirectory(SavesystemPatch.SessionSaveFolder);
                     }
 
                     var midlevel = !ServerMain.CheckIfEnoughPeopleAreAtLayerFinish();
@@ -99,7 +103,7 @@ public static class SaveSystem_SaveGame_MultiplayerPatch {
 
                         foreach (var bodyplr in ScavPlayer.BodyToPlayerDict) {
                             
-                            SavesystemPatch.savedatapathreplacement = Path.Combine(SavesystemPatch.mpsavefolder, bodyplr.Value.GetPersistentId());
+                            SavesystemPatch.savedatapathreplacement = Path.Combine(SavesystemPatch.SessionSaveFolder, bodyplr.Value.GetPersistentId());
 
                             try {
                                 try {
@@ -133,8 +137,10 @@ public static class SaveSystem_SaveGame_MultiplayerPatch {
                         }
 
                         PlayerCamera.main.body = OG_LOCAL_BODY;
-                        SavesystemPatch.savedatapathreplacement = SavesystemPatch.mpsavefolder;
+                        SavesystemPatch.savedatapathreplacement = SavesystemPatch.SessionSaveFolder;
                         force = false;
+                        if (SavesystemPatch.InDebugMap)
+                            SavesystemPatch.WriteDebugWorld();
 
 
                     }   catch (Exception e) {
@@ -166,7 +172,7 @@ public static class SaveSystem_SaveGame_MultiplayerPatch {
 #if !RELEASE 
                         log.l($"SHIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII:\n{serialized}");
 #endif
-                        var rulespath = Path.Combine(SavesystemPatch.mpsavefolder, SavesystemPatch.mpsaveheaderfile);
+                        var rulespath = Path.Combine(SavesystemPatch.SessionSaveFolder, SavesystemPatch.mpsaveheaderfile);
 
                         File.WriteAllText(rulespath, serialized);
                     }
@@ -218,6 +224,9 @@ public static class SaveSystem_SaveGame_MultiplayerPatch {
 
     // stock save writes the shared recipe table. the payout list is per player, so it rides along after.
     static void Postfix() {
+        // the vanilla write just replaced save.sv. merge the level spawn back in.
+        if (!force && wrote)
+            WorldSpawn.Stamp();
         if (!wrote || PlayerCamera.main == null || PlayerCamera.main.body == null)
             return;
         if (!PlayerCamera.main.body.TryGetNetBody(out NetBody nb) || nb == null || !nb.IsPlayer)
@@ -247,8 +256,20 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
 
     static bool Prefix(ref bool __state) {
         deleteVanillaAfter = false;
-        // map debug and the tutorial leave the files on disk and start from an empty body.
+        // spawn was saved before any character. keep the point and do not parse this file as a body.
+        if (!force && SavesystemPatch.InDebugMap && WorldSpawn.SpawnOnlyFile()) {
+            WorldSpawn.Read();
+            if (SavesystemPatch.PendingLoadMpSave)
+                SavesystemPatch.ReadDebugWorld();
+            __state = false;
+            SaveSystem.loadedRun = false;
+            return false;
+        }
+        // tutorial, and debug map with the host setting off, do not load player bodies.
+        // a debug load still restores the map files into the generation buffers.
         if (SavesystemPatch.PreserveSave && !force) {
+            if (SavesystemPatch.InDebugMap && SavesystemPatch.PendingLoadMpSave)
+                SavesystemPatch.ReadDebugWorld();
             __state = false;
             SaveSystem.loadedRun = false;
             return false;
@@ -312,12 +333,14 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
         if (!force ) {
             SaveSystem.loadedRun = __state;
 
-            SavesystemPatch.savedatapathreplacement = SavesystemPatch.mpsavefolder;
+            SavesystemPatch.savedatapathreplacement = SavesystemPatch.SessionSaveFolder;
             var OG_LOCAL_BODY = Util.GetLocalBody();
             try {
 
-                var mpsavedir = SavesystemPatch.mpsavefolder;
+                var mpsavedir = SavesystemPatch.SessionSaveFolder;
                 if (Multiplayer.IsNetworkActiveAndIsServer() && SaveSystem.loadedRun && Directory.Exists(mpsavedir)) {
+                    if (SavesystemPatch.InDebugMap)
+                        SavesystemPatch.ReadDebugWorld();
                     Multiplayer.DoMultiplayerStatusMessageLog(Lang.Get("savesystem_loading_mp_save"));
                     if (SavesystemPatch.TryPeekMpWorldState(out var peek) && WorldGeneration.world != null) {
                         SavesystemPatch.ApplyPeekedWorldState(WorldGeneration.world, peek);
@@ -533,6 +556,90 @@ public static class PreRunScript_Start_MultiplayerPatch {
 
 
 
+// one landing point for the current level. it lives in save.sv and replaces the generated spawn.
+public static class WorldSpawn {
+    public static bool Set;
+    public static Vector2 Pos;
+    static int biome;
+    const string KeyX = "mpWorldSpawnX";
+    const string KeyY = "mpWorldSpawnY";
+    const string KeyBiome = "mpWorldSpawnBiome";
+
+    public static void Clear() {
+        Set = false;
+    }
+
+    public static bool Applies(WorldGeneration world) {
+        if (!Set || world == null)
+            return false;
+        // a debug map is one level. a generated layer only keeps the point saved on that depth.
+        if (world.biomeOverride == WorldGeneration.OverrideSceneType.Debug)
+            return true;
+        return world.biomeDepth == biome;
+    }
+
+    public static void Assign(Vector2 pos) {
+        Set = true;
+        Pos = pos;
+        biome = WorldGeneration.world != null ? WorldGeneration.world.biomeDepth : 0;
+        Stamp();
+    }
+
+    public static void Read() {
+        Set = false;
+        string path = Path.Combine(SavesystemPatch.SessionSaveFolder, "save.sv");
+        if (!File.Exists(path))
+            return;
+        try {
+            JObject root = JObject.Parse(SaveSystem.Unzip(File.ReadAllBytes(path)));
+            if (root[KeyX] == null || root[KeyY] == null)
+                return;
+            Pos = new Vector2(root[KeyX].Value<float>(), root[KeyY].Value<float>());
+            biome = root[KeyBiome] != null ? root[KeyBiome].Value<int>() : 0;
+            Set = true;
+            log.l($"World spawn loaded {Pos} biome {biome}");
+        } catch (Exception e) {
+            log.warn($"WorldSpawn.Read: {e.Message}");
+        }
+    }
+
+    // a debug folder can hold just the spawn before anyone has a character save.
+    public static bool SpawnOnlyFile() {
+        string path = Path.Combine(SavesystemPatch.SessionSaveFolder, "save.sv");
+        if (!File.Exists(path))
+            return false;
+        try {
+            JObject root = JObject.Parse(SaveSystem.Unzip(File.ReadAllBytes(path)));
+            return root["body"] == null && root[KeyX] != null;
+        } catch {
+            return false;
+        }
+    }
+
+    public static void Stamp() {
+        if (!Set)
+            return;
+        try {
+            string folder = SavesystemPatch.SessionSaveFolder;
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, "save.sv");
+            JObject root;
+            if (File.Exists(path))
+                root = JObject.Parse(SaveSystem.Unzip(File.ReadAllBytes(path)));
+            else if (SavesystemPatch.InDebugMap)
+                root = new JObject();
+            else
+                return;
+            root[KeyX] = Pos.x;
+            root[KeyY] = Pos.y;
+            root[KeyBiome] = biome;
+            File.WriteAllBytes(path, SaveSystem.Zip(root.ToString(Formatting.None)));
+        } catch (Exception e) {
+            log.error($"WorldSpawn.Stamp\n{e}");
+        }
+    }
+}
+
 public static class SavesystemPatch {
     public static string savedatapathreplacement = "";
     // set for map debug and the tutorial. those sessions neither read nor write mp_save.
@@ -543,7 +650,85 @@ public static class SavesystemPatch {
     // even if something clears SaveSystem.loadedRun before TryLoadGame.
     internal static bool PendingLoadMpSave;
     const string _mpsavefolder_name = "mp_save";
+    const string _mpdebugfolder_name = "mp_debug_save";
     public static string mpsavefolder => Path.Combine(Application.persistentDataPath, _mpsavefolder_name);
+    public static string mpdebugfolder => Path.Combine(Application.persistentDataPath, _mpdebugfolder_name);
+    // true for the whole debug-map session. saves for that session stay out of mp_save.
+    internal static bool InDebugMap;
+    // empty is the default slot at the root of mp_debug_save. a name is a folder under it.
+    internal static string DebugMapName;
+    internal static string SessionSaveFolder => InDebugMap ? DebugFolder(DebugMapName) : mpsavefolder;
+
+    internal static bool ValidDebugMapName(string name) {
+        if (string.IsNullOrEmpty(name) || name.Length > 32)
+            return false;
+        for (int i = 0; i < name.Length; i++) {
+            char c = name[i];
+            bool letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+            bool digit = c >= '0' && c <= '9';
+            if (!letter && !digit)
+                return false;
+        }
+        return true;
+    }
+
+    internal static string DebugFolder(string name) {
+        if (string.IsNullOrEmpty(name))
+            return mpdebugfolder;
+        return Path.Combine(mpdebugfolder, name);
+    }
+
+    internal static bool HasDebugSave(string name = null) {
+        return File.Exists(Path.Combine(DebugFolder(name), "world_tiles.bin"));
+    }
+
+    internal static void DeleteDebugSave() {
+        if (!Directory.Exists(mpdebugfolder))
+            return;
+        try {
+            foreach (string file in Directory.GetFiles(mpdebugfolder))
+                File.Delete(file);
+            foreach (string dir in Directory.GetDirectories(mpdebugfolder)) {
+                string folder = Path.GetFileName(dir);
+                if (folder.StartsWith("STEAM_") || folder.StartsWith("NAME_"))
+                    Directory.Delete(dir, true);
+            }
+        } catch (Exception e) {
+            log.error($"DeleteDebugSave\n{e}");
+        }
+    }
+
+    internal static void WriteDebugWorld() {
+        if (WorldGeneration.world == null)
+            return;
+        string folder = SessionSaveFolder;
+        try {
+            Directory.CreateDirectory(folder);
+            File.WriteAllBytes(Path.Combine(folder, "world_tiles.bin"), SerializeWorldBlocks());
+            if (FluidManager.main != null)
+                File.WriteAllBytes(Path.Combine(folder, "world_fluid.bin"), SerializeWorldFluids());
+            MapPoses.Write(folder);
+            log.l("Debug map saved to " + folder);
+        } catch (Exception e) {
+            log.error($"WriteDebugWorld\n{e}");
+        }
+    }
+
+    internal static void ReadDebugWorld() {
+        string folder = SessionSaveFolder;
+        try {
+            string tiles = Path.Combine(folder, "world_tiles.bin");
+            if (File.Exists(tiles))
+                WorldMP.aaaaaaaaaaaaaaaaaaaaaaaaaaa = File.ReadAllBytes(tiles);
+            string fluids = Path.Combine(folder, "world_fluid.bin");
+            if (File.Exists(fluids))
+                WorldMP.ccccccccccccccccccccccccccc = File.ReadAllBytes(fluids);
+            MapPoses.Read(folder);
+            log.l("Debug map read from " + folder);
+        } catch (Exception e) {
+            log.error($"ReadDebugWorld\n{e}");
+        }
+    }
     public static string vanillasavefolder => Application.persistentDataPath;
     public const string mpsaveheaderfile = "mp_rules.json";
 
@@ -561,16 +746,16 @@ public static class SavesystemPatch {
         peek = default;
         try {
             bool midlevel = false;
-            var rulespath = Path.Combine(mpsavefolder, mpsaveheaderfile);
+            var rulespath = Path.Combine(SessionSaveFolder, mpsaveheaderfile);
             if (File.Exists(rulespath)) {
                 var rules = JObject.Parse(File.ReadAllText(rulespath));
                 if (rules.TryGetValue("LEVEL", out var lvl) && lvl != null && lvl.Type != JTokenType.Null)
                     midlevel = lvl.Value<bool>();
             }
 
-            string savePath = Path.Combine(mpsavefolder, "save.sv");
-            if (!File.Exists(savePath) && Directory.Exists(mpsavefolder)) {
-                foreach (var dir in Directory.GetDirectories(mpsavefolder)) {
+            string savePath = Path.Combine(SessionSaveFolder, "save.sv");
+            if (!File.Exists(savePath) && Directory.Exists(SessionSaveFolder)) {
+                foreach (var dir in Directory.GetDirectories(SessionSaveFolder)) {
                     var candidate = Path.Combine(dir, "save.sv");
                     if (File.Exists(candidate)) {
                         savePath = candidate;
@@ -656,6 +841,8 @@ public static class SavesystemPatch {
 
     internal static string GetTheOnePersistentDataPathWithSaveFile() {
 
+        if (InDebugMap)
+            return SessionSaveFolder;
         if (Net.IsRunning && HasMultiplayerSaveFile()) {
             return mpsavefolder;
         } else {
@@ -663,7 +850,8 @@ public static class SavesystemPatch {
         }
     }
     internal static string GetPersistentDataPathToSave() {
-
+        if (InDebugMap)
+            return SessionSaveFolder;
         if (Net.IsRunning) {
             return mpsavefolder;
         } else {

@@ -1166,9 +1166,7 @@ internal static class TrapClaim {
     }
 
 #if FULLGAME
-    // cryodrone (LaserDroneScript): host AI + FireShot; body hits are victim-authoritative.
-    static readonly Dictionary<int, float> cryoClaimed = new Dictionary<int, float>();
-
+    // cryodrone (LaserDroneScript): host AI + FireShot. the host ray is the hit that sticks.
     internal static void ClientCryoFollowHost(LaserDroneScript drone) {
         if (drone == null || !NetObjectRegistry.TryGetSyncInfo(drone, out var si)) {
             return;
@@ -1227,7 +1225,6 @@ internal static class TrapClaim {
         float roll = Random.Range(0.85f, 1.15f);
         float buildDmg = roll * 50f;
         float limbDmg = roll * 15f;
-        Body localVictim = null;
         for (int i = 0; i < hits.Length; i++) {
             RaycastHit2D hit = hits[i];
             if (hit.transform == drone.transform) {
@@ -1258,47 +1255,32 @@ internal static class TrapClaim {
             }
             if (hitBody != null) {
                 end = hit.point;
-                if (Util.IsBodyLocal(hitBody)) {
-                    ApplyCryoLimbHit(hitBody, hit.point, limbDmg);
-                    localVictim = hitBody;
+                // the host copy is the body that keeps the injury. a far player's client used to
+                // roll its own hit, then this snapshot put the undamaged host health back.
+                ApplyCryoLimbHit(hitBody, hit.point, limbDmg);
+                if (hitBody.TryGetNetBody(out var hurt)) {
+                    Publish(hurt);
                 }
                 break;
             }
         }
         SpawnCryoLine(origin, end);
         if (NetObjectRegistry.TryGetSyncInfo(drone, out var si)) {
-            // open a claim window; remotes re-ray and ApplyCryoHurtLocal themselves
-            OpenWindow(KindCryo, si.syncId, false, CryoWindow);
-            Relay(KindCryo, si.syncId, 0f);
-            if (localVictim != null && localVictim.TryGetNetBody(out var nb)) {
-                Publish(nb);
-            }
+            RelayCryo(si.syncId, end);
         }
     }
 
-    internal static void ApplyCryoHurtLocal(LaserDroneScript drone, Body body, Vector2 hitPoint, float limbDmg) {
-        if (drone == null || body == null || !Util.IsBodyLocal(body)) {
+    static void RelayCryo(knetid id, Vector2 end) {
+        if (!Net.IsServer || id.id == 0) {
             return;
         }
-        if (!NetObjectRegistry.TryGetSyncInfo(drone, out var si)) {
-            return;
-        }
-        int key = si.syncId.id ^ body.GetInstanceID();
-        float now = Time.unscaledTime;
-        if (cryoClaimed.TryGetValue(key, out float until) && now < until) {
-            return;
-        }
-        cryoClaimed[key] = now + CryoWindow;
-        if (cryoClaimed.Count > 400) {
-            cryoClaimed.Clear();
-        }
-        ApplyCryoLimbHit(body, hitPoint, limbDmg);
-        Ignore(body);
-        if (Net.IsClient) {
-            Send(KindCryo, si.syncId, 0);
-        } else if (body.TryGetNetBody(out var nb)) {
-            Publish(nb);
-        }
+        var writer = Net.CreateWriter(NetmsgId.CLIENT_TrapState);
+        writer.Put(KindCryo);
+        writer.Put(id);
+        writer.Put(0f);
+        writer.Put(end.x);
+        writer.Put(end.y);
+        Net.Server_SendToClients(DeliveryMethod.ReliableUnordered, writer, clientIds: ServerMain.AllClientIdsExceptHost);
     }
 
     static void ApplyCryoLimbHit(Body body, Vector2 hitPoint, float limbDmg) {
@@ -1335,42 +1317,6 @@ internal static class TrapClaim {
         if (obj.GetComponent<LaserDroneCryoLine>() == null) {
             obj.AddComponent<LaserDroneCryoLine>();
         }
-    }
-
-    static void ClientCryoShotCue(LaserDroneScript drone) {
-        if (drone == null || drone.barrel == null) {
-            return;
-        }
-        Vector2 origin = drone.barrel.position;
-        Vector2 dir = drone.barrel.up;
-        RaycastHit2D[] hits = Physics2D.RaycastAll(origin, dir, CryoReach, LayerMask.GetMask("Ground", "Body", "Limb"));
-        Vector2 end = origin + dir * CryoReach;
-        float limbDmg = Random.Range(0.85f, 1.15f) * 15f;
-        for (int i = 0; i < hits.Length; i++) {
-            RaycastHit2D hit = hits[i];
-            if (hit.transform == drone.transform) {
-                continue;
-            }
-            if (hit.collider.gameObject.layer == 6) {
-                end = hit.point;
-                break;
-            }
-            Body hitBody = null;
-            if (hit.collider.TryGetComponent(out Limb limbHit)) {
-                hitBody = limbHit.body;
-            }
-            if (hitBody == null) {
-                hit.collider.TryGetComponent(out hitBody);
-            }
-            if (hitBody != null) {
-                end = hit.point;
-                if (Util.IsBodyLocal(hitBody)) {
-                    ApplyCryoHurtLocal(drone, hitBody, hit.point, limbDmg);
-                }
-                break;
-            }
-        }
-        SpawnCryoLine(origin, end);
     }
 
     static bool AcceptCryo(knetid id, NetBody nb) {
@@ -1648,7 +1594,9 @@ internal static class TrapClaim {
         }
 #if FULLGAME
         else if (kind == KindCryo && si.go.TryGetComponent(out LaserDroneScript cryo)) {
-            ClientCryoShotCue(cryo);
+            float endX = reader.GetFloat();
+            float endY = reader.GetFloat();
+            SpawnCryoLine(cryo.barrel != null ? (Vector2)cryo.barrel.position : (Vector2)cryo.transform.position, new Vector2(endX, endY));
         }
 #endif
     }

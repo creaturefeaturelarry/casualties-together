@@ -1313,6 +1313,23 @@ public static class Util {
     }
 
 
+    // handoffs (give, feed) need this again when the prompt is answered, not only when it opens.
+    public static bool CanHandOff(Body who, Body target, out string denyKey) {
+        denyKey = "plr_too_far";
+        if (who == null || target == null) {
+            return false;
+        }
+        if (!KM.DistanceCheck(who.transform.position, target.transform.position, SharedMain.max_player_interaction_distance)) {
+            return false;
+        }
+        if (!AccurateRaycastInteractionCheckObstruction(who, target, false)) {
+            denyKey = "interact_obstructed";
+            return false;
+        }
+        denyKey = null;
+        return true;
+    }
+
     public static bool DoFullInteractionCheck(Body who, Body target, bool do_effect, float distance = 9f, bool check_obstruction = true) {
         if (who == target) {
             return true;
@@ -1405,6 +1422,10 @@ public static class Util {
             if (world == null) {
                 return p;
             }
+            // a point saved with this level replaces the generated landing.
+            if (WorldSpawn.Applies(world)) {
+                return WorldSpawn.Pos;
+            }
             if (world.biomeOverride == WorldGeneration.OverrideSceneType.Tutorial) {
                 return GameObject.Find("TUTORIALSPAWN").transform.position;
             }
@@ -1416,6 +1437,16 @@ public static class Util {
             if (world.biomeDepth == 10) {
                 return AscentSpawn(world);
             }
+            // where we must reach: the top chunk is solid crust or a gap, so the
+            // top-row landing is inside rock or in the air above it.
+            if (world.biomeDepth == 9) {
+                return WwmrSpawn(world, x);
+            }
+            // the debug map is a built scene. the top block row is sky, so TopRowSpawn
+            // parks everyone there. stock walks colliders from the ceiling down to the floor.
+            if (world.biomeOverride == WorldGeneration.OverrideSceneType.Debug) {
+                return DebugMapSpawn(world, x, b);
+            }
             // every other layer stays in the top chunk row. a physics walk kept going
             // through unbuilt chunks and stopped inside the mantle on where we must reach.
             p = TopRowSpawn(world, x);
@@ -1423,6 +1454,87 @@ public static class Util {
             log.error(e);
         }
         return p;
+    }
+
+    static Vector2 DebugMapSpawn(WorldGeneration world, float x, Body body) {
+        int mask = LayerMask.GetMask("Ground");
+        Vector2 size = body != null ? body.origColSize : Vector2.one;
+        if (size.sqrMagnitude < 0.01f) {
+            size = Vector2.one;
+        }
+        bool air = false;
+        float halfH = world.halfHeight;
+        int steps = (int)world.height;
+        if (steps < 1) {
+            steps = (int)(halfH * 2f);
+        }
+        for (int i = 0; i < steps; i++) {
+            Vector2 pos = new Vector2(x, halfH - i);
+            bool blocked = Physics2D.OverlapBox(pos, size, 0f, mask);
+            if (!blocked) {
+                air = true;
+                continue;
+            }
+            if (air) {
+                return pos;
+            }
+        }
+        return new Vector2(x, 0f);
+    }
+
+    static Vector2 WwmrSpawn(WorldGeneration world, float x) {
+        int width = (int)world.width;
+        int bx = BlockX(world, x, width);
+        for (int dx = 0; dx <= 6; dx++) {
+            int step = dx == 0 ? 0 : dx;
+            for (int dir = -1; dir <= 1; dir += 2) {
+                if (dx == 0 && dir > 0) {
+                    break;
+                }
+                int tryX = bx + step * dir;
+                if (tryX < 0 || tryX >= width) {
+                    continue;
+                }
+                if (TryWwmrColumn(world, tryX, 4, out Vector2 pos) || TryWwmrColumn(world, tryX, 2, out pos)) {
+                    return pos;
+                }
+            }
+        }
+        return TopRowSpawn(world, x);
+    }
+
+    // first solid under enough air, skipping mantle and heated rock. stand in the air cell above it.
+    static bool TryWwmrColumn(WorldGeneration world, int bx, int headroom, out Vector2 pos) {
+        pos = default;
+        int height = (int)world.height;
+        int air = 0;
+        for (int y = height - 1; y >= 1; y--) {
+            ushort block = world.GetBlock(new Vector2Int(bx, y));
+            if (block == 0) {
+                air++;
+                continue;
+            }
+            if (air < headroom || block == 36 || block == 39) {
+                air = 0;
+                continue;
+            }
+            int stand = y + 1;
+            if (world.GetBlock(new Vector2Int(bx, stand)) != 0) {
+                air = 0;
+                continue;
+            }
+            if (FluidManager.main != null) {
+                Vector2 floor = world.BlockToWorldPos(new Vector2Int(bx, y));
+                if (FluidManager.main.GetLiquid(floor) == 6 || FluidManager.main.GetLiquid(floor + Vector2.up) == 6) {
+                    air = 0;
+                    continue;
+                }
+            }
+            PaintSpawnChunk(world, bx, stand, ChunkSize());
+            pos = world.BlockToWorldPos(new Vector2Int(bx, stand));
+            return true;
+        }
+        return false;
     }
 
     static Vector2 TopRowSpawn(WorldGeneration world, float x) {

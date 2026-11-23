@@ -75,33 +75,25 @@ internal static class EvidenceCache
 				postfix: new HarmonyMethod(typeof(EvidenceCache), nameof(PlaceExit)));
 		}
 
-		MethodInfo load = AccessTools.Method(typeof(Resources), "Load", new Type[] { typeof(string), typeof(Type) });
-		if (load != null)
-		{
-			harmony.Patch(
-				load,
-				prefix: new HarmonyMethod(typeof(EvidenceCache), nameof(BeforeLoad)),
-				postfix: new HarmonyMethod(typeof(EvidenceCache), nameof(AfterLoad)));
-		}
-
-		MethodInfo loadAll = null;
-		MethodInfo[] methods = typeof(Resources).GetMethods(BindingFlags.Public | BindingFlags.Static);
-		for (int i = 0; i < methods.Length; i++)
-		{
-			if (methods[i].Name != "LoadAll" || !methods[i].IsGenericMethod)
-				continue;
-			loadAll = methods[i];
-			break;
-		}
-		if (loadAll != null)
-		{
-			harmony.Patch(
-				loadAll,
-				prefix: new HarmonyMethod(typeof(EvidenceCache), nameof(BeforeLoadAll)),
-				postfix: new HarmonyMethod(typeof(EvidenceCache), nameof(AfterLoadAll)));
-		}
-
+		// do not patch Resources.Load. one line per sprite/clip is what made mpverbose logs enormous.
 		FindTheBug.Write("cache trace on");
+	}
+
+	static void TryPatch(Harmony harmony, MethodInfo target, string prefix, string postfix)
+	{
+		if (target == null || target.IsGenericMethodDefinition)
+			return;
+		try
+		{
+			harmony.Patch(
+				target,
+				prefix: prefix == null ? null : new HarmonyMethod(typeof(EvidenceCache), prefix),
+				postfix: postfix == null ? null : new HarmonyMethod(typeof(EvidenceCache), postfix));
+		}
+		catch (Exception ex)
+		{
+			FindTheBug.Write("cache patch failed " + target.Name + ": " + ex.GetType().Name + " " + ex.Message);
+		}
 	}
 
 	static void BeforeCorpse(CorpseScript __instance)
@@ -183,31 +175,6 @@ internal static class EvidenceCache
 	static void PlaceExit()
 	{
 		Say("place exit");
-	}
-
-	static void BeforeLoad(string path, Type systemTypeInstance)
-	{
-		_depth++;
-		string typeName = systemTypeInstance == null ? "" : systemTypeInstance.Name;
-		Say("load enter depth=" + _depth + " kind=Load path=" + path + " type=" + typeName);
-	}
-
-	static void AfterLoad(string path)
-	{
-		Say("load exit depth=" + _depth + " kind=Load path=" + path);
-		_depth--;
-	}
-
-	static void BeforeLoadAll(string path)
-	{
-		_depth++;
-		Say("load enter depth=" + _depth + " kind=LoadAll path=" + (path ?? ""));
-	}
-
-	static void AfterLoadAll(string path)
-	{
-		Say("load exit depth=" + _depth + " kind=LoadAll path=" + (path ?? ""));
-		_depth--;
 	}
 
 	static int PrefabCount()

@@ -148,6 +148,11 @@ namespace Together {
         private SyncVar<bool> _offHand;
 
         internal SyncVar<bool> _standing;
+        // movetool size and root turn. a zero scale means the body has not reported a pose yet.
+        internal SyncVar<Vector2> _bodyScale;
+        internal SyncVar<float> _bodyRot;
+        // the host move tool is dragging this body. the owner follows that position.
+        internal SyncVar<bool> _moveHeld;
         internal SyncVar<bool> _isPiggyback;
         private SyncVar<knetid> _piggyback;
 
@@ -299,8 +304,36 @@ namespace Together {
 
         static float _RAGDOLL_DIST_MARGIN = 0.05f * 0.05f;
         static float _RAGDOLL_ANGVEL_QUANTIZE = 100;
+        static float _nextRagdollSkipLog;
+
+        // a layer change destroys limbs while the old body is still receiving sync.
+        // writing that pose threw and aborted the spawn teleport.
+        bool RagdollWritable(out int missing) {
+            missing = -1;
+            if (nb == null || nb.body == null || nb.body.limbs == null || nb.body.limbs.Length < 15) {
+                missing = -2;
+                return false;
+            }
+            for (int i = 0; i < 15; i++) {
+                Limb check = nb.body.limbs[i];
+                if (check == null || check.rb == null) {
+                    missing = i;
+                    return false;
+                }
+            }
+            return true;
+        }
+
         internal void WriteRagdollData() {
             RagdollProbe.MarkWrite(nb != null ? nb.body : null);
+            if (!RagdollWritable(out int missing)) {
+                if (Time.unscaledTime >= _nextRagdollSkipLog) {
+                    _nextRagdollSkipLog = Time.unscaledTime + 2f;
+                    string who = nb != null ? nb.ToString() : "nobody";
+                    FindTheBugReports.Say("ragdoll", "skip-write missing=" + missing + " " + who);
+                }
+                return;
+            }
             Limb[] limbs = nb.body.limbs;
             Limb limb;
 
@@ -730,6 +763,10 @@ namespace Together {
             if (CreateCharacter()) {
                 if (!nb.IsBodyLocal()) {
                     ApplyDataToBody();
+                } else if (!IsServer) {
+                    ApplyBodyScale();
+                    if (_moveHeld.Value)
+                        MoveTool.Follow(nb);
                 }
             }
         }
@@ -747,6 +784,9 @@ namespace Together {
             _crouching.Value = nb.body.crouching;
             _offHand.Value = nb.body.handSlot != 0;
             _standing.Value = nb.body.standing;
+            _bodyScale.Value = nb.body.transform.localScale;
+            _bodyRot.Value = nb.body.transform.eulerAngles.z;
+            _moveHeld.Value = MoveTool.Dragging(nb.body);
             // ragdoll syncgroup is handled in Player.SlowButFastUpdate
             // a carry still has the pose from the ground. writing it here is what gets pasted back over the hang.
             if (!nb.IsPiggybacking()) {
@@ -884,6 +924,18 @@ namespace Together {
             if (!body.IsBodyLocal() && body.sleeping && body.moveDir != Vector2.zero) { // if theyre sleeping and moving, they probably woke up
                 body.sleeping = false;
             }
+            ApplyBodyScale();
+        }
+
+        void ApplyBodyScale() {
+            if (nb == null || nb.body == null)
+                return;
+            Vector2 sc = _bodyScale.Value;
+            if (sc.sqrMagnitude < 0.0001f)
+                return;
+            Vector3 cur = nb.body.transform.localScale;
+            if (cur.x != sc.x || cur.y != sc.y)
+                nb.body.transform.localScale = new Vector3(sc.x, sc.y, cur.z);
         }
 
         internal bool readingRagdollData = false;
@@ -984,6 +1036,8 @@ namespace Together {
         public SyncVar<byte> container_ver;
         public SyncVar<bool> rb_dynamic;
         public SyncVar<bool> itemLock;
+        // movetool is holding this prop. clients snap pose and drop colliders until it lets go.
+        public SyncVar<bool> placeGhost;
 
         public SyncVar<Vector2> _scale; // default is 1,1
 
@@ -1088,6 +1142,11 @@ namespace Together {
         }
 
         public bool CreateObject() {
+            // a destroyed id stays in the client pending list. building it again was the leave stall.
+            if (IsDestroyed) {
+                LeaveGear.MarkDeadSpawn(this);
+                return false;
+            }
             // the slot mesh can still be registered after go was cleared. returning here
             // used to leave go null, so the container byte and the destroy never touched it.
             if (go == null) {
@@ -1123,8 +1182,16 @@ namespace Together {
                 if (objectWasSpawned && Util.IsGeneratingWorld()) {
                     return false;
                 }
+                // held and bagged gear waits for its owner. a leaver's body is gone, and spawning
+                // here was a new loose copy every pass.
+                if (LeaveGear.OwnerMissing(this)) {
+                    return false;
+                }
 
                 go = InstantiateResource(resourceId.Value, SpawnNearOwner());
+                if (go != null && LeaveGear.OwnerMissing(this)) {
+                    LeaveGear.MarkLeak(this);
+                }
             }
             if (go != null) {
                 objectWasSpawned = true;
@@ -1186,15 +1253,33 @@ namespace Together {
             bool isBackground = false;
             GameObject resource = Resources.Load<GameObject>(resourceId);
 
+            if (resource == null && resourceId == "KMPSR_BlueHeart") {
+                // same path as the drill pod: a real Resources prefab, placed at the host position.
+                // the KMPSR map holds a scene copy that world clear already destroyed, and TryGetComponent threw.
+                GameObject cont = Resources.Load<GameObject>("Structures/BlueHeartCont");
+                if (cont != null) {
+                    BlueHeart heartSrc = cont.GetComponentInChildren<BlueHeart>(true);
+                    if (heartSrc != null) {
+                        resource = heartSrc.gameObject;
+                    }
+                }
+            }
             if (resource == null) {
-                if (condition.Value <= 0) { // don't create it
+                // a stand-in id is not a broken item. the heart's health stays 0, and this
+                // check used to return before the known prefab was ever used.
+                bool standIn = resourceId.StartsWith(BuildingEntity_Start_MultiplayerPatch.identified_bg_prefix);
+                if (!standIn && condition.Value <= 0) {
                     return null;
                 }
-                if (resourceId.StartsWith(BuildingEntity_Start_MultiplayerPatch.identified_bg_prefix)) {
-                    if (ScavMPBuildingSynchronizer.known_entities_with_nonunique_id.TryGetValue(resourceId, out GameObject bgstuff)) {
+                if (standIn) {
+                    if (ScavMPBuildingSynchronizer.known_entities_with_nonunique_id.TryGetValue(resourceId, out GameObject bgstuff) && bgstuff != null) {
                         resource = bgstuff;
-                        if (resource.TryGetComponent(out Tilemap tl)) {
-                            isBackground = true;
+                        try {
+                            if (resource.TryGetComponent(out Tilemap tl)) {
+                                isBackground = true;
+                            }
+                        } catch (Exception) {
+                            resource = null;
                         }
                     } else {
                         // it results in green backgrounds
@@ -1228,8 +1313,19 @@ namespace Together {
                 return null;
             }
 
-            // create the object 
-            GameObject instantiatedObject = ((GameObject)UnityEngine.Object.Instantiate(resource, (Vector3)pos, Quaternion.identity));
+            // create the object. Start runs in here, before this method registers the tracker.
+            bool clientSpawn = !Net.IsServer;
+            if (clientSpawn) {
+                NetObjectRegistry.ClientSpawnDepth++;
+            }
+            GameObject instantiatedObject;
+            try {
+                instantiatedObject = ((GameObject)UnityEngine.Object.Instantiate(resource, (Vector3)pos, Quaternion.identity));
+            } finally {
+                if (clientSpawn) {
+                    NetObjectRegistry.ClientSpawnDepth--;
+                }
+            }
             if (isBackground) {
                 instantiatedObject.transform.SetParent(WorldGeneration.world.worldGrid.transform);
             }
@@ -1237,6 +1333,25 @@ namespace Together {
             if (!Net.IsServer) {
                 FixContainerBroke.Strip(instantiatedObject, true);
             }
+
+#if FULLGAME
+            // the heart prefab is stored inactive. a client clone stayed off, so there was no ring and no beat.
+            BlueHeart heart = instantiatedObject.GetComponentInChildren<BlueHeart>(true);
+            if (heart != null) {
+                bool was = heart.gameObject.activeSelf;
+                if (!instantiatedObject.activeSelf) {
+                    instantiatedObject.SetActive(true);
+                }
+                heart.gameObject.SetActive(true);
+                // the 3x3 cull turns far buildings off. the drill pod is left alone; the heart is too.
+                ChunkSleep.Ignore(instantiatedObject);
+                ChunkSleep.Ignore(heart.gameObject);
+                FindTheBugReports.Say("pulse", "spawn res=" + resourceId
+                    + " was=" + (was ? 1 : 0)
+                    + " active=" + (heart.gameObject.activeInHierarchy ? 1 : 0)
+                    + " side=" + (Net.IsServer ? "host" : "client"));
+            }
+#endif
 
             return instantiatedObject;
         }
@@ -2244,6 +2359,34 @@ namespace Together {
         }
 
         void ApplyTransform() {
+            // placement drag. the glide and the rigidbody would rubber-band a building the host already put down.
+            if (placeGhost.Value && go != null) {
+                Transform held = go.transform;
+                MoveTool.HoldColliders(go);
+                if (held.parent != null)
+                    held.SetParent(null, true);
+                Vector2 ghostScale = _scale.Value;
+                ScaledLights.Remember(held);
+                if (ghostScale.x != held.localScale.x || ghostScale.y != held.localScale.y)
+                    held.localScale = new Vector3(ghostScale.x, ghostScale.y, held.localScale.z);
+                ScaledLights.Apply(held);
+                Vector2 raw = _position.Value;
+                float rawAng = _rotation.Value.Degrees;
+                if (go.TryGetComponent(out Rigidbody2D ghostRb) && ghostRb != null) {
+                    ghostRb.velocity = Vector2.zero;
+                    ghostRb.angularVelocity = 0f;
+                    ghostRb.interpolation = RigidbodyInterpolation2D.None;
+                    if (ghostRb.bodyType != RigidbodyType2D.Kinematic)
+                        ghostRb.bodyType = RigidbodyType2D.Kinematic;
+                    ghostRb.position = raw;
+                    ghostRb.rotation = rawAng;
+                }
+                held.SetPositionAndRotation(raw, Quaternion.Euler(0f, 0f, rawAng));
+                return;
+            }
+            if (go != null)
+                MoveTool.ReleaseColliders(go);
+
             if (!Net.IsServer && go != null && go.TryGetComponent(out CrystalEnemy _)) {
                 ClientCrystalPose();
                 return;
@@ -2256,8 +2399,10 @@ namespace Together {
             bool isRigid = go.TryGetComponent(out Rigidbody2D rb);
 
             if (scale.x != trans.localScale.x || scale.y != trans.localScale.y) {
+                ScaledLights.Remember(trans);
                 Vector3 newscale = new Vector3(scale.x, scale.y, trans.localScale.z);
                 trans.localScale = newscale;
+                ScaledLights.Apply(trans);
             }
 
             // host sample for a distant loose body is often still 0. pasting it every step
@@ -2495,7 +2640,7 @@ namespace Together {
                             }
                         } else {
                             //  move it to that container,  and if container is not found, make send a request to server of all the missing ids
-                            if (ContainerLink.TryBag(this, out SyncInfo container_si) && container_si.container != null) {
+                            if ((ContainerLink.TryBag(this, out SyncInfo container_si) || ContainerLink.TryLiveBag(this, out container_si)) && container_si.container != null) {
                                 // chest already broke. putting the rag back turns physics off.
                                 if (ItemSync.BrokenBag(container_si, container_si.container)) {
                                     ItemSync.ParentTestChest("chest skip apply", item, container_si.go);
@@ -2641,9 +2786,14 @@ namespace Together {
 
         void UpdateBuilding() {
             BuildingEntity b = go.GetComponent<BuildingEntity>();
-            b.SetHealth(condition, false);
+            // the host stores the overkill float. a client shows 0 and the death burst, not a negative bar.
+            float hp = condition;
+            bool dead = hp < 0.5f;
+            if (hp < 0f)
+                hp = 0f;
+            b.SetHealth(hp, false);
             // death fx lives in Update, and the client skips that Update so the loot is not rolled twice.
-            if (Net.IsClient && b.GetHealth() < 0.5f) {
+            if (Net.IsClient && dead) {
                 BuildingEntity_Update_MultiplayerPatch.PlayDeathOnce(b);
             }
 

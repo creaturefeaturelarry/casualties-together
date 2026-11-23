@@ -754,6 +754,7 @@ namespace Together {
         public const string LOBBYDATAKEY_RUNSETTINGS = _LOBBYDATAKEYPREFIX + "RUNSETTINGS";
         public const string LOBBYDATAKEY_MODS = _LOBBYDATAKEYPREFIX + "MODS";
         public const string LOBBYDATAKEY_LANGUAGE = _LOBBYDATAKEYPREFIX + "LANGUAGE";
+        public const string LOBBYDATAKEY_CONNECT_TIMEOUT = _LOBBYDATAKEYPREFIX + "CONNECTTIMEOUT";
         static string GetMyModListAsString() {
             return String.Join(":", Multiplayer.GetModGUIDs().Select(x => x.Replace(":", "")));
         }
@@ -785,6 +786,7 @@ namespace Together {
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_MIDJOIN_LOCKED, (Net.MyServerInfo.midjoin_lock_active) ? "1" : "0");
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_RUNSETTINGS, WorldMP.CompileRunSettings());
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_LANGUAGE, Locale.currentLangName);
+            SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_CONNECT_TIMEOUT, TransportSteamworks.LobbyTimeoutMs().ToString());
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_MODS, GetMyModListAsString());
 
             SteamMatchmaking.SetLobbyData(LobbyId, "bucket", bucket.ToString());
@@ -1586,6 +1588,7 @@ namespace Together {
             }
 
             SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_VERSION, Multiplayer.FULL_VERSION_TAG);
+            SteamMatchmaking.SetLobbyData(LobbyId, LOBBYDATAKEY_CONNECT_TIMEOUT, TransportSteamworks.LobbyTimeoutMs().ToString());
             SteamMatchmaking.SetLobbyData(LobbyId, "bucket", bucket.ToString());
             Util.DelayCallLambda(0.5f, () => {
                 if (!IS_IN_LOBBY) {
@@ -2031,6 +2034,14 @@ namespace Together {
                 if (BrowserSteamPing.HandleTransportCallback(pCallback)) {
                     return;
                 }
+                if (BrowserSteamPing.IsStrayPing(pCallback)) {
+                    log.l("[steam] ignore ping conn=" + pCallback.m_hConn.m_HSteamNetConnection
+                        + " state=" + pCallback.m_info.m_eState
+                        + " debug=\"" + OneLine(pCallback.m_info.m_szEndDebug) + "\""
+                        + " desc=\"" + OneLine(pCallback.m_info.m_szConnectionDescription) + "\"");
+                    return;
+                }
+                LogSteamState(pCallback);
 
 
 #if !RELEASE
@@ -2131,9 +2142,20 @@ namespace Together {
                     }
 
                     if (LobbyHostTransfer.HandlePlannedDisconnect(client_steamId)) return;
-                    if (client_steamId == KSteam.CURRENT_LOBBY.ownerID.m_SteamID) {
+                    bool gameLink = serverUser != null && pCallback.m_hConn == serverUser.connection;
+                    if (client_steamId == KSteam.CURRENT_LOBBY.ownerID.m_SteamID && gameLink) {
+                        ESteamNetConnectionEnd ownerEnd = (ESteamNetConnectionEnd)pCallback.m_info.m_eEndReason;
+                        log.l("[steam] owner-down end=" + ownerEnd
+                            + " (" + pCallback.m_info.m_eEndReason + ")"
+                            + " debug=\"" + OneLine(pCallback.m_info.m_szEndDebug) + "\""
+                            + " state=" + pCallback.m_info.m_eState);
                         Multiplayer.ShutdownNetwork();
                         Multiplayer.DoMultiplayerStatusMessageLog(string.Format(Lang.Get("steam_connection_closed"), pCallback.m_info.m_eState.ToString().TrimStart("k_ESteamNetworkingConnectionState_")));
+                    } else if (client_steamId == KSteam.CURRENT_LOBBY.ownerID.m_SteamID) {
+                        log.l("[steam] ignore other owner conn=" + pCallback.m_hConn.m_HSteamNetConnection
+                            + " game=" + (serverUser != null ? serverUser.connection.m_HSteamNetConnection.ToString() : "none")
+                            + " state=" + pCallback.m_info.m_eState
+                            + " debug=\"" + OneLine(pCallback.m_info.m_szEndDebug) + "\"");
                     } else {
                         // socket died on its own. not a lobby callback. log it before we stop sending.
                         ESteamNetConnectionEnd endReason = (ESteamNetConnectionEnd)pCallback.m_info.m_eEndReason;
@@ -2189,6 +2211,55 @@ namespace Together {
 
         private Callback<SteamNetConnectionStatusChangedCallback_t> onConnectionChange = null;
         public SteamNetworkingConfigValue_t[] options = new SteamNetworkingConfigValue_t[0];
+
+        // Steam leaves TimeoutInitial / TimeoutConnected at 10s when options is empty. The host rule replaces that.
+        public static int LobbyTimeoutMs() {
+            float seconds = 10f;
+            try {
+                seconds = Multiplayer.rules.LobbyTimeoutSeconds;
+            } catch {
+            }
+            if (seconds < 5f) seconds = 5f;
+            if (seconds > 120f) seconds = 120f;
+            return (int)(seconds * 1000f);
+        }
+
+        static int ConnectTimeoutMs() {
+            int ms = LobbyTimeoutMs();
+            try {
+                if (KSteam.CURRENT_LOBBY.metadata != null) {
+                    foreach (var kv in KSteam.CURRENT_LOBBY.metadata) {
+                        if (kv.Key == null || !kv.Key.Equals(KSteam.LOBBYDATAKEY_CONNECT_TIMEOUT, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (int.TryParse(kv.Value, out int fromLobby) && fromLobby >= 5000 && fromLobby <= 120000) {
+                            ms = fromLobby;
+                        }
+                        break;
+                    }
+                }
+            } catch {
+            }
+            return ms;
+        }
+
+        static void ApplySteamConnectTimeout(int ms) {
+            SetSteamInt(ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_TimeoutInitial, ms);
+            SetSteamInt(ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_TimeoutConnected, ms);
+        }
+
+        static void SetSteamInt(ESteamNetworkingConfigValue key, int value) {
+            GCHandle handle = GCHandle.Alloc(value, GCHandleType.Pinned);
+            try {
+                SteamNetworkingUtils.SetConfigValue(
+                    key,
+                    ESteamNetworkingConfigScope.k_ESteamNetworkingConfig_Global,
+                    IntPtr.Zero,
+                    ESteamNetworkingConfigDataType.k_ESteamNetworkingConfig_Int32,
+                    handle.AddrOfPinnedObject()
+                );
+            } finally {
+                if (handle.IsAllocated) handle.Free();
+            }
+        }
         public HSteamListenSocket listenSocket { get; private set; }
         internal SteamConnectionData serverUser { get; private set; }
         internal readonly Dictionary<ulong, SteamConnectionData> connectionMapping = new Dictionary<ulong, SteamConnectionData>();
@@ -2219,6 +2290,9 @@ namespace Together {
                 options = new SteamNetworkingConfigValue_t[0];
             }
 
+            int timeoutMs = LobbyTimeoutMs();
+            ApplySteamConnectTimeout(timeoutMs);
+
             if (is_steamserver) {
                 listenSocket = SteamGameServerNetworkingSockets.CreateListenSocketP2P(0, options.Length, options);
             } else {
@@ -2230,9 +2304,11 @@ namespace Together {
                 BrowserSteamPing.EnsureHostListen();
             }
 
-            if (log.verbose) {
-                log.l(this.GetType().Name + "CreateServerSocket!");
-            }
+            log.l("[steam] listen role=host socket=" + listenSocket.m_HSteamListenSocket
+                + " ok=" + (listenSocket != HSteamListenSocket.Invalid ? 1 : 0)
+                + " timeoutMs=" + timeoutMs
+                + " " + RelayBits()
+                + " " + LobbyBits());
 
             return listenSocket != HSteamListenSocket.Invalid;
         }
@@ -2251,6 +2327,8 @@ namespace Together {
             }
 
             var ConnectToSteamID = KSteam.CURRENT_LOBBY.ownerID;
+            int timeoutMs = ConnectTimeoutMs();
+            ApplySteamConnectTimeout(timeoutMs);
 
             serverUser = new SteamConnectionData((CSteamID)(ConnectToSteamID));
 
@@ -2271,11 +2349,117 @@ namespace Together {
 
                 connectionMapping.Add((ulong)ConnectToSteamID, serverUser);
 
-                return serverUser.connection != HSteamNetConnection.Invalid;
+                bool ok = serverUser.connection != HSteamNetConnection.Invalid;
+                log.l("[steam] connect role=client target=" + (ulong)ConnectToSteamID
+                    + " conn=" + serverUser.connection.m_HSteamNetConnection
+                    + " ok=" + (ok ? 1 : 0)
+                    + " timeoutMs=" + timeoutMs
+                    + " " + RelayBits()
+                    + " " + RouteBits(serverUser.connection)
+                    + " " + LobbyBits());
+                return ok;
             } catch (Exception ex) {
                 log.error($"{this.GetType().Name}.CreateClientSocket : Client could not be started !! {ex.Message}");
+                log.l("[steam] connect role=client target=" + (ulong)ConnectToSteamID + " fail=\"" + OneLine(ex.Message) + "\"");
                 return false;
             }
+        }
+
+        // one line per steam state change. release builds were only printing the final "problem detected locally".
+        void LogSteamState(SteamNetConnectionStatusChangedCallback_t cb) {
+            ulong remote = 0;
+            try {
+                remote = cb.m_info.m_identityRemote.GetSteamID64();
+            } catch (Exception) {
+            }
+            ESteamNetConnectionEnd end = (ESteamNetConnectionEnd)cb.m_info.m_eEndReason;
+            string name = "";
+            if (remote != 0) {
+                try {
+                    name = SteamFriends.GetFriendPersonaName((CSteamID)remote);
+                } catch (Exception) {
+                }
+            }
+            bool owner = false;
+            try {
+                owner = remote != 0 && remote == KSteam.CURRENT_LOBBY.ownerID.m_SteamID;
+            } catch (Exception) {
+            }
+            log.l("[steam] state role=" + (Net.IsServer ? "host" : "client")
+                + " conn=" + cb.m_hConn.m_HSteamNetConnection
+                + " remote=" + remote
+                + " name=\"" + OneLine(name) + "\""
+                + " owner=" + (owner ? 1 : 0)
+                + " old=" + cb.m_eOldState + "(" + (int)cb.m_eOldState + ")"
+                + " state=" + cb.m_info.m_eState + "(" + (int)cb.m_info.m_eState + ")"
+                + " end=" + end + "(" + cb.m_info.m_eEndReason + ")"
+                + " debug=\"" + OneLine(cb.m_info.m_szEndDebug) + "\""
+                + " desc=\"" + OneLine(cb.m_info.m_szConnectionDescription) + "\""
+                + " map=" + connectionMapping.Count
+                + " " + RelayBits()
+                + " " + RouteBits(cb.m_hConn)
+                + " " + LobbyBits());
+        }
+
+        static string AvailShort(ESteamNetworkingAvailability avail) {
+            string name = avail.ToString();
+            const string prefix = "k_ESteamNetworkingAvailability_";
+            if (name.StartsWith(prefix)) {
+                name = name.Substring(prefix.Length);
+            }
+            return name + "(" + (int)avail + ")";
+        }
+
+        // relay readiness at this instant. a slow join that is already Current is not waiting on startup.
+        string RelayBits() {
+            try {
+                SteamRelayNetworkStatus_t status;
+                ESteamNetworkingAvailability avail = is_steamserver
+                    ? SteamGameServerNetworkingUtils.GetRelayNetworkStatus(out status)
+                    : SteamNetworkingUtils.GetRelayNetworkStatus(out status);
+                return "relay=" + AvailShort(avail)
+                    + " config=" + AvailShort(status.m_eAvailNetworkConfig)
+                    + " any=" + AvailShort(status.m_eAvailAnyRelay)
+                    + " pinging=" + status.m_bPingMeasurementInProgress
+                    + " msg=\"" + OneLine(status.m_debugMsg) + "\"";
+            } catch (Exception e) {
+                return "relayErr=" + e.GetType().Name;
+            }
+        }
+
+        // steam's own route text: selected transport, relay pop, and why it is still searching.
+        string RouteBits(HSteamNetConnection conn) {
+            try {
+                string detail;
+                int n = is_steamserver
+                    ? SteamGameServerNetworkingSockets.GetDetailedConnectionStatus(conn, out detail, 2048)
+                    : SteamNetworkingSockets.GetDetailedConnectionStatus(conn, out detail, 2048);
+                if (n < 0 || string.IsNullOrEmpty(detail)) {
+                    return "route=none";
+                }
+                string line = OneLine(detail);
+                if (line.Length > 800) {
+                    line = line.Substring(0, 800);
+                }
+                return "route=\"" + line + "\"";
+            } catch (Exception e) {
+                return "routeErr=" + e.GetType().Name;
+            }
+        }
+
+        string LobbyBits() {
+            ulong lobby = 0;
+            ulong owner = 0;
+            int members = -1;
+            try {
+                lobby = KSteam.CURRENT_LOBBY.lobby_steamID.m_SteamID;
+                owner = KSteam.CURRENT_LOBBY.ownerID.m_SteamID;
+                if (lobby != 0) {
+                    members = SteamMatchmaking.GetNumLobbyMembers(KSteam.CURRENT_LOBBY.lobby_steamID);
+                }
+            } catch (Exception) {
+            }
+            return "lobby=" + lobby + " lobbyOwner=" + owner + " members=" + members;
         }
 
 

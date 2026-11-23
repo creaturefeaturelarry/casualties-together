@@ -1156,7 +1156,9 @@ public static class CraftCommit {
             if (!known.RecipesHasCrafterBefore.Contains(recipe.index)) {
                 known.RecipesHasCrafterBefore.Add(recipe.index);
                 known.body.happiness += 1f;
-                known.body.skills.AddExp(2, 10f);
+                // TryMake is skipped while connected, so this is the only 10. the host is local and used to miss it.
+                SkillSync.HostGrant(known.body, 2, 10f);
+                MedicalSync.ForceHealth(known);
             }
             PlayerCheckpoint.SendCrafted(known);
         }

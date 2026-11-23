@@ -746,17 +746,20 @@ static class PlayerCamera_HandleWhileDragging_MultiplayerPatch {
             foreach (RaycastResult uiCast in uiCasts) {
 
                 if (uiCast.gameObject == __instance.liquidDrainObject) {
-                    //OG:  PlayerCamera.HandleWhileDragging  V5t4 + LiquidAffect check
-                    if ((bool)__instance.dragItem && !dragItem.IsInWater()) {
-
-                        if (ItemSync.TryGetSyncInfo(__instance.dragItem, out var si)) {
+                    // wasWater stays true after a pickup, because LiquidAffect stops once the body is no longer simulated.
+                    // stock pours whenever the cell under the canteen is dry, so the host report has to use that same test.
+                    bool dry = (bool)dragItem && __instance.body != null && WorldGeneration.world != null && FluidManager.main != null
+                        && !FluidManager.main.HasLiquid(WorldGeneration.world.WorldToBlockPos(dragItem.transform.position))
+                        && __instance.body.DoPickupCheck(dragItem, true);
+                    if (dry) {
+                        if (ItemSync.TryGetSyncInfo(dragItem, out var si)) {
                             si.SetIgnoreTimeForRoundTrip();
                         }
 
-                        WaterContainerItem component = __instance.dragItem.GetComponent<WaterContainerItem>();
+                        WaterContainerItem component = dragItem.GetComponent<WaterContainerItem>();
                         //component.Drain(component.CalculateDrain(0.2f * Time.deltaTime * component.Capacity)); done by the original
 
-                        currently_draining = component.CurrentTotal > 0;
+                        currently_draining = component != null && component.CurrentTotal > 0;
                     }
                     break;
                 }
@@ -803,10 +806,11 @@ static class PlayerCamera_HandleWhileDragging_MultiplayerPatch {
 
             var curtotal = si.liquidcontainer.CurrentTotal;
 
-            if (!lq.item.IsInWater() && newtotal >= 0f && curtotal > newtotal) {
-
+            // the pour button already waited until the client's bottle left the water.
+            // the host copy's wasWater flag is not synced and stays set, which used to drop the drain.
+            if (newtotal >= 0f && curtotal > newtotal) {
                 lq.Drain(lq.CalculateDrain(curtotal - newtotal));
-
+                si.WriteObjectIntoPacket();
             }
         }
 
@@ -821,6 +825,78 @@ static class PlayerCamera_HandleWhileDragging_MultiplayerPatch {
 
 
 //make items in inventory not pick up if theyre not registered
+// a client scoop used to fill only that copy. the host wrote its empty stack back, so the drain had nothing to remove.
+// this is some of the ugliest shit i've ever written in my life
+[HarmonyPatch(typeof(WaterContainerItem), "Update")]
+static class WaterContainerItem_Update_BottleFill_MultiplayerPatch {
+    static readonly Dictionary<knetid, float> NextAsk = new Dictionary<knetid, float>();
+
+    static WaterContainerItem_Update_BottleFill_MultiplayerPatch() {
+        Multiplayer.RegisterCustomServerReceiver("together.bottle-fill", OnFill);
+    }
+
+    static bool Prefix(WaterContainerItem __instance) {
+        if (!Net.IsRunning || !Net.IsClient || Net.IsServer || __instance == null || !__instance.AutoFill)
+            return true;
+        Item item = __instance.GetComponent<Item>();
+        if (item == null || item.condition >= 1f || __instance.SpaceLeft == 0f)
+            return true;
+        if (__instance.transform.parent != null && __instance.transform.parent.GetComponent<Container>() != null)
+            return true;
+        if (WorldGeneration.world == null || FluidManager.main == null)
+            return true;
+        if (!ItemSync.TryGetSyncInfo(item, out SyncInfo si) || si == null)
+            return true;
+        Vector2Int cell = WorldGeneration.world.WorldToBlockPos(__instance.transform.position);
+        if (FluidManager.main.GetLiquid(cell.x, cell.y) == 0)
+            return true;
+        if (__instance.hasSprite) {
+            SpriteRenderer fill = Traverse.Create(__instance).Field("fillRenderer").GetValue<SpriteRenderer>();
+            SpriteRenderer main = Traverse.Create(__instance).Field("_renderer").GetValue<SpriteRenderer>();
+            if (fill != null && main != null)
+                fill.enabled = main.enabled;
+        }
+        float now = Time.unscaledTime;
+        if (!NextAsk.TryGetValue(si.syncId, out float next) || now >= next) {
+            NextAsk[si.syncId] = now + 0.25f;
+            // i ran out of rum right about here.............
+            LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("together.bottle-fill");
+            writer.Put(si.syncId);
+            writer.Put(cell.x);
+            writer.Put(cell.y);
+            Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
+        }
+        return false;
+    }
+
+    static void OnFill(ScavPlayer plr, LiteNetLib.Utils.NetDataReader reader) {
+        if (plr == null || plr.body == null || FluidManager.main == null || WorldGeneration.world == null)
+            return;
+        reader.Get(out knetid id);
+        reader.Get(out int x);
+        reader.Get(out int y);
+        if (!ItemSync.TryGetItemSyncInfo(id, out SyncInfo si) || si == null || !si.IsLiquidContainer() || si.item == null)
+            return;
+        if (!ItemSync.CheckIfBodyReachThisItem(si, plr.body))
+            return;
+        WaterContainerItem bottle = si.liquidcontainer;
+        if (bottle == null || !bottle.AutoFill || bottle.SpaceLeft <= 0f || si.item.condition >= 1f)
+            return;
+        if (si.item.transform.parent != null && si.item.transform.parent.GetComponent<Container>() != null)
+            return;
+        Vector2 cell = WorldGeneration.world.BlockToWorldPos(new Vector2Int(x, y));
+        if (Vector2.Distance(plr.body.transform.position, cell) > 4f && Vector2.Distance(si.item.transform.position, cell) > 4f)
+            return;
+        byte liquid = FluidManager.main.GetLiquid(x, y);
+        if (liquid == 0 || FluidManager.WorldFluidToLiquidID == null || !FluidManager.WorldFluidToLiquidID.ContainsKey((int)liquid))
+            return;
+        if (bottle.AddLiquid(FluidManager.WorldFluidToLiquidID[(int)liquid], 200f) <= 0f)
+            return;
+        FluidManager.main.SetLiquid(x, y, 0);
+        si.WriteObjectIntoPacket();
+    }
+}
+
 [HarmonyPatch(typeof(PlayerCamera), nameof(PlayerCamera.TryPickupFromUI))]
 static class PlayerCamera_TryPickupFromUI_MultiplayerPatch {
     static void Postfix(PlayerCamera __instance, ref List<RaycastResult> uiCasts) {

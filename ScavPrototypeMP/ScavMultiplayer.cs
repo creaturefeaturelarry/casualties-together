@@ -188,6 +188,9 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
     public float PVPDamageMultiplier = 1f;
 
     public bool LateJoinAllowed = true;
+    // Steam's unset connect timeout is 10s. Hosts raise this when a join dies before the handshake finishes.
+    [MultiplayerRuleFloat(5, 120, "s")]
+    public float LobbyTimeoutSeconds = 10f;
     public bool LateJoinSpectate = false;
     public bool SpawnOnPlayer = true;
 
@@ -1787,6 +1790,9 @@ S_LerpFactor: {_entityManager.LerpFactor}";
 
                 if (type.IsClass && !type.IsAbstract) {
                     if (type.IsSubclassOf(typeof(CasualtiesTogetherSingleton))) {
+                        if (!LobbyHostTransfer.Enabled && (type == typeof(LobbyHostTransfer) || type == typeof(HostTransferUI))) {
+                            continue;
+                        }
 #if DEBUG
                         Plugin.log.LogInfo($"DEV: Found Singleton to add: {type.Name}");
 #endif
@@ -1904,6 +1910,10 @@ S_LerpFactor: {_entityManager.LerpFactor}";
         if (!is_world) {
             SavesystemPatch.PreserveSave = false;
             SavesystemPatch.DebugWorldUsesSave = false;
+            SavesystemPatch.InDebugMap = false;
+            SavesystemPatch.DebugMapName = null;
+            WorldSpawn.Clear();
+            MapPoses.Clear();
         }
 
         if (Net.IsRunning) {

@@ -1359,7 +1359,9 @@ namespace Together {
 
             if (ScavPlayer.TryGetPlayerAndNetBodyFromClientId(clientId, out ScavPlayer plr, out NetBody pb) && ItemSync.TryGetItemSyncInfo(syncid, out SyncInfo si) && ItemSync.CheckIfBodyReachThisItem(si, pb.body, 20, false) && crankProgress.IsFinite()) {
                 if (si.item.IsHandcrank()) {
-                    si.item.battery.DrainCharge(-(crankProgress * CRANK_CHARGE_AMOUNT));
+                    if (si.item.battery != null) {
+                        si.item.battery.DrainCharge(-(crankProgress * CRANK_CHARGE_AMOUNT));
+                    }
                     pb.body.stamina -= crankProgress * CRANK_STAMINA_USE;
                     si.item.condition = Mathf.Clamp01(si.item.condition);
                 } else {
@@ -1403,7 +1405,8 @@ namespace Together {
 
         public static byte selfharmminigame_last_cuts_count = 0;
         public static bool ignore_next_mgstart_cuz_its_not_me = false;
-        public static Dictionary<string, OnBandageUse> known_bandages_onuse_lambdas = new Dictionary<string, OnBandageUse>();
+        // keyed by the bandage's sync id. one entry per item name used to point every roll at whoever started last.
+        public static Dictionary<knetid, OnBandageUse> known_bandages_onuse_lambdas = new Dictionary<knetid, OnBandageUse>();
 
         static void ResetMinigameOverriderStates() {
             DislocationMinigame_CheckForHit_MultiplayerPatch.lastreceived_bonepos = new Vector2(500, 0);
@@ -1424,8 +1427,8 @@ namespace Together {
             bool is_medical_minigame = objnet.TryGetLimb(out Limb limb);
 
             if (is_medical_minigame) {
-                if (minigame is BandageMinigame bmini) {
-                    known_bandages_onuse_lambdas[item.id] = bmini.OnUse;
+                if (minigame is BandageMinigame bmini && item != null && NetObjectRegistry.TryGetSyncInfo(item.gameObject, out SyncInfo bandageSi)) {
+                    known_bandages_onuse_lambdas[bandageSi.syncId] = bmini.OnUse;
                     BandageMinigame_DoBandageAction_MultiplayerPatch.bandagethingcounter = 14; // to make one sound as soone as the player starts rolling
                 }
             }
@@ -2566,7 +2569,7 @@ namespace Together {
             using (UseAck.Scope ack = UseAck.After(clientId, bandageid)) {
 
             if (MedicalSync.Server_CheckCanHealerUseItemForLimb(clientId, targetplr, limbid, bandageid, out ScavPlayer healerPlr, out NetBody targetnb, out SyncInfo item_si)) {
-                if (MinigameBase_StartMinigame_MultiplayerPatch.known_bandages_onuse_lambdas.TryGetValue(item_si.item.id, out OnBandageUse onuse_lambda)) {
+                if (MinigameBase_StartMinigame_MultiplayerPatch.known_bandages_onuse_lambdas.TryGetValue(bandageid, out OnBandageUse onuse_lambda)) {
                     if (DebugHelp._DEV_VISUALISE_NET_EVENTS) {
                         DebugHelp.OnNetEvent(healerPlr.body.transform.position, $"S: bandaging bro {healerPlr.playerName} -> {targetnb.playerName} {item_si}");
                     }

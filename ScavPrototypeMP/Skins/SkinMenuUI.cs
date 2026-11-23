@@ -291,9 +291,9 @@ internal static class SkinMenuUI {
         }
     }
 
-    private static void RefreshSettingsUi() {
-        SetToggleLabel(_shareButton, "Share", SpriteReplacerPlugin.ShareSkins);
-        SetToggleLabel(_downloadButton, "Download", SpriteReplacerPlugin.DownloadSkins);
+    internal static void RefreshSettingsUi() {
+        SetToggleLabel(_shareButton, "Visible to others", SpriteReplacerPlugin.ShareSkins);
+        SetToggleLabel(_downloadButton, "View skins of others", SpriteReplacerPlugin.DownloadSkins);
     }
 
     private static void SetToggleLabel(Button button, string name, bool value) {

@@ -97,6 +97,12 @@ public static class BagSleep
 				DropAt(i);
 				continue;
 			}
+			// a closed bag turns contents off. the geiger only clicks from its own Update, so it has to stay on.
+			if (KeepAwake(item))
+			{
+				Wake(item);
+				continue;
+			}
 			if (HeldOpen(box) || Breaking(box) || MoveCommit.Busy(item) || KeepLit(item, box))
 			{
 				Wake(item);
@@ -171,6 +177,11 @@ public static class BagSleep
 			if (child == null)
 				continue;
 			Track(child);
+			if (KeepAwake(child))
+			{
+				Wake(child);
+				continue;
+			}
 			// a move still in flight has to stay on. sleeping it here dropped the seat and left the bag icon behind.
 			if (MoveCommit.Busy(child) || KeepLit(child, box))
 			{
@@ -227,6 +238,11 @@ public static class BagSleep
 		Resume(id);
 		Holds.Remove(id);
 		ChunkSleep.Watch(item);
+	}
+
+	static bool KeepAwake(Item item)
+	{
+		return item != null && item.GetComponent<GeigerCounterAudio>() != null;
 	}
 
 	// belt and trauma rig draw their contents on the body. a backpack does not.

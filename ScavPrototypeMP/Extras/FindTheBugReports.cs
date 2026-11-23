@@ -803,4 +803,35 @@ namespace Together {
             FindTheBugReports.NoteFlash(item, "battery-update");
         }
     }
+
+    // a spawn that returns with the owner already gone is a leak. a refused spawn is the fix holding.
+    [HarmonyPatch(typeof(SyncInfo), nameof(SyncInfo.CreateObject))]
+    static class FindTheBug_LeaveSpawn {
+        static void Postfix(SyncInfo __instance, bool __result) {
+            // a mesh that was already there is not a new spawn. only a refused create counts.
+            if (__result || __instance == null || !LeaveGear.OwnerMissing(__instance)) {
+                return;
+            }
+            LeaveGear.MarkBlock(__instance);
+        }
+    }
+
+    // host release line, or the client's orphan count at the moment the player object dies.
+    [HarmonyPatch(typeof(ScavPlayer), nameof(ScavPlayer.OnDestroy))]
+    static class FindTheBug_LeaveBody {
+        static void Postfix(ScavPlayer __instance) {
+            string line = LeaveGear.TakeReleaseLine();
+            if (line != null) {
+                FindTheBugReports.Say("leavegear", line);
+                return;
+            }
+            if (__instance == null) {
+                return;
+            }
+            FindTheBugReports.Say("leavegear", "observe side=" + (Net.IsServer ? "host" : "client")
+                + " player=" + (__instance.playerName ?? "-")
+                + " local=" + (__instance.IsLocal ? 1 : 0)
+                + " orphans=" + LeaveGear.OrphanCount());
+        }
+    }
 }

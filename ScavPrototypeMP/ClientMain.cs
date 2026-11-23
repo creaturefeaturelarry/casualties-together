@@ -540,6 +540,11 @@ public class ClientMain : MonoBehaviour {
     internal static void _InitializePlayerCharacter() {
 
         if (ServerMain.CHARACTER_PREFAB == null) {
+#if FULLGAME
+            // resource prefab, not the scene body. the scene one is already wearing the local skin.
+            CharacterSpawn.GetOrCreatePrefab(0);
+#endif
+            if (ServerMain.CHARACTER_PREFAB == null) {
 
             var og_char = GameObject.Find("Experiment"); // player character is stored only in the scene, i must get it
 
@@ -605,6 +610,7 @@ public class ClientMain : MonoBehaviour {
                 } else if (Net.IsRunning) {
                     Multiplayer.DoMultiplayerStatusMessageError("PLAYER CHARACTER NOT FOUND!!!!!!!!!!!!!!!! RESTART THE GAME! RESTART !!!!!!!!!!!!!!!!!!!!");
                 }
+            }
             }
         }
 

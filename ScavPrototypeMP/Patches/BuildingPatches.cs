@@ -80,6 +80,82 @@ static class GeyserScript_Update_MultiplayerPatch {
     }
 }
 
+// the stream washes the client copy. the host body is often not in that cell, and the next health packet puts the dirt back.
+[HarmonyPatch(typeof(LiquidAffect), "FixedUpdate")]
+static class LiquidAffect_StreamWash_MultiplayerPatch {
+    struct Seen {
+        public bool Watch;
+        public float Dirt;
+        public Body Body;
+        public Vector2 At;
+    }
+
+    static LiquidAffect_StreamWash_MultiplayerPatch() {
+        Multiplayer.RegisterCustomServerReceiver("together.stream-wash", OnWash);
+    }
+
+    static void Prefix(LiquidAffect __instance, ref Seen __state) {
+        __state = default;
+        if (!Net.IsRunning || !Net.IsClient || Net.IsServer || __instance == null)
+            return;
+        Traverse fields = Traverse.Create(__instance);
+        Limb limb = fields.Field("limb").GetValue<Limb>();
+        Body body = limb != null ? limb.body : fields.Field("body").GetValue<Body>();
+        if (body == null || !body.IsBodyLocal() || body.dirtyness <= 10f)
+            return;
+        __state.Watch = true;
+        __state.Dirt = body.dirtyness;
+        __state.Body = body;
+        __state.At = limb != null ? (Vector2)limb.transform.position : (Vector2)body.transform.position;
+    }
+
+    static void Postfix(Seen __state) {
+        if (!__state.Watch || __state.Body == null)
+            return;
+        if (__state.Body.dirtyness > __state.Dirt - 0.5f)
+            return;
+        LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("together.stream-wash");
+        writer.Put(__state.At);
+        Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
+    }
+
+    static void OnWash(ScavPlayer plr, LiteNetLib.Utils.NetDataReader reader) {
+        if (plr == null || plr.body == null || FluidManager.main == null)
+            return;
+        reader.Get(out Vector2 at);
+        Body body = plr.body;
+        if (body.dirtyness <= 10f || !at.IsFinite())
+            return;
+        if (Vector2.Distance(body.transform.position, at) > 8f)
+            return;
+        // the host copy is already in the stream, so its own LiquidAffect is washing it.
+        if (CleanWaterAt(body))
+            return;
+        if (FluidManager.main.GetLiquid(at) != 1)
+            return;
+        body.dirtyness -= 10f;
+        FluidManager.main.SetLiquid(at, 5);
+        if (body.TryGetNetBody(out NetBody nb))
+            MedicalSync.ForceHealth(nb);
+    }
+
+    static bool CleanWaterAt(Body body) {
+        if (FluidManager.main.GetLiquid(body.transform.position) == 1)
+            return true;
+        Limb[] limbs = body.limbs;
+        if (limbs == null)
+            return false;
+        for (int i = 0; i < limbs.Length; i++) {
+            Limb limb = limbs[i];
+            if (limb == null || limb.dismembered)
+                continue;
+            if (FluidManager.main.GetLiquid(limb.transform.position) == 1)
+                return true;
+        }
+        return false;
+    }
+}
+
 
 
 

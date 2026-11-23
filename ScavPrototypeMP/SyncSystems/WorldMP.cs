@@ -333,20 +333,81 @@ public class WorldMP : CasualtiesTogetherSingleton {
     }
 
 
+    public static void StartDebugWorld() {
+        SavesystemPatch.DebugMapName = null;
+        SavesystemPatch.DeleteDebugSave();
+        log.l("Debug map: cleared the default slot");
+        LoadDebugWorld(false);
+    }
+
+    public static void LoadSavedDebugWorld(string name = null) {
+        if (!string.IsNullOrEmpty(name) && !SavesystemPatch.ValidDebugMapName(name)) {
+            if (ConsoleScript.instance != null)
+                ConsoleScript.instance.LogToConsole("Map name must be letters and numbers only.");
+            return;
+        }
+        if (!SavesystemPatch.HasDebugSave(name)) {
+            string label = string.IsNullOrEmpty(name) ? "the default slot" : name;
+            log.l("Debug map: no save for " + label);
+            if (ConsoleScript.instance != null)
+                ConsoleScript.instance.LogToConsole("No debug map save for " + label + ".");
+            return;
+        }
+        SavesystemPatch.DebugMapName = string.IsNullOrEmpty(name) ? null : name;
+        LoadDebugWorld(true);
+    }
+
+    public static void SaveDebugMapNow(string name = null) {
+        if (WorldGeneration.world == null || WorldGeneration.world.biomeOverride != WorldGeneration.OverrideSceneType.Debug) {
+            log.l("Debug map save: not in the debug map");
+            if (ConsoleScript.instance != null)
+                ConsoleScript.instance.LogToConsole("Not in the debug map.");
+            return;
+        }
+        if (!string.IsNullOrEmpty(name) && !SavesystemPatch.ValidDebugMapName(name)) {
+            if (ConsoleScript.instance != null)
+                ConsoleScript.instance.LogToConsole("Map name must be letters and numbers only.");
+            return;
+        }
+        SavesystemPatch.InDebugMap = true;
+        SavesystemPatch.DebugMapName = string.IsNullOrEmpty(name) ? null : name;
+        string label = string.IsNullOrEmpty(name) ? "the default slot" : name;
+        if (Multiplayer.rules.DebugWorldSaveSystem) {
+            SaveSystem.SaveGame();
+            if (ConsoleScript.instance != null)
+                ConsoleScript.instance.LogToConsole("Saved " + label + " with player inventories.");
+        } else {
+            SavesystemPatch.WriteDebugWorld();
+            if (ConsoleScript.instance != null)
+                ConsoleScript.instance.LogToConsole("Saved " + label + ". Inventories stay in this session only.");
+        }
+    }
+
     public static void LoadDebugWorld() {
+        LoadDebugWorld(false);
+    }
+
+    public static void LoadDebugWorld(bool loadSave) {
 #if FULLGAME
         // a leftover tutorial/new-run gate skips CreateCharacter for the whole lobby.
         CharacterSelectWait.AbortLobbyGate();
 #endif
         _CheckIfCanLoadAWorld();
         SetTutorialPlayerPrefs(false);
-        // off leaves the file alone and starts empty. on is the same load and write path as a normal run.
+        // off: no autosave, and player files are not read back next session.
+        // on: same save system as a run, written under mp_debug_save.
         bool useSaves = Multiplayer.rules.DebugWorldSaveSystem;
+        SavesystemPatch.InDebugMap = true;
         SavesystemPatch.PreserveSave = !useSaves;
         SavesystemPatch.DebugWorldUsesSave = useSaves;
-        SavesystemPatch.PendingLoadMpSave = useSaves;
-        SaveSystem.loadedRun = useSaves;
-        log.l(useSaves ? "Debug world: mp_save on" : "Debug world: mp_save skipped");
+        SavesystemPatch.PendingLoadMpSave = loadSave;
+        SaveSystem.loadedRun = loadSave && useSaves;
+        WorldSpawn.Read();
+        if (!loadSave)
+            MapPoses.Clear();
+        log.l(useSaves
+            ? "Debug world: saving to mp_debug_save"
+            : "Debug world: map folder only, no inventory autosave");
 
         if (Multiplayer.IsNetworkActiveAndIsServer()) {
             ServerMain.Server_Announce_GAME_START();
@@ -456,6 +517,10 @@ public class WorldMP : CasualtiesTogetherSingleton {
         //    setTutorialPlayerPrefs(current_instruction.tutorial);
         //}
         SaveSystem.loadedRun = loadsave;
+        if (loadsave)
+            WorldSpawn.Read();
+        else
+            WorldSpawn.Clear();
 
 
         if (fadeout) {
@@ -697,6 +762,17 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 registered = NetObjectRegistry.IsRegistered(x);
             } catch (Exception) {
             }
+            // vine caps are not synced buildings. the client's own worldgen leaves them in the wrong place after the rope is removed.
+            if (TrackerClimbableEntity.IsDecoration(x)) {
+                try {
+                    GameObject.Destroy(x);
+                    destroyed++;
+                } catch (Exception ex) {
+                    failed++;
+                    log.error("[join] vine cap " + ex.Message);
+                }
+                continue;
+            }
             // first visit keeps synced objects. a rejoin has to drop the previous world's copies or the new generate stacks onto them.
             if (NetObjectRegistry.ObjectShouldNotBeSynced(x) || onBody || (registered && !rejoin)) {
                 kept++;
@@ -812,7 +888,6 @@ public class WorldMP : CasualtiesTogetherSingleton {
             }
         }
 
-#if !RELEASE
         if (aaaaaaaaaaaaaaaaaaaaaaaaaaa != null) {
             world.loadingText.text = "Loading world tiles...";
             yield return null;
@@ -825,6 +900,8 @@ public class WorldMP : CasualtiesTogetherSingleton {
             if (ccccccccccccccccccccccccccc != null) {
                 SavesystemPatch.DeserializeWorldFluids(ccccccccccccccccccccccccccc);
             }
+            if (!Net.IsClient)
+                MapPoses.ApplyProps();
             world.loadingText.text = "Loading world objects...";
             yield return null;
             if (bbbbbbbbbbbbbbbbbbbbbbbbbbb != null) {
@@ -841,8 +918,6 @@ public class WorldMP : CasualtiesTogetherSingleton {
             }
             yield return null;
         }
-
-#endif
 
         if (Net.IsRunning) {
 

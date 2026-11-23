@@ -343,6 +343,8 @@ static class DragMath {
 [HarmonyPatch(typeof(Body), "FixedUpdate")]
 static class HeldRagdollPatch {
     static bool Prefix(Body __instance) {
+        if (MoveTool.IsHeld(__instance))
+            return false;
         return DragPatch.HeldVictim != __instance;
     }
 }
@@ -483,6 +485,10 @@ static class KeepPhysicsPatch {
 [HarmonyPatch(typeof(Con), "LateUpdate")]
 static class RemindPatch {
     static void Postfix() {
+        if (Con._DEV_MOVETOOL) {
+            MoveTool.Present();
+            return;
+        }
         if (!Con._DEV_TELEKINESIS || !Multiplayer.IsNetworkActiveAndIsServer()) {
             Beam.Hide();
             return;

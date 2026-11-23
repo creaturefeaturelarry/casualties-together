@@ -1423,6 +1423,14 @@ namespace Together {
             if (log.verbose)   { log.l($"{this}: OnDestroy  {this.name}  islocal: {IsLocal}  hasbody: { body != null}"); }
 #endif
 
+            // park already detached saved meshes. this drops every sync record that still
+            // names the body, before the body destroy can keep a bag alive.
+            try {
+                LeaveGear.Release(this);
+            } catch (Exception e) {
+                log.error($"{nameof(ScavPlayer)}.{nameof(OnDestroy)}: leave gear: " + e.ToString());
+            }
+
             DestroyCharacterIfNoLocal();
 
             if (BasePlayer != null) {

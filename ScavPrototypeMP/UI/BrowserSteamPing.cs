@@ -80,6 +80,20 @@ internal static class BrowserSteamPing {
         return false;
     }
 
+    // the probe is removed when the ping is read. the host's later "browser_ping" close
+    // then arrives with the same steam id as the game host, and used to kick the client.
+    public static bool IsStrayPing(SteamNetConnectionStatusChangedCallback_t cb) {
+        if (IsHostPingListen(cb.m_info.m_hListenSocket) || IsProbeConnection(cb.m_hConn)) {
+            return true;
+        }
+        string debug = cb.m_info.m_szEndDebug ?? "";
+        if (debug.IndexOf("browser_ping", StringComparison.Ordinal) >= 0) {
+            return true;
+        }
+        string desc = cb.m_info.m_szConnectionDescription ?? "";
+        return desc.IndexOf("vport " + VirtualPort, StringComparison.Ordinal) >= 0;
+    }
+
     public static bool TryBeginProbe(NetPublicServerInfo info) {
         if (info == null || info.steam_lobby_info == null || !KSteam.Loaded) {
             return false;

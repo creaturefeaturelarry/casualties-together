@@ -710,13 +710,13 @@ public static class Item_SetupItems_Listener {
                         } else {
                             if (!epda.hasBeenRead) {
                                 epda.hasBeenRead = true;
-                                body.skills.AddExp(2, 35f);
+                                SkillSync.HostGrant(body, 2, 35f);
                             }
                         }
                         var data = item.GetComponent<AnyDataContainerComponent>();
                         if (data.WasntTouched("hasBeenRead" + body.GetInstanceID())) {
                             epda.hasBeenRead = true;
-                            body.skills.AddExp(2, 35f);
+                            SkillSync.HostGrant(body, 2, 35f);
                         }
                     }
 
@@ -1701,6 +1701,13 @@ static class Body_DropItem_MultiplayerPatch {
         // a body that was not holding it did not drop it. publishing that as this player's move checks the wrong person.
         if (__state && __instance != null && __instance.IsBodyLocal())
             MoveCommit.SubmitLive(item);
+        // a tap drop unparents and simulates, then leaves discrete collision and a sleeping chunk.
+        // a throw already sets continuous and keeps that chunk awake. the host copy uses this same drop.
+        if (item != null && item.transform.parent == null) {
+            if (item.rb != null)
+                item.rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+            SimKeep.Arm(item.gameObject);
+        }
     }
 }
 
@@ -2266,7 +2273,8 @@ internal class ItemSync : CasualtiesTogetherSingleton {
             return false;
         }
         // empty bags sit at condition 0. their use draws blood into them.
-        if (item.id == "bloodbag" || item.id == "bloodbaghuman") {
+        // a hand crank's condition is its battery. 0% is the reason you crank it.
+        if (item.id == "bloodbag" || item.id == "bloodbaghuman" || item.id == "handcrank") {
             return false;
         }
         return item.condition <= 0.0001f;

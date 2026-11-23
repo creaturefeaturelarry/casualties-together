@@ -1259,7 +1259,7 @@ public static class UIMainMenu {
             } else {
                 GUILayout.BeginHorizontal(GUILayout.Height(bigheight));
                 {
-                    if (Net.IsServer) {
+                    if (!Net.IsRunning || Net.IsServer) {
                         if (GUILayout.Button(Lang.Get("mmct_serveroptions"))) {
                             _DO_SERVER_CONFIG = true;
                         }
@@ -2757,6 +2757,18 @@ public static class UIMainMenu {
     internal static void CommitSkinSetting(FieldInfo f) {
         if (f == null || f.DeclaringType != typeof(SkinSettings)) return;
         SettingsJsonThing.json.Save();
+        if (f.Name == nameof(SkinSettings.shareSkins)) {
+            SpriteReplacerPlugin.SetShareSkins(SkinSettings.shareSkins);
+            MpSkinSync.OnShareChanged();
+            SkinMenuUI.RefreshSettingsUi();
+            return;
+        }
+        if (f.Name == nameof(SkinSettings.downloadSkins)) {
+            SpriteReplacerPlugin.SetDownloadSkins(SkinSettings.downloadSkins);
+            MpSkinSync.OnDownloadChanged();
+            SkinMenuUI.RefreshSettingsUi();
+            return;
+        }
         SpriteReplacerPlugin.SyncSpeciesCache();
     }
 

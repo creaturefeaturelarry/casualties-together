@@ -220,6 +220,11 @@ static class WorldGenerationSetBlockNoUpdatePatch {
         WorldGeneration_SetBlock_MultiplayerPatch.QueueBlockChange(__instance, pos, block, true);
         return true;
     }
+
+    static void Postfix(WorldGeneration __instance, Vector2Int pos, ushort block) {
+        if (block == 0)
+            TrapSupport.OnBlockCleared(__instance, pos);
+    }
 }
 [HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.SetBlock), new[] { typeof(Vector2Int), typeof(ushort) })]
 public static class WorldGeneration_SetBlock_MultiplayerPatch {
@@ -248,6 +253,9 @@ public static class WorldGeneration_SetBlock_MultiplayerPatch {
         if (WorldGenerationGenerateBlockCirclePatch.doing_autoUpdateChunk) return;
 
         var b = new ChangedBlockInfo((Vector2Int16)pos, block);
+        // a client who already received this chunk will not be sent it again. forget it
+        // so walking back pulls the tiles placed while they were away.
+        ForgetClientChunk(pos);
         // cooled lava has to arrive. the unreliable queue drops it once it fills.
         if (block == 37) {
             if (reliableChangedBlocks.Count < 256)
@@ -255,6 +263,33 @@ public static class WorldGeneration_SetBlock_MultiplayerPatch {
         } else if (changedBlocks.Count < MaxChangedBlocksQueue) {
             //if (changed_blocks.Count < 5 || (WorldGeneration.world.earthquakeIntensity > 0f && changed_blocks.Count < MaxChangedBlocksQueue)) {
             changedBlocks.Add(b);
+        }
+    }
+
+    // the proximity resend skips a chunk marked known. placement while that client is
+    // outside the ~100 block window used to stay on the host only.
+    static void ForgetClientChunk(Vector2Int pos) {
+        int cx = pos.x / WorldChunkSync.SYNCCHUNK_TILESIZE;
+        int cy = pos.y / WorldChunkSync.SYNCCHUNK_TILESIZE;
+        int dim = WorldChunkSync.SYNCCHUNK_DIMENSION;
+        if ((uint)cx >= (uint)dim || (uint)cy >= (uint)dim)
+            return;
+
+        uint[,] hashes = WorldChunkSync.Server_ChunkHashes;
+        if (hashes != null && cx < hashes.GetLength(0) && cy < hashes.GetLength(1))
+            hashes[cx, cy] = 0;
+
+        IReadOnlyList<ScavPlayer> players = ServerMain.AllPlayersExceptHost;
+        if (players == null)
+            return;
+        for (int i = 0; i < players.Count; i++) {
+            bool[,] known = players[i] != null && players[i].ServerPlayerState != null
+                ? players[i].ServerPlayerState.known_chunks
+                : null;
+            if (known == null)
+                continue;
+            if (cx < known.GetLength(0) && cy < known.GetLength(1))
+                known[cx, cy] = false;
         }
     }
 
@@ -271,7 +306,8 @@ public static class WorldGeneration_SetBlock_MultiplayerPatch {
             for (int i = 0; i < n; i++) {
                 writer.Put(changedBlocks[i]);
             }
-            Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
+            // unreliable was dropped for anyone outside the live chunk window, and nothing sent it again.
+            Net.Server_SendToClients(DeliveryMethod.ReliableUnordered, writer, clientIds: ServerMain.AllClientIdsExceptHost);
             writer.ResetKeepMsgId();
             changedBlocks.Clear();
         }
@@ -289,6 +325,11 @@ public static class WorldGeneration_SetBlock_MultiplayerPatch {
     static bool Prefix(WorldGeneration __instance, Vector2Int pos, ushort block) {
         QueueBlockChange(__instance, pos, block, false);
         return true;
+    }
+
+    static void Postfix(WorldGeneration __instance, Vector2Int pos, ushort block) {
+        if (block == 0)
+            TrapSupport.OnBlockCleared(__instance, pos);
     }
 }
 
@@ -824,7 +865,7 @@ static class WorldGeneration_IncreaseDepthByLayer_MultiplayerPatch {
             if (body == null || body.skills == null)
                 continue;
             if (!body.IsBodyLocal()) // it was already given to local player
-                body.skills.AddExp(2, 80f);
+                SkillSync.HostGrant(body, 2, 80f);
             if (body.TryGetNetBody(out NetBody nb))
                 MedicalSync.Server_QueueSendCharacterHealth(nb, true);
         }

@@ -8,8 +8,14 @@ namespace Together;
 public static class SkinSettings {
     public const string DefaultFolder = "default";
 
-    [SettingDeclarerThingyBool("setting_skins_enable")]
+    // no settings row. skins stay on; share and download are the toggles.
     public static bool skinsEnable = true;
+
+    [SettingDeclarerThingyBool("setting_skins_share")]
+    public static bool shareSkins = true;
+
+    [SettingDeclarerThingyBool("setting_skins_download")]
+    public static bool downloadSkins = true;
 
     [SettingDeclarerThingyChoice("setting_skins_experiment", new string[] {
         "setting_skins_choice_default",

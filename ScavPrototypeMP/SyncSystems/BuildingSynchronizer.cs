@@ -649,7 +649,66 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
     public bool announce_reliable = true;
     readonly HashSet<ScavPlayer> _told = new();
     SpriteRenderer[] _sprites;
-    const float RopeSeeDistSqr = 64f * 64f;
+    GameObject _capTop;
+    GameObject _capBot;
+    static float _capSweep;
+
+    // worldgen builds these beside the climbable. they are not part of the rope object.
+    internal static bool IsDecoration(GameObject go) {
+        if (go == null || !go.TryGetComponent(out BuildingEntity build))
+            return false;
+        if (go.GetComponent<Climbable>() != null)
+            return false;
+        string id = build.id;
+        if (id == "veintop" || id == "veinbottom" || id == "sandvine" || id == "sandvinehook" || id == "mushroomropeend")
+            return true;
+        string name = go.name;
+        return name != null && (name.StartsWith("veintop") || name.StartsWith("veinbottom") || name.StartsWith("sandvinehook") || name.StartsWith("mushroomropeend"));
+    }
+
+    // a client cap that is not hanging off a confirmed rope is a leftover from local worldgen.
+    internal static void SweepOrphanDecorations(bool force) {
+        if (!Net.IsClient || Net.IsServer)
+            return;
+        if (!force && Time.realtimeSinceStartup < _capSweep)
+            return;
+        _capSweep = Time.realtimeSinceStartup + 0.5f;
+        BuildingEntity[] builds = UnityEngine.Object.FindObjectsOfType<BuildingEntity>();
+        for (int i = 0; i < builds.Length; i++) {
+            BuildingEntity build = builds[i];
+            if (build == null || !IsDecoration(build.gameObject))
+                continue;
+            if (build.GetComponentInParent<TrackerClimbableEntity>() != null)
+                continue;
+            UnityEngine.Object.Destroy(build.gameObject);
+        }
+    }
+
+    // one chunk used to be the whole check, so a vine near a far player never left the host.
+    // the sim window is four chunks around every loaded player.
+    static float SeeDistSqr() {
+        int chunk = WorldGeneration.CHUNKSIZE;
+        if (chunk < 1)
+            chunk = 64;
+        float dist = chunk * KrokV5Optimization.FixSimRange.WindowRadius;
+        return dist * dist;
+    }
+
+    // worldgen positions are not bit-identical. an exact match told the client a real vine was missing.
+    internal static TrackerClimbableEntity FindNear(Vector2 pos) {
+        TrackerClimbableEntity best = null;
+        float bestSqr = 1f;
+        foreach (TrackerClimbableEntity item in UnityEngine.Object.FindObjectsOfType<TrackerClimbableEntity>()) {
+            if (item == null)
+                continue;
+            float sqr = ((Vector2)item.transform.position - pos).sqrMagnitude;
+            if (sqr < bestSqr) {
+                bestSqr = sqr;
+                best = item;
+            }
+        }
+        return best;
+    }
 
     protected override bool WantsAnotherPass() {
         if (!Net.IsServer)
@@ -739,7 +798,8 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
 
 
     public override bool CheckDist(Vector2 pos) {
-
+        if (Net.IsClient)
+            SweepOrphanDecorations(false);
 
         var climbable = GetComponent<Climbable>();
         if (climbable == null) { // it may be sandvine begining and end decorations, i dont need to sync those
@@ -757,7 +817,7 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         int last = climbable.points.Count - 1;
         for (int i = 0; i < last; i++) {
             var closest = KM.v2getClosestPointOnLine(climbable.points[i], climbable.points[i + 1], pos);
-            if ((closest - pos).sqrMagnitude < RopeSeeDistSqr)
+            if ((closest - pos).sqrMagnitude < SeeDistSqr())
                 return true;
         }
         return false;
@@ -768,10 +828,10 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
             _sprites = GetComponentsInChildren<SpriteRenderer>(true);
         for (int i = 0; i < _sprites.Length; i++) {
             var sprite = _sprites[i];
-            if (sprite != null && sprite.bounds.SqrDistance(pos) <= RopeSeeDistSqr)
+            if (sprite != null && sprite.bounds.SqrDistance(pos) <= SeeDistSqr())
                 return true;
         }
-        return ((Vector2)transform.position - pos).sqrMagnitude < RopeSeeDistSqr;
+        return ((Vector2)transform.position - pos).sqrMagnitude < SeeDistSqr();
     }
 
 
@@ -786,10 +846,11 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         log.warn($"Client_NoTheresNoRopeFuckOff {pos}");
 #endif
 
-        var sv = GetAtPos<TrackerClimbableEntity>(pos);
+        var sv = FindNear(pos);
         if (sv != null) {
             GameObject.Destroy(sv.gameObject);
         }
+        SweepOrphanDecorations(true);
     }
 
 
@@ -804,10 +865,11 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         reader.Get(out Vector2 rope_pos);
         reader.Get(out string rope_resourceid, true);
 
-        var rope = GetAtPos<TrackerClimbableEntity>(rope_pos);
+        var rope = FindNear(rope_pos);
         if (rope == null) {
             rope = UnityEngine.Object.Instantiate(Resources.Load(rope_resourceid), rope_pos, Quaternion.identity).GetOrAddComponent<TrackerClimbableEntity>();
         }// repeat 100 0 explode_player
+        rope.transform.position = rope_pos;
         rope.was_synced = true;
 
 
@@ -841,8 +903,51 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         }
 
         climbable.CalculateTotalLength();
+        rope.EnsureCaps();
+        SweepOrphanDecorations(false);
+    }
 
+    // the host already has the caps from worldgen. a client hangs new ones on the confirmed rope so they die with it.
+    void EnsureCaps() {
+        if (!Net.IsClient || Net.IsServer)
+            return;
+        Climbable climb = GetComponent<Climbable>();
+        if (climb == null || climb.points == null || climb.points.Count < 2)
+            return;
+        Vector2 first = climb.points[0];
+        Vector2 last = climb.points[climb.points.Count - 1];
+        Vector2 floor = first.y <= last.y ? first : last;
+        Vector2 ceil = first.y <= last.y ? last : first;
+        if (is_veinloop) {
+            PlaceCap(ref _capTop, "Special/veintop", ceil + Vector2.down * 0.5f, false);
+            PlaceCap(ref _capBot, "Special/veinbottom", floor + Vector2.up * 0.5f, false);
+        } else if (is_sandvine) {
+            WorldGeneration world = WorldGeneration.world;
+            if (world == null)
+                return;
+            Vector2 hook = world.BlockToWorldPos(world.WorldToBlockPos(ceil - Vector2.up * 0.5f));
+            PlaceCap(ref _capTop, "Special/sandvinehook", hook, true);
+        } else if (is_mushroomrope) {
+            PlaceCap(ref _capBot, "Special/mushroomropeend", floor + Vector2.down * 0.5f, true);
+        }
+    }
 
+    void PlaceCap(ref GameObject cap, string resource, Vector2 worldPos, bool flip) {
+        if (cap == null) {
+            GameObject prefab = Resources.Load<GameObject>(resource);
+            if (prefab == null)
+                return;
+            cap = UnityEngine.Object.Instantiate(prefab, worldPos, Quaternion.identity, transform);
+            cap.transform.localScale = Vector3.one;
+            SpriteRenderer created = cap.GetComponent<SpriteRenderer>();
+            if (created != null && flip)
+                created.flipX = UnityEngine.Random.value > 0.5f;
+        }
+        cap.transform.position = worldPos;
+        SpriteRenderer ropeSprite = GetComponent<SpriteRenderer>();
+        SpriteRenderer capSprite = cap.GetComponent<SpriteRenderer>();
+        if (ropeSprite != null && capSprite != null)
+            capSprite.color = ropeSprite.color;
     }
 
 
@@ -857,7 +962,7 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
         reader.Get(out Vector2 pos);
 
 
-        var thing = GetAtPos<TrackerClimbableEntity>(pos);
+        var thing = FindNear(pos);
         if (thing == null) {
             var writer = Net.CreateWriter(NetmsgId.CLIENT_NoTheresNoRopeFuckOff);
 
@@ -994,6 +1099,130 @@ internal static class BuildingEntity_CheckSeating_MultiplayerPatch {
     }
 }
 
+// stock subscribes CheckSeating to ChunkUpdated while placing the trap. that listener
+// does not survive onto the objects that stay in a multiplayer world, and a fan
+// only lets go inside OnWillRenderObject, which the host then pins static again.
+internal static class TrapSupport {
+    static readonly FieldInfo FanDislodged = AccessTools.Field(typeof(FanTrap), "dislodged");
+    static readonly Collider2D[] Hits = new Collider2D[96];
+    static readonly HashSet<int> Seen = new HashSet<int>();
+
+    static readonly List<BuildingEntity> Pending = new List<BuildingEntity>();
+
+    internal static void OnBlockCleared(WorldGeneration world, Vector2Int pos) {
+        if (!Net.IsRunning || !Net.IsServer || world == null || world.generatingWorld || !world.worldExists)
+            return;
+        Vector2 center = world.BlockToWorldPos(pos);
+        Seen.Clear();
+        Pending.Clear();
+        // a fence sits several units above its cell. a ceiling trap hangs just below it.
+        int n = Physics2D.OverlapBoxNonAlloc(center + Vector2.up * 2f, new Vector2(6f, 16f), 0f, Hits);
+        for (int i = 0; i < n; i++) {
+            Collider2D hit = Hits[i];
+            Hits[i] = null;
+            if (hit == null)
+                continue;
+            Note(hit.GetComponentInParent<BuildingEntity>());
+        }
+        // chunk sleep turns the collider off. the registry still has the pad.
+        Dictionary<GameObject, SyncInfo> registry = NetObjectRegistry.SyncRegistry;
+        if (registry != null) {
+            foreach (KeyValuePair<GameObject, SyncInfo> pair in registry) {
+                GameObject go = pair.Key;
+                if (go == null)
+                    continue;
+                Vector3 at = go.transform.position;
+                float dx = at.x - center.x;
+                float dy = at.y - center.y;
+                if (dx * dx + dy * dy > 81f)
+                    continue;
+                if (!go.TryGetComponent(out BuildingEntity building))
+                    continue;
+                Note(building);
+            }
+        }
+        for (int i = 0; i < Pending.Count; i++) {
+            BuildingEntity building = Pending[i];
+            if (building == null || building.GetHealth() < 0.5f)
+                continue;
+            if (!Supports(world, building, pos))
+                continue;
+            Release(building, pos);
+        }
+        Pending.Clear();
+    }
+
+    static void Note(BuildingEntity building) {
+        if (building == null || !Seen.Add(building.GetInstanceID()))
+            return;
+        if (!building.requireGround && building.GetComponent<FanTrap>() == null && building.GetComponent<StalactiteDropper>() == null)
+            return;
+        Pending.Add(building);
+    }
+
+    // worldgen stores the cell half a unit along the placement ray. the tile you mine
+    // is often the one under the sprite, one step off that stored cell.
+    static bool Supports(WorldGeneration world, BuildingEntity building, Vector2Int pos) {
+        if (building.blockPlacedOn == pos)
+            return true;
+        Vector2 at = building.transform.position;
+        if (world.WorldToBlockPos(at) == pos)
+            return true;
+        if (world.WorldToBlockPos(at + Vector2.down * 0.51f) == pos)
+            return true;
+        if (world.WorldToBlockPos(at + Vector2.down * 1.01f) == pos)
+            return true;
+        if (world.WorldToBlockPos(at + Vector2.up * 0.51f) == pos)
+            return true;
+        if (world.WorldToBlockPos(at + Vector2.up * 1.01f) == pos)
+            return true;
+        if (building.blockPlacedOn == default)
+            return false;
+        int dx = building.blockPlacedOn.x - pos.x;
+        int dy = building.blockPlacedOn.y - pos.y;
+        return dx == 0 && dy >= -1 && dy <= 1;
+    }
+
+    static void Release(BuildingEntity building, Vector2Int pos) {
+        building.blockPlacedOn = pos;
+        if (building.TryGetComponent(out FanTrap fan)) {
+            DislodgeFan(fan);
+            return;
+        }
+        if (building.TryGetComponent(out StalactiteDropper stalactite)) {
+            stalactite.CheckSeating();
+            return;
+        }
+        if (!building.requireGround)
+            return;
+        building.CheckSeating();
+        if (building != null && building.GetHealth() >= 0.5f)
+            building.SetHealth(0f, true);
+    }
+
+    internal static void DislodgeFan(FanTrap fan) {
+        if (fan == null)
+            return;
+        if (FanDislodged != null)
+            FanDislodged.SetValue(fan, true);
+        Rigidbody2D rb = fan.GetComponent<Rigidbody2D>();
+        if (rb != null) {
+            rb.bodyType = RigidbodyType2D.Dynamic;
+            rb.mass = 20f;
+            rb.gravityScale = 1f;
+            rb.simulated = true;
+        }
+        if (fan.TryGetComponent(out BuildingEntity building))
+            building.ignoreBodyOptimize = false;
+    }
+
+    internal static bool FanIsLoose(BuildingEntity building) {
+        if (building == null || FanDislodged == null || !building.TryGetComponent(out FanTrap fan))
+            return false;
+        return (bool)FanDislodged.GetValue(fan);
+    }
+}
+
 [HarmonyPatch(typeof(BuildingEntity), nameof(BuildingEntity.Update))]
 public static class BuildingEntity_Update_MultiplayerPatch {
 
@@ -1005,6 +1234,10 @@ public static class BuildingEntity_Update_MultiplayerPatch {
             PlayDeathOnce(__instance);
             return false;
         }
+        // a loose fan used to stay on the stock path, which forces Static whenever
+        // the host chunk renderer is off and wipes the fall on the next step.
+        if (Net.IsRunning && TrapSupport.FanIsLoose(__instance))
+            __instance.ignoreBodyOptimize = false;
         // stock sets Static when the host chunk renderer is off. putting Dynamic
         // back in the same update zeros velocity, so a fall far from the host
         // never gets past one physics step.
@@ -1193,6 +1426,8 @@ public static class BuildingEntity_Start_MultiplayerPatch {
     }
 
     static void Postfix(BuildingEntity __instance) {
+        if (SavesystemPatch.InDebugMap)
+            MapPoses.Capture(__instance);
         if (!Net.IsRunning) return;
 
         // the AC is a child of the structure, not a heater on the building root
@@ -1458,7 +1693,7 @@ public class TrackerSpiderHandler : BaseComponentTracker<SpiderHandler> {
         // make the exp thing apply to all players
         foreach (var item in NetBody.GetBodiesInRadius(og.transform.position, 32f)) {
             if (!Util.IsBodyLocal(item.body)) {// playerCamera.main.body already gets the exp
-                item.body.skills.AddExp(1, og.maxHealth / 100f);
+                SkillSync.HostGrant(item.body, 1, og.maxHealth / 100f);
             }
         }
     }
