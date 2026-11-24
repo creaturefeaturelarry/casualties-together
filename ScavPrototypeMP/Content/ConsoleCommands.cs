@@ -3639,7 +3639,10 @@ public class Con : CasualtiesTogetherSingleton {
                 player_colon_plrlist[i] = "plr:" + player_colon_plrlist[i];
             }
 
-            List<string> allmacros = new List<string> { "@c", "@a", "@o", "@r", "@m" };
+            List<string> allmacros = new List<string> { "@c", "@a", "@o", "@r", "@m", "@team:" };
+#if FULLGAME
+            allmacros.Add("@species:");
+#endif
             allmacros.AddRange(plrlist);
             macros_plus_plrlist = allmacros.ToList();
         }
@@ -3834,7 +3837,21 @@ public class Con : CasualtiesTogetherSingleton {
         if (plrname.StartsWith('@') && (allowMacros || loweredPlrname == "@c")) {
 
             if (!onlyOne) {
-                if (loweredPlrname == "@a") { // all players
+                if (loweredPlrname.TryTrimStart("@team:", out var team, true)) {
+                    if (team.StartsWith('#') && Color24.TryParseHex(team, out var teamColor)) {
+                    } else if (TryGetPlayerFromPartialName(plrname.Substring("@team:".Length), out var plr, toFilter)) {
+                        teamColor = plr.playerColor;
+                    } else {
+                        return list;
+                    }
+                    return toFilter.Where(x => x.playerColor == teamColor).ToList();
+#if FULLGAME
+                } else if (loweredPlrname.TryTrimStart("@species:", out var species, true)) {
+                    if (!TryParseSpeciesArg(species, out var chr))
+                        return list;
+                    return toFilter.Where(x => x.body != null && x.body.charType == chr).ToList();
+#endif
+                } else if (loweredPlrname == "@a") { // all players
                     return toFilter;
                 } else if (loweredPlrname == "@o") { // all players except caller
                     toFilter.Remove(caller);
@@ -3882,18 +3899,10 @@ public class Con : CasualtiesTogetherSingleton {
         } else {
 
             if (plrname.TryTrimStart("body:", out var bodyId, true)) {
-                if (ushort.TryParse(bodyId, out var bodyNetId) && NetBody.TryGetNetBodyFromId(bodyNetId, out var nb) && nb.IsPlayer) {
+                if (ushort.TryParse(bodyId, out var bodyNetId) && NetBody.TryGetNetBodyFromId(bodyNetId, out var nb) && nb.IsPlayer && toFilter.Contains(nb.plr)) {
                     list.Add(nb.plr);
                     return list;
                 }
-            } else if (!onlyOne && plrname.TryTrimStart("team:", out var team, true)) {
-                if (Color24.TryParseHex(team, out var teamColor)) {
-                } else if (TryGetPlayerFromPartialName(plrname, out var plr, toFilter)) {
-                    teamColor = plr.playerColor;
-                } else {
-                    return list;
-                }
-                return toFilter.Where(x => x.playerColor == teamColor).ToList();
             } else {
                 if (TryGetPlayerFromPartialName(plrname, out var plr, toFilter)) {
                     list.Add(plr);
