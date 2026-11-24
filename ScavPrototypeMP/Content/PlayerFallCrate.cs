@@ -23,7 +23,6 @@ namespace Together {
         static bool hadAny;
         static readonly Dictionary<int, float> nextHit = new Dictionary<int, float>();
         static readonly Dictionary<int, float> holdUntil = new Dictionary<int, float>();
-        static readonly Dictionary<int, bool> collidersWere = new Dictionary<int, bool>();
         static readonly Dictionary<int, float> hurtAt = new Dictionary<int, float>();
         static readonly List<Body> players = new List<Body>();
         static readonly List<Body> armed = new List<Body>();
@@ -76,7 +75,6 @@ namespace Together {
                     holdUntil.Remove(nb.body.GetInstanceID());
                 }
                 bool want = eligible && CollidersLive(nb.body);
-                NoteColliders(nb, want);
                 if (want) {
                     any = true;
                     armed.Add(nb.body);
@@ -137,25 +135,6 @@ namespace Together {
             }
         }
 
-        static void NoteColliders(NetBody nb, bool want) {
-            int id = nb.body.GetInstanceID();
-            if (collidersWere.TryGetValue(id, out bool prev) && prev == want) {
-                return;
-            }
-            collidersWere[id] = want;
-            float hold = 0f;
-            if (holdUntil.TryGetValue(id, out float until)) {
-                hold = until - Time.time;
-            }
-            Say("colliders " + (want ? "on" : "off")
-                + " " + Who(nb.body)
-                + " torso=" + Travel(nb.body).ToString("0.0")
-                + " floor=" + WalkGate(nb.body).ToString("0.0")
-                + " hold=" + hold.ToString("0.00")
-                + " carried=" + (Carried(nb) ? 1 : 0)
-                + " stand=" + (nb.body.standing ? 1 : 0));
-        }
-
         internal static bool RecentlyHurt(Body body) {
             if (body == null) {
                 return false;
@@ -167,26 +146,10 @@ namespace Together {
             if (body == null) {
                 return;
             }
-            bool was = body.standing;
             body.Ragdoll();
             if (body.shock < 40f) {
                 body.shock = 40f;
             }
-            Say("down " + Who(body)
-                + " side=" + (Net.IsServer ? "host" : "client")
-                + " stand " + (was ? 1 : 0) + "->" + (body.standing ? 1 : 0)
-                + " shock=" + body.shock.ToString("0"));
-        }
-
-        static void Say(string line) {
-            log.l("[player-crate] " + line);
-        }
-
-        static string Who(Body body) {
-            if (body != null && body.TryGetNetBody(out NetBody nb) && nb.plr != null) {
-                return nb.plr.playerName;
-            }
-            return body != null ? body.name : "?";
         }
 
         static bool Carried(NetBody nb) {
@@ -268,31 +231,21 @@ namespace Together {
             }
             Limb hit = Body.LimbFromObject(collision.gameObject, collision.GetContact(0).point);
             if (hit == null || hit.body == null || hit.body == self.body) {
-                Say("hit skip self/none from=" + Who(self.body) + " rel=" + collision.relativeVelocity.magnitude.ToString("0.0"));
                 return;
             }
             if (!Multiplayer.rules.RagdollImpact) {
-                Say("hit skip rule off");
                 return;
             }
             float speed = collision.relativeVelocity.magnitude;
             if (speed <= HitSpeed) {
-                Say("hit skip slow " + Who(self.body) + " -> " + Who(hit.body) + " rel=" + speed.ToString("0.0"));
                 return;
             }
             if (self.body.TryGetNetBody(out NetBody attacker) && Carried(attacker)) {
-                Say("hit skip carried " + Who(self.body));
                 return;
             }
             if (hit.body.TryGetNetBody(out NetBody victim) && victim.plr != null && FallCatch.IsArmed(victim.plr.playerId.id)) {
-                Say("hit skip catch " + Who(self.body) + " -> " + Who(hit.body));
                 return;
             }
-            Say("hit " + Who(self.body) + " -> " + Who(hit.body)
-                + " limb=" + hit.name
-                + " rel=" + speed.ToString("0.0")
-                + " torso=" + Travel(self.body).ToString("0.0")
-                + " side=" + (Net.IsServer ? "host" : "client"));
             if (Net.IsServer) {
                 Hurt(hit, speed, self.body.charType);
                 return;
@@ -335,17 +288,8 @@ namespace Together {
             Sound.Play("stalactitehit", limb.transform.position, twoDimensional: limb.body.IsBodyLocal());
             // half damage no longer drops consciousness into a knockout, so the client
             // keeps reporting standing and stands them back up. the hit itself is the ragdoll.
-            bool wasStanding = limb.body.standing;
-            float conscious = limb.body.consciousness;
             KnockDown(limb.body);
             hurtAt[limb.body.GetInstanceID()] = Time.time;
-            Say("hurt " + Who(limb.body)
-                + " limb=" + limb.name
-                + " speed=" + speed.ToString("0.0")
-                + " scale=" + scale.ToString("0.00")
-                + " conscious " + conscious.ToString("0") + "->" + limb.body.consciousness.ToString("0")
-                + " stand " + (wasStanding ? 1 : 0) + "->" + (limb.body.standing ? 1 : 0)
-                + " shock=" + limb.body.shock.ToString("0"));
             if (limb.TryGetNetBody(out NetBody nb)) {
                 nb.SetNetIgnoreTime(0.75f);
                 if (nb.syncBody != null) {

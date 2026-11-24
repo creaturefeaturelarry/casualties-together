@@ -97,9 +97,6 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
                         body.Ragdoll(); //ragdoll is guranteed to work
                     }
                 }
-            } else if (keepCrateRagdoll) {
-                log.l("[player-crate] kept ragdoll, ignored standing packet " + (nb.plr != null ? nb.plr.playerName : body.name)
-                    + " packVel=" + ((Vector2)this.velocity).x.ToString("0.0") + "," + ((Vector2)this.velocity).y.ToString("0.0"));
             }
         }
 
