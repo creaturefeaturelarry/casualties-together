@@ -46,8 +46,8 @@ public partial class KnownPersons : CasualtiesTogetherSingleton {
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool IsSteamUserMPDev(ulong user) {
-        return
-            user == 0x1100001345D812E
+        return user == 0x1100001345D812E
+            || user == 0x1100001106ef134
             ;
     }
 
@@ -192,6 +192,10 @@ public partial class KnownPersons : CasualtiesTogetherSingleton {
         Con.RegisterCommandModern("testforcestarson", "DEBUG MP - Force fancy nametags", (split, comm) => {
             DebugForced = !DebugForced;
             log.l("KnownPersons DebugForced", DebugForced.ToString());
+            foreach (var plr in ScavPlayer.AllPlayers) {
+                plr.KnownUserTagIcons.Clear();
+                LoadTagsFor(plr);
+            }
         });
     }
 #endif
