@@ -53,6 +53,7 @@ public static class RuleCategories {
             nameof(MultiplayerGameRules.AllowSpectatorFreecam)),
         new Category("coop", "Teamwork and Carrying",
             nameof(MultiplayerGameRules.AllowPush), nameof(MultiplayerGameRules.AlwaysAllowCarry),
+            nameof(MultiplayerGameRules.RagdollImpact),
             nameof(MultiplayerGameRules.PiggybackMaxStack), nameof(MultiplayerGameRules.PiggybackWeightMultiplier),
             nameof(MultiplayerGameRules.NoInventoryLock), nameof(MultiplayerGameRules.ConsentForFeeding),
             nameof(MultiplayerGameRules.MinigameMaxPlayers)),

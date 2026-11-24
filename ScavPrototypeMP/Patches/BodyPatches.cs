@@ -546,6 +546,19 @@ namespace Together {
                 body.forceNoMovement = __state.savedForceNoMovement;
             }
 
+            // stock reads CoUtils.instance. in multiplayer that getter is the singleton,
+            // while the drink timer often lives on the body's own CoUtils. the speed buff
+            // still runs. the moodle and the saturation tint look at this flag.
+            if (Net.IsRunning && body != null) {
+                bool fromOwn = StimulantActive(body.GetCoUtilsInstance());
+                if (Util.IsBodyLocal(body))
+                    fromOwn = fromOwn || StimulantActive(CoUtils_instance_MultiplayerPatch.original_local_instance);
+                if (Net.IsServer)
+                    body.onHardStimulants = fromOwn;
+                else if (fromOwn)
+                    body.onHardStimulants = true;
+            }
+
             if (!Net.IsRunning || !__state.halfMinuteTick || Util.IsBodyLocal(body)) {
                 return;
             }
@@ -554,6 +567,14 @@ namespace Together {
             if (PlayerCamera.main != null && PlayerCamera.main.threatMusicTime == 8f) {
                 PlayerCamera.main.threatMusicTime = 0f;
             }
+        }
+
+        static bool StimulantActive(CoUtils cu) {
+            if (cu == null)
+                return false;
+            return cu.DurationOf("midgradestimulant") > 0f
+                || cu.DurationOf("lowgradestimulant") > 0f
+                || cu.DurationOf("highgradestimulant") > 0f;
         }
 
     }

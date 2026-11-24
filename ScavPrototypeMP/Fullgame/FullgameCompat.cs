@@ -62,6 +62,10 @@ public static class FullgameWorldCompat {
         return y >= (float)(0L - (long)half) + 3.1f + slack;
     }
 
+    public static bool HasChipMarker;
+    public static Vector2 ChipMarker;
+    internal static bool _applyingChip;
+
     public static void WriteWorldExtras(NetDataWriter writer) {
         writer.Put(Physics2D.gravity.y);
         writer.Put(WorldGeneration.world != null && WorldGeneration.world.isMercRun);
@@ -69,6 +73,10 @@ public static class FullgameWorldCompat {
         writer.Put(WorldGeneration.world != null ? WorldGeneration.world.endlessLoops : 0);
         writer.Put((byte)SeasonalManager.GetSeasonalEvent());
         writer.Put(WorldGeneration.world == null || WorldGeneration.world.allowEarthquakes);
+        bool hasChip = PlayerCamera.main != null && PlayerCamera.main.chipHeight.HasValue;
+        writer.Put(hasChip);
+        if (hasChip)
+            writer.Put(PlayerCamera.main.chipHeight.Value);
     }
 
     public static void ReadWorldExtras(NetDataReader reader) {
@@ -103,6 +111,31 @@ public static class FullgameWorldCompat {
             WorldGeneration.world.allowEarthquakes = allowQuakes;
         }
         WorldMP.earthquake_enabled = allowQuakes;
+
+        if (reader.EndOfData)
+            return;
+        reader.Get(out bool hasChip);
+        if (hasChip) {
+            if (reader.EndOfData)
+                return;
+            reader.Get(out Vector2 chip);
+            HasChipMarker = true;
+            ChipMarker = chip;
+        } else {
+            HasChipMarker = false;
+        }
+        ApplyChipMarker();
+    }
+
+    public static void ApplyChipMarker() {
+        if (PlayerCamera.main == null)
+            return;
+        _applyingChip = true;
+        try {
+            PlayerCamera.main.SetChipIndicatorPos(HasChipMarker ? ChipMarker : (Vector2?)null);
+        } finally {
+            _applyingChip = false;
+        }
     }
 
     public static void ApplyModifierGravity(float gravityY) {
@@ -1349,6 +1382,26 @@ static class Limb_AttachProsthetic_HealthPush_MultiplayerPatch {
 [HarmonyPatch(typeof(MovementCourse), "Start")]
 static class MovementCourse_Start_MultiplayerPatch {
     static bool Prefix() => !Net.IsRunning;
+}
+
+// each client worldgen rolls its own chip spot. the scanner reads that local point.
+[HarmonyPatch(typeof(PlayerCamera), nameof(PlayerCamera.SetChipIndicatorPos))]
+static class PlayerCamera_SetChipIndicatorPos_MultiplayerPatch {
+    static bool Prefix(Vector2? ps) {
+        if (!Net.IsRunning || FullgameWorldCompat._applyingChip)
+            return true;
+        if (Net.IsClient)
+            return false;
+        return true;
+    }
+
+    static void Postfix(Vector2? ps) {
+        if (!Net.IsRunning || !Net.IsServer || FullgameWorldCompat._applyingChip)
+            return;
+        FullgameWorldCompat.HasChipMarker = ps.HasValue;
+        if (ps.HasValue)
+            FullgameWorldCompat.ChipMarker = ps.Value;
+    }
 }
 
 #endif

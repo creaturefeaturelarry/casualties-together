@@ -2382,6 +2382,12 @@ namespace Together {
                     ghostRb.rotation = rawAng;
                 }
                 held.SetPositionAndRotation(raw, Quaternion.Euler(0f, 0f, rawAng));
+                // the release packet is the last turn. the glide has to start there, not at the pose from before the drag.
+                _poseGlide = true;
+                _poseFrom = _poseTo = raw;
+                _poseFromAng = _poseToAng = rawAng;
+                _poseDur = 0f;
+                _poseStart = Time.fixedTime;
                 return;
             }
             if (go != null)
@@ -2496,7 +2502,9 @@ namespace Together {
             } else if (isRigid && rb.bodyType == RigidbodyType2D.Dynamic && rb.simulated) {
                 pasted = true;
                 rb.velocity = _velocity.Value;
-                rb.angularVelocity = angvel;
+                // the glide already walks the angle. leaving the old spin on the body
+                // stops the turn short of the last packet.
+                rb.angularVelocity = 0f;
             }
 
             HostPhysProbe.NoteClient(this, currentPos, pos, rb, false, pasted);
@@ -2512,6 +2520,9 @@ namespace Together {
                 }
                 if (shouldApplyAng) {
                     trans.rotation = Quaternion.Euler(0, 0, angle);
+                    if (isRigid && rb != null) {
+                        rb.rotation = angle;
+                    }
                     shouldApplyAng = false;
                 }
             }

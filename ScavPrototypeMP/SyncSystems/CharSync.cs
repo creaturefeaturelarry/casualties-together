@@ -77,9 +77,11 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
         var body = nb.body;
 
         bool alreadyCarried = nb.piggybacking_on != null;
+        // the crate hit already put them down. this packet was built while they were still standing.
+        bool keepCrateRagdoll = this.standing && PlayerFallCrate.RecentlyHurt(body);
         {
             // a packet still in flight from the ground must not stand them up or clear the carry
-            if (!alreadyCarried) {
+            if (!alreadyCarried && !keepCrateRagdoll) {
                 if (this.standing) {
                     is_piggyback = false;
                     body.shock = 0; // ensure that he will not get ragdolled later imidietly
@@ -95,6 +97,9 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
                         body.Ragdoll(); //ragdoll is guranteed to work
                     }
                 }
+            } else if (keepCrateRagdoll) {
+                log.l("[player-crate] kept ragdoll, ignored standing packet " + (nb.plr != null ? nb.plr.playerName : body.name)
+                    + " packVel=" + ((Vector2)this.velocity).x.ToString("0.0") + "," + ((Vector2)this.velocity).y.ToString("0.0"));
             }
         }
 
@@ -125,7 +130,7 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
             WritePiggyback(nb);
         }
 
-        if (nb.piggybacking_on == null) {
+        if (nb.piggybacking_on == null && !keepCrateRagdoll) {
             nb.SetBodyPosition(this.pos);
 
             if (body.IsBodyLocal() && body.alive) {
@@ -151,7 +156,8 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
         Vector2 targetvel = (Vector2)this.velocity;
 
         // setVelocity writes every limb. doing that while carried cancels the ragdoll flop and yanks them off the chest.
-        if (nb.piggybacking_on == null) {
+        // a standing packet's velocity is ~0 and would cancel the fall that just ragdolled them.
+        if (nb.piggybacking_on == null && !keepCrateRagdoll) {
             if (body.standing) {
                 body.rb.velocity = targetvel;
             } else {

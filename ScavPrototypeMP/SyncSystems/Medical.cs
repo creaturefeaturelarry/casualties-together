@@ -458,6 +458,7 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
         this.lastStandTime = -10000;
         this.adrenaline = 0;
         this.stimulantMultiplier = 0;
+        this.onHardStimulants = false;
     }
 
     public bool bothEyesGone {
@@ -491,6 +492,10 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
     public bool sleeping {
         get => pb1[7];
         set => pb1[7] = value;
+    }
+    public bool onHardStimulants {
+        get => pb2[1];
+        set => pb2[1] = value;
     }
 
 
@@ -663,6 +668,7 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
             mindwiped = body.IsMindwiped();
 
             stimulantMultiplier = body.stimulantMultiplier;
+            onHardStimulants = body.onHardStimulants;
 
 #if FULLGAME
             hasCargo = body.hasCargo;
@@ -721,10 +727,10 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
 
         var is_local = Util.IsBodyLocal(body);
 
-        // regrow once when the snapshot's missing limbs do not match the rig.
-        // agreeing packets must not rebuild the character every tick.
-        if (body.IsAnyLimbMissing() && HasLimbStructureMismatch(body)) {
-            Util.RegrowAllLimbs(body);
+        bool[] wasOff = new bool[body.limbs.Length];
+        for (int i = 0; i < body.limbs.Length; i++) {
+            Limb before = body.limbs[i];
+            wasOff[i] = before != null && before.dismembered;
         }
 
         // limbs 
@@ -745,6 +751,21 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
             limb13.Apply(body.limbs[13]);
             limb14.Apply(body.limbs[14]);
         }
+
+        bool relit = false;
+        for (int i = 0; i < body.limbs.Length; i++) {
+            Limb limb = body.limbs[i];
+            if (limb == null || !wasOff[i] || limb.dismembered) {
+                continue;
+            }
+            Util.RestoreDetachedLimb(limb);
+            relit = true;
+        }
+        if (relit) {
+            Util.IgnoreOwnLimbCollisions(body);
+        }
+        // a limb that was turned off lost its hinge. put the live ones back, including the head.
+        Util.RebindLimbHinges(body);
 
         // main body parameters 
         {
@@ -829,6 +850,7 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
             }
 
             body.stimulantMultiplier = stimulantMultiplier;
+            body.onHardStimulants = onHardStimulants;
 #if FULLGAME
             // rising edge: show cargo + ragdoll locally without re-running EmbedCargo damage/SFX
             // (host already applied full effects; BlueHeart cutscene must not double-impale)
@@ -866,25 +888,6 @@ public struct CharacterHealthStateSyncPacket : INetSerializeByMemcpy {
             npc.last_mood = happiness;
         }
 
-    }
-
-    private bool HasLimbStructureMismatch(Body body) {
-        return
-            body.limbs[0].dismembered != limb0.dismembered ||
-            body.limbs[1].dismembered != limb1.dismembered ||
-            body.limbs[2].dismembered != limb2.dismembered ||
-            body.limbs[3].dismembered != limb3.dismembered ||
-            body.limbs[4].dismembered != limb4.dismembered ||
-            body.limbs[5].dismembered != limb5.dismembered ||
-            body.limbs[6].dismembered != limb6.dismembered ||
-            body.limbs[7].dismembered != limb7.dismembered ||
-            body.limbs[8].dismembered != limb8.dismembered ||
-            body.limbs[9].dismembered != limb9.dismembered ||
-            body.limbs[10].dismembered != limb10.dismembered ||
-            body.limbs[11].dismembered != limb11.dismembered ||
-            body.limbs[12].dismembered != limb12.dismembered ||
-            body.limbs[13].dismembered != limb13.dismembered ||
-            body.limbs[14].dismembered != limb14.dismembered;
     }
 
     public override string ToString() {
