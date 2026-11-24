@@ -305,6 +305,12 @@ public static class CharacterSpawn {
         Vector2 pos = plr.body.transform.position;
         NetBody old = plr.netBody;
         Together.log.warn($"[Species] rebuild \"{plr.playerName}\" {plr.body.charType}->{want}");
+        // the mesh destroy takes every child with it. park the gear first or a
+        // continue that rebuilds the host leaves them empty.
+        GameObject parked = ParkGear(plr.body);
+        bool wasLoaded = plr.ServerPlayerState != null && plr.ServerPlayerState.loaded_save;
+        if (plr.ServerPlayerState != null)
+            plr.ServerPlayerState.loaded_save = true;
         plr.body = null;
         if (old != null) {
             if (sb != null && ReferenceEquals(sb.nb, old)) {
@@ -314,11 +320,59 @@ public static class CharacterSpawn {
             ForceDestroyNetBodyMesh(old);
         }
         NetBody.CreateNewPlayerCharacter(plr, sb);
+        if (plr.ServerPlayerState != null)
+            plr.ServerPlayerState.loaded_save = wasLoaded;
         if (plr.netBody != null) {
             plr.netBody.SetBodyPosition(pos);
             ApplySelectedToSyncBody(plr.netBody.syncBody ?? sb, plr);
+            if (plr.body != null)
+                plr.body.charType = want;
+            RestoreGear(plr.body, parked);
             EnsureBodySpecies(plr.body);
+        } else if (parked != null) {
+            UnityEngine.Object.Destroy(parked);
         }
+    }
+
+    static GameObject ParkGear(Body body) {
+        if (body == null)
+            return null;
+        GameObject holder = new GameObject("SPECIES_PARK");
+        holder.SetActive(false);
+        if (body.slots != null) {
+            for (int i = 0; i < body.slots.Length; i++) {
+                Item item = body.GetItem(i);
+                if (item != null)
+                    item.transform.SetParent(holder.transform, true);
+            }
+        }
+        foreach (Item worn in body.GetAllWearables()) {
+            if (worn != null)
+                worn.transform.SetParent(holder.transform, true);
+        }
+        return holder;
+    }
+
+    static void RestoreGear(Body body, GameObject holder) {
+        if (holder == null)
+            return;
+        if (body == null) {
+            UnityEngine.Object.Destroy(holder);
+            return;
+        }
+        var left = new List<Item>();
+        foreach (Transform child in holder.transform) {
+            if (child != null && child.TryGetComponent(out Item item))
+                left.Add(item);
+        }
+        for (int i = 0; i < left.Count; i++) {
+            Item item = left[i];
+            if (item == null)
+                continue;
+            item.transform.SetParent(null);
+            body.AutoPickUpItem(item);
+        }
+        UnityEngine.Object.Destroy(holder);
     }
 
     static void ForceDestroyNetBodyMesh(NetBody npc) {

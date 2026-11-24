@@ -25,9 +25,12 @@ public static class SaveSystem_HasSave_MultiplayerPatch {
             force = false;
             return false;
         }
-        // vanilla path is the save.sv the menu reads, so only that file counts.
-        string path = SavesystemPatch.GetTheOnePersistentDataPathWithSaveFile();
-        SavesystemPatch.savedatapathreplacement = path;
+        // do not write savedatapathreplacement here. a per-player load has already
+        // aimed it at that player's folder, and this used to point the read back
+        // at mp_save/save.sv, which is a copy of the host.
+        string path = string.IsNullOrEmpty(SavesystemPatch.savedatapathreplacement)
+            ? SavesystemPatch.GetTheOnePersistentDataPathWithSaveFile()
+            : SavesystemPatch.savedatapathreplacement;
         if (path == SavesystemPatch.vanillasavefolder) {
             __result = SavesystemPatch.HasVanillaSaveFile();
         } else {
@@ -59,11 +62,13 @@ public static class SaveSystem_SaveGame_MultiplayerPatch {
         var camera = PlayerCamera.main;
         Body previous = camera != null ? camera.body : null;
         force = true;
+        SavesystemPatch.PinFolder(SavesystemPatch.savedatapathreplacement);
         try {
             if (camera != null)
                 camera.body = body;
             SaveSystem.SaveGame();
         } finally {
+            SavesystemPatch.UnpinFolder();
             force = false;
             if (camera != null)
                 camera.body = previous;
@@ -130,7 +135,12 @@ public static class SaveSystem_SaveGame_MultiplayerPatch {
 
                                 force = true;
                                 PlayerCamera.main.body = bodyplr.Key;
-                                SaveSystem.SaveGame();
+                                SavesystemPatch.PinFolder(SavesystemPatch.savedatapathreplacement);
+                                try {
+                                    SaveSystem.SaveGame();
+                                } finally {
+                                    SavesystemPatch.UnpinFolder();
+                                }
                             } catch (Exception e) {
                                 log.error($"SaveGame_MultiplayerPatch: SAVING {bodyplr.Value.ToString()}:\n{e.ToString()}");
                             }
@@ -459,7 +469,8 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
                                     }
 #endif
                                     
-                                    if (Directory.Exists(SavesystemPatch.savedatapathreplacement)) {
+                                    string playerFile = Path.Combine(SavesystemPatch.savedatapathreplacement, "save.sv");
+                                    if (File.Exists(playerFile)) {
                                         try {
                                             SaveSystem_HasSave_MultiplayerPatch.force = true;
                                             SaveSystem.loadedRun = true;
@@ -468,7 +479,12 @@ public static class SaveSystem_LoadGame_MultiplayerPatch {
 #if !RELEASE 
                                             log.l("PATH BEFORE CALLING TryLoadGame: " + SavesystemPatch.savedatapathreplacement);
 #endif
-                                            SaveSystem.TryLoadGame();
+                                            SavesystemPatch.PinFolder(SavesystemPatch.savedatapathreplacement);
+                                            try {
+                                                SaveSystem.TryLoadGame();
+                                            } finally {
+                                                SavesystemPatch.UnpinFolder();
+                                            }
 
                                             // immidiately register allat
                                             foreach (var item in bodyplr.Key.GetAllItemsThorough()) {
@@ -802,7 +818,29 @@ public static class SavesystemPatch {
             world.trapRarityMultiplier = peek.trapRarity;
     }
 
+    static int _folderPin;
+    static string _pinnedFolder;
+
+    // held across one vanilla SaveGame or TryLoadGame so HasSave and the menu
+    // path cannot retarget the file while that player's body is on the camera.
+    internal static void PinFolder(string folder) {
+        if (string.IsNullOrEmpty(folder))
+            return;
+        _folderPin++;
+        _pinnedFolder = folder;
+        savedatapathreplacement = folder;
+    }
+
+    internal static void UnpinFolder() {
+        if (_folderPin > 0)
+            _folderPin--;
+        if (_folderPin == 0)
+            _pinnedFolder = null;
+    }
+
     public static string ReplacementFor_Application_persistentDataPath() {
+        if (_folderPin > 0 && !string.IsNullOrEmpty(_pinnedFolder))
+            return _pinnedFolder;
         return savedatapathreplacement;
     }
 
