@@ -210,9 +210,6 @@ public static class Body_FixedUpdate_RemoteRagdoll {
         if (!__instance.TryGetNetBody(out NetBody nb) || !nb.IsPlayer) {
             return true;
         }
-        if (nb.piggybacking_on != null) {
-            CarryProbe.MarkSkip(__instance);
-        }
         if (__instance.rb != null) {
             __instance.rb.gravityScale = 1f;
             __instance.lastTimeStepVelocity = __instance.rb.velocity;
