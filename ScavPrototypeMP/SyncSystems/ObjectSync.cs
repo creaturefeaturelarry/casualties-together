@@ -186,7 +186,9 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
     }
 
     static int VisualUpdateSlowerWhenNotVisible = 15;
+    static readonly List<SyncInfoGameObjectTracker> _frameSamples = new List<SyncInfoGameObjectTracker>(128);
     int visualUpdateTimer = 0;
+    bool _frameSample;
     Transform _heldParent;
     bool _held;
     bool _wasLoose;
@@ -264,26 +266,28 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
             return;
         }
 
-        // host physics writes this every step. the entity tick then ships that sample, not the chunk sweep.
+        ChunkStamp.Advance();
+
+        // these poses are overwritten every step. the packet ships the last one,
+        // so the write waits until Net.DoUpdate, after this frame's physics.
         if (IsCrystal()) {
             visualUpdateTimer = 0;
-            syncInfo.WriteObjectIntoPacket();
-            KrokV5Optimization.EvidenceCrystal.Host(syncInfo);
+            MarkFrameSample();
             return;
         }
 
         // the level tool is dragging this. a chunk stamp would leave the turn a step behind.
         if (syncInfo.placeGhost.Value) {
             visualUpdateTimer = 0;
-            syncInfo.WriteObjectIntoPacket();
+            MarkFrameSample();
             return;
         }
 
-        // worn and held items follow the body every physics step.
+        // worn and held items follow the body. the sent pose is where they are after the last step.
         if (HeldByBody()) {
             _wasLoose = false;
             visualUpdateTimer = 0;
-            syncInfo.WriteObjectIntoPacket();
+            MarkFrameSample();
             return;
         }
 
@@ -294,7 +298,7 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
         _wasLoose = loose;
         if (released || LooseAwake()) {
             visualUpdateTimer = 0;
-            syncInfo.WriteObjectIntoPacket();
+            MarkFrameSample();
             return;
         }
 
@@ -312,6 +316,39 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
             return;
         visualUpdateTimer = 0;
         syncInfo.WriteObjectIntoPacket();
+    }
+
+    void MarkFrameSample() {
+        if (_frameSample) {
+            return;
+        }
+        _frameSample = true;
+        _frameSamples.Add(this);
+    }
+
+    // one write per marked object. catch-up steps only set the mark.
+    internal static void FlushFrameSamples() {
+        int count = _frameSamples.Count;
+        for (int i = 0; i < count; i++) {
+            SyncInfoGameObjectTracker tracker = _frameSamples[i];
+            if (tracker == null) {
+                continue;
+            }
+            tracker._frameSample = false;
+            SyncInfo info = tracker.syncInfo;
+            if (info == null || info.go == null) {
+                continue;
+            }
+            info.WriteObjectIntoPacket();
+            if (tracker.IsCrystal()) {
+                EvidenceCrystal.Host(info);
+            }
+        }
+        if (count == _frameSamples.Count) {
+            _frameSamples.Clear();
+        } else {
+            _frameSamples.RemoveRange(0, count);
+        }
     }
 
     void OnDestroy() {

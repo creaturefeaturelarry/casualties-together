@@ -697,6 +697,10 @@ namespace Together {
 #endif
                 using (FindTheBugInator.Time(FindTheBugInator.Les)) {
                     ClientEntityManager?.Update();
+                    // after this frame's physics. the ticks below ship these fields.
+                    if (IsServer) {
+                        SyncInfoGameObjectTracker.FlushFrameSamples();
+                    }
                     ServerEntityManager?.Update();
                 }
             } catch (Exception e) {
