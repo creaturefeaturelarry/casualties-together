@@ -362,6 +362,7 @@
   "casualtiestogether_rule_desc_LastStandAllowed": "Allow the game's Last Stand mechanic, giving characters a final chance to survive when near death.",
   "casualtiestogether_rule_name_TeammateListUsesRange": "Teammate list uses range",
   "casualtiestogether_rule_desc_TeammateListUsesRange": "When on, the teammate list greys out past wound-view range. Turn off to keep the list working at any distance.",
+  "casualtiestogether_setting_general_suppress_achievements": "Suppress achievement unlocks",
   "casualtiestogether_setting_chatposx": "Chat position X",
   "casualtiestogether_setting_chatposy": "Chat Position Y",
   "casualtiestogether_setting_chatsizex": "Chat Size X",

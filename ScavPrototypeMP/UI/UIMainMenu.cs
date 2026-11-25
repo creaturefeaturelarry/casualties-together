@@ -125,7 +125,10 @@ public class SettingDeclarerThingyChoiceAttribute : SettingDeclarerThingyBaseAtt
 
 
 public static class Amogus {
-    //what is this
+#if FULLGAME
+    [SettingDeclarerThingyBool("setting_general_suppress_achievements")]
+    public static bool SuppressAchievements = false;
+#endif
 }
 
 
