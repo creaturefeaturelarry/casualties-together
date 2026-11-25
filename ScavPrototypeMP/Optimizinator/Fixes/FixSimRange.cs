@@ -184,6 +184,33 @@ internal static class FixSimRange {
     }
 }
 
+// the line is local. spider legs and vines outside this machine's 3x3 keep their last pose.
+[HarmonyPatch(typeof(IKHandle), "Update")]
+static class IKHandle_LocalSolve_MultiplayerPatch {
+    static bool Prefix(IKHandle __instance) {
+        if (!Net.IsRunning || __instance == null)
+            return true;
+        return Near(__instance.transform.position);
+    }
+
+    static bool Near(Vector2 pos) {
+        WorldGeneration world = WorldGeneration.world;
+        if (world == null || !world.worldExists)
+            return true;
+            if (!CasualtiesTogetherUtils.Util.TryGetLocalBody(out Body body) || body == null)
+            return false;
+        Vector2Int mine = world.BlockToChunkPos(world.WorldToBlockPos(body.transform.position));
+        Vector2Int chunk = world.BlockToChunkPos(world.WorldToBlockPos(pos));
+        int dx = chunk.x - mine.x;
+        int dy = chunk.y - mine.y;
+        if (dx < 0)
+            dx = -dx;
+        if (dy < 0)
+            dy = -dy;
+        return dx <= 1 && dy <= 1;
+    }
+}
+
 // vanilla UpdateChunkVisibility only walks mainCam, so a client's chunks stay dark on the host and ChunkScript.Update never runs.
 [HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.UpdateChunkVisibility))]
 static class UpdateChunkVisibility_ClientWindows_MultiplayerPatch {

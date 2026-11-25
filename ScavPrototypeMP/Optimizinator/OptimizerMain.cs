@@ -72,6 +72,7 @@ public static class OptimizerMain {
         Try(typeof(FixItemTooltip));
         Try(typeof(FixInvDrag));
         Try(typeof(FixSimRange));
+        Try(typeof(IKHandle_LocalSolve_MultiplayerPatch));
         FindTheBug.Install(_harmony);
         Try(typeof(ItemTick));
         Try(typeof(HeldSeat));
