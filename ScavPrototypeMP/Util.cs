@@ -49,6 +49,7 @@ internal static class Settings_DefaultSettings_Patch {
                 });
             }
 
+        KeybindPersistence.RestoreSavedDefaults(__result);
     }
 }
 [HarmonyPatch(typeof(SettingsMenu), nameof(SettingsMenu.Start))]

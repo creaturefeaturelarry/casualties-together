@@ -1851,6 +1851,49 @@ public class Con : CasualtiesTogetherSingleton {
             }, null));
 
 
+            RegisterCommand(new Command("timedcommand", "MP - announce a command that will run after a delay", (string[] splited) => {
+                ConFailIfNetworkNotRunning();
+                ConFailIfNetworkIsRunningAndIsClient();
+                Con.con.CheckArgumentCount(splited, 3);
+
+                if (!int.TryParse(splited[1], out var seconds) || seconds <= 0)
+                    throw new Exception("The delay must be a positive integer.");
+
+                var title = splited[2].Replace('_', ' ');
+                var command = splited[3].Replace('_', ' ');
+
+                ConsoleScript.instance.StartCoroutine(CountdownCoro(seconds, title, command));
+
+                return;
+
+                static IEnumerator CountdownCoro(int seconds, string title, string command) {
+                    var deadline = Time.realtimeSinceStartup + seconds;
+                    var prevRemaining = seconds;
+
+                    Chat.Server_ChatAnnouncement($"{title} in {seconds} seconds!");
+
+                    while (true) {
+                        yield return null;
+                        if (!Net.IsRunning || Net.IsClient)
+                            yield break;
+
+                        var remaining = (int)Mathf.Ceil(deadline - Time.realtimeSinceStartup);
+                        if (remaining <= 0)
+                            break;
+
+                        if (remaining != prevRemaining) {
+                            prevRemaining = remaining;
+                            // Announcement every minute -> every 15 seconds -> every second
+                            if (remaining <= 10 || (remaining <= 60 ? remaining % 15 == 0 : remaining % 60 == 0)) {
+                                Chat.Server_ChatAnnouncement($"{title} in {remaining} seconds!");
+                            }
+                        }
+                    }
+
+                    Chat.Server_ChatAnnouncement($"{title}!!!");
+                    Con.con.RunCommandString(command);
+                }
+            }, null, ("delay", "execution delay in seconds"), ("title", "title to use for the chat announcements"), ("command", "command to run")));
 
             RegisterCommand(new Command("mpopenmenu", "MP", (string[] splited) => {
                 ConFailIfNetworkIsRunningAndIsClient();
@@ -3349,7 +3392,7 @@ public class Con : CasualtiesTogetherSingleton {
 
 
 
-    public static HashSet<string> localonly_commands = new HashSet<string>{
+    public static HashSet<string> localonly_commands = new HashSet<string> (StringComparer.OrdinalIgnoreCase) {
         "clear",
         "noclip",
         "copylog",
@@ -3369,7 +3412,7 @@ public class Con : CasualtiesTogetherSingleton {
         "setconsoleheight",
         "setconsolecolor",
     };
-    public static HashSet<string> banned_admin_commands = new HashSet<string>{
+    public static HashSet<string> banned_admin_commands = new HashSet<string> (StringComparer.OrdinalIgnoreCase) {
         "noclip",
         "volume",
         "musicvolume",
@@ -3388,6 +3431,8 @@ public class Con : CasualtiesTogetherSingleton {
         "framerate",
         "setconsoleheight",
         "setconsolecolor",
+        "openfolder",
+        "nukeplayerprefs"
     };
 
 
@@ -3407,66 +3452,76 @@ public class Con : CasualtiesTogetherSingleton {
 
     static bool SanitizeClientAdminCommand(ScavPlayer plr, ref string[] args, Vector2 cursorpos) {
         var realcomm = ConsoleScript.SearchExact(args[0]);
-        if (realcomm != null) {
-            try {
-                if (realcomm.name == "repeat") {
-                    var commands = args[3];
-                    foreach (var item in commands.Split(';')) {
-                        var splited = item.Replace('_', ' ').Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (splited.Length > 0) {
-                            if (Server_CheckBannedCommand(plr, splited[0])) {
-                                return false;
-                            }
-                        }
-                    }
-                } else if (realcomm.name == "spawn") {
-                    if (args.Length == 2) {
-                        args = args.AddToArray("cursor");
-                    }
-                }
-
-            } catch (Exception e) {
-                log.error($"SERVER: REQUEST FROM {plr} TO TryExecuteCommand \n" + e.ToString());
-                return false;
-            }
-
-            // just in case keep the old parser here
-            try {
-                for (int i = 0; i < Math.Min(args.Length - 1, realcomm.argDescription.Length); i++) {
-                    ref string arg = ref args[i + 1];
-                    if (realcomm.argDescription[i].shortDesc.StartsWith("position")) {
-                        if (arg == "cursor") {
-                            arg = $"{cursorpos.x.ToString(CultureInfo.InvariantCulture)},{cursorpos.y.ToString(CultureInfo.InvariantCulture)}";
-                        } else if (arg == "player") {
-                            arg = $"plr:id:{plr.playerId}";
-                        } else if (TryGetTaggedPlayerName(arg, out var realname)) {
-                            if (realname == "@m") {
-                                arg = $"plr:id:{plr.playerId}";
-                            } else if (realname == "@c") {
-                                var aaaa = GetBodyForCommandOnCursor(cursorpos, true);
-                                if (aaaa != null && aaaa.IsPlayer) {
-                                    arg = $"plr:id:{aaaa.plr.playerId}";
-                                }
-                            }
-                        }
-                    } else if (realcomm.argDescription[i].shortDesc.StartsWith("player")) {
-                        if (arg == "@m") {
-                            arg = $"id:{plr.playerId}";
-                        } else if (arg == "@c") {
-                            var aaaa = GetBodyForCommandOnCursor(cursorpos, true);
-                            if (aaaa != null && aaaa.IsPlayer) {
-                                arg = $"id:{aaaa.plr.playerId}";
-                            }
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                log.error($"SERVER: REQUEST FROM {plr} TO TryExecuteCommand \n" + e.ToString());
-                return false;
-            }
-
-
+        if (realcomm == null) {
+            return true;
         }
+
+        if (Server_CheckBannedCommand(plr, realcomm.name))
+            return false;
+
+        // Making sure that custom commands do not execute banned commands would require
+        // getting the command string from the command.action delegate,
+        // since it's not stored but captured as a value. UGH!!!
+        if (realcomm.custom) {
+            log.sus($"{plr} tried to execute a custom command: {realcomm.name}");
+            return false;
+        }
+
+        if (realcomm.name is "repeat" or "timedcommand" or "createvote") {
+            var commandsArgIdx = realcomm.name == "createvote" ? 1 : 3;
+            var commands = args[commandsArgIdx];
+
+            var list = new List<string>();
+            foreach (var item in commands.Split(';')) {
+                var split = item.Replace('_', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (split.Length <= 0) {
+                    continue;
+                }
+                if (!SanitizeClientAdminCommand(plr, ref split, cursorpos)) {
+                    return false;
+                }
+                var joined = string.Join('_', split);
+                list.Add(joined);
+            }
+            args[commandsArgIdx] = string.Join(';', list);
+
+        } else if (realcomm.name == "spawn") {
+            if (args.Length == 2) {
+                args = args.AddToArray("cursor");
+            }
+        }
+
+        // Replace player-relative selectors with global ones
+        // This is important for commands like 'repeat 10 1 give_@m_fentanyl', which would otherwise always give items to the host
+        for (int i = 0; i < Math.Min(args.Length - 1, realcomm.argDescription.Length); i++) {
+            ref string arg = ref args[i + 1];
+            if (realcomm.argDescription[i].shortDesc.StartsWith("position")) {
+                if (arg == "cursor") {
+                    arg = $"{cursorpos.x.ToString(CultureInfo.InvariantCulture)},{cursorpos.y.ToString(CultureInfo.InvariantCulture)}";
+                } else if (arg == "player") {
+                    arg = $"plr:id:{plr.playerId}";
+                } else if (TryGetTaggedPlayerName(arg, out var realname)) {
+                    if (realname == "@m") {
+                        arg = $"plr:id:{plr.playerId}";
+                    } else if (realname == "@c") {
+                        var aaaa = GetBodyForCommandOnCursor(cursorpos, true);
+                        if (aaaa != null && aaaa.IsPlayer) {
+                            arg = $"plr:id:{aaaa.plr.playerId}";
+                        }
+                    }
+                }
+            } else if (realcomm.argDescription[i].shortDesc.StartsWith("player")) {
+                if (arg == "@m") {
+                    arg = $"id:{plr.playerId}";
+                } else if (arg == "@c") {
+                    var aaaa = GetBodyForCommandOnCursor(cursorpos, true);
+                    if (aaaa != null && aaaa.IsPlayer) {
+                        arg = $"id:{aaaa.plr.playerId}";
+                    }
+                }
+            }
+        }
+
         return true;
     }
 
@@ -3475,33 +3530,36 @@ public class Con : CasualtiesTogetherSingleton {
         reader.Get(out string command);
         reader.Get(out Vector2 cursorpos);
 
-        if (ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr)) {
-            if (server_admins.Contains(plr) || plr.ServerPlayerState.admin_privilege) {
-                var args = command.Trim().Split(' ');
-
-                if (Server_CheckBannedCommand(plr, args[0])) {
-                    return;
-                }
-
-                if (!SanitizeClientAdminCommand(plr, ref args, cursorpos)) {
-                    return;
-                }
-
-
-                log.l($"[<color=red>ADMIN</color>] {plr} executes \"{String.Join(" ", args)}\"");
-
-                try {
-                    CommandCallerPlayer = plr;
-                    CommandCallerPlayer.CursorWorldPos = cursorpos;
-                    ConsoleScript.instance.TryExecuteCommand(args, false);
-                } catch (Exception e) {
-                    log.error($"SERVER: REQUEST FROM {plr} TryExecuteCommand \n" + e.ToString());
-                }
-                CommandCallerPlayer = null;
-
-            }
+        if (!ScavPlayer.TryGetPlayerFromClientId(clientId, out var plr)) {
+            return;
         }
 
+        if (!server_admins.Contains(plr) && !plr.ServerPlayerState.admin_privilege) {
+            return;
+        }
+
+        var args = command.Trim().Split(' ');
+
+        try {
+            if (!SanitizeClientAdminCommand(plr, ref args, cursorpos)) {
+                return;
+            }
+        } catch (Exception e) {
+            log.error($"SERVER: REQUEST FROM {plr} TO TryExecuteCommand \n" + e.ToString());
+            return;
+        }
+
+
+        log.l($"[<color=red>ADMIN</color>] {plr} executes \"{string.Join(" ", args)}\"");
+
+        try {
+            CommandCallerPlayer = plr;
+            CommandCallerPlayer.CursorWorldPos = cursorpos;
+            ConsoleScript.instance.TryExecuteCommand(args, false);
+        } catch (Exception e) {
+            log.error($"SERVER: REQUEST FROM {plr} TryExecuteCommand \n" + e.ToString());
+        }
+        CommandCallerPlayer = null;
     }
 
     [ServerReceiver((byte)NetmsgId.SERVER_Console_ActivateAdminMode)]
