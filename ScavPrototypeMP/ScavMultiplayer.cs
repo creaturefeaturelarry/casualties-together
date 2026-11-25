@@ -150,7 +150,7 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
 
     public bool AlwaysAllowCarry = false;
     // a ragdolled player who runs into someone shares speed like a catch, in every direction, and can smash them.
-    public bool RagdollImpact = true;
+    public bool RagdollImpact = false;
     public bool AllowPiggyback => PiggybackMaxStack > 0;
     [MultiplayerRuleByte(254, "")]
 #if RELEASE 
