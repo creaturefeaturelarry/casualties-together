@@ -725,5 +725,7 @@
   "casualtiestogether_rule_name_AutoMinPlrsToStart": "自动开局最低人数",
   "casualtiestogether_rule_name_AutoExitWhenAllDied": "全员死亡后返回主菜单",
   "casualtiestogether_rule_name_AutoExitWhenAllLeft": "全员离线后返回主菜单",
-  "casualtiestogether_rule_name_DebugWorldSaveSystem": "调试地图使用存档"
+  "casualtiestogether_rule_name_DebugWorldSaveSystem": "调试地图使用存档",
+  "casualtiestogether_rule_name_RagdollImpact": "布娃娃碰撞",
+  "casualtiestogether_rule_desc_RagdollImpact": "当玩家处于布娃娃状态且移动速度超过步行速度时（例如摔落），其肢体会像坠落的箱子一样撞击其他玩家。\nMilky 造成的撞击较轻，而 Dune 造成的撞击较重。\n按住搬运键接住处于布娃娃状态的玩家，可以使自己免受此类撞击伤害。\n被搬运的玩家在被放下之前不会撞击其他玩家。"
 }
