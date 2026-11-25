@@ -763,26 +763,21 @@ static class TraderScript_Swing_MultiplayerPatch {
         }
         if (Net.IsClient) {
             if (__instance == null || !__instance.hostile) {
-                TraderProbe.Swing(__instance, false, "client-not-hostile");
                 return false;
             }
             Body local = Util.GetLocalBody();
             if (local == null) {
-                TraderProbe.Swing(__instance, false, "client-no-body");
                 return false;
             }
             RememberLimbs(local);
-            TraderProbe.Swing(__instance, true, "client-local");
             __state = true;
             return true;
         }
         TrackerTrader tt = __instance.GetOrAddComponent<TrackerTrader>();
         Body victim = tt.focused_body;
         if (victim != null && victim.TryGetNetBody(out NetBody nb) && nb.IsPlayer && !Util.IsBodyLocal(victim)) {
-            TraderProbe.Swing(__instance, false, "host-remote-victim");
             return false;
         }
-        TraderProbe.Swing(__instance, true, "host");
         __state = true;
         return true;
     }

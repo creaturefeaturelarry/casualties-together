@@ -290,7 +290,6 @@ public class OnWillRenderObject_ForceForMPComponent : MonoBehaviour {
             _wantSim = false;
             return;
         }
-        TraderProbe.Tick(trader, "sim");
         if (Net.IsClient) {
             Body local = Util.GetLocalBody();
             bool close = (local != null) && (Vector2.Distance(trader.transform.position, local.transform.position) < 12f);
