@@ -38,12 +38,6 @@ internal static class ChunkStamp
 		return ((long)chunk.x << 32) | (uint)chunk.y;
 	}
 
-	// the cursor moves once per physics step, even when every tracker only marks a sample.
-	internal static void Advance()
-	{
-		Step();
-	}
-
 	// true when this position's chunk is being written this physics step.
 	internal static bool Due(Vector2 pos, out bool inUnion)
 	{
