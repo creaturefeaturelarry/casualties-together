@@ -218,14 +218,14 @@ public class AutoUpdater : BaseUnityPlugin {
             is_release = false;
         }
 
-        if (remote >= local) {
-            if (remote == local && is_release) {
-                LogMessage($"You're running the latest version.");
-                return false;
-            } else {
-                LogMessage("Multiplayer version is outdated");
-                return true;
-            }
+        // demo Release builds dont define RELEASE so is_release should be false here
+        // checking it on the same version made the demo redownload itself i think
+        if (remote == local) {
+            LogMessage($"You're running the latest version.");
+            return false;
+        } else if (remote > local) {
+            LogMessage("Multiplayer version is outdated");
+            return true;
         } else {
             LogMessage("You're running the pre-release build.");
             return false;
