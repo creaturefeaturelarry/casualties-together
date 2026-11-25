@@ -128,7 +128,12 @@ public static class PlayerCheckpoint {
             SaveSystem.loadedRun = true;
             SaveSystem_HasSave_MultiplayerPatch.force = true;
             camera.body = plr.body;
-            SaveSystem_LoadGame_MultiplayerPatch.ForceLoad();
+            SavesystemPatch.PinFolder(folder);
+            try {
+                SaveSystem_LoadGame_MultiplayerPatch.ForceLoad();
+            } finally {
+                SavesystemPatch.UnpinFolder();
+            }
 
             // stock leaves a second item for the same slot loose at this spot. the spawn move does not bring those along.
             EndGearCapture(plr);

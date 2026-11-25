@@ -274,10 +274,11 @@ namespace Together {
             }
             public const float dislocation_timer_minigame_end_treshholddddddddddd = 3f;
 
-            public static void BonePositionTick(ref Vector2 bone_anchoredPosition, ref Vector2 boneVelocity) {
-                //OG: DislocationMinigame.Start V5t4
+            public static void BonePositionTick(ref Vector2 bone_anchoredPosition, ref Vector2 boneVelocity, Limb limb) {
+                // stock Update: prosthetics damp ten times faster than bones, so a wrench hit dies down.
                 bone_anchoredPosition += boneVelocity * Time.fixedDeltaTime * 3.5f;
-                boneVelocity = Vector2.Lerp(boneVelocity, Vector2.zero, Time.fixedDeltaTime * 3.5f);
+                float damp = (limb != null && limb.prostheticInfo.hasProsthetic) ? 10f : 1f;
+                boneVelocity = Vector2.Lerp(boneVelocity, Vector2.zero, Time.fixedDeltaTime * 3.5f * damp);
                 bone_anchoredPosition = new Vector2(Mathf.Clamp(bone_anchoredPosition.x, -500f, 900f), Mathf.Clamp(bone_anchoredPosition.y, -500f, 500f));
             }
 
@@ -295,7 +296,7 @@ namespace Together {
                 synctimer -= Time.fixedDeltaTime;
 
                 //OG: DislocationMinigame.Update V5t4 
-                BonePositionTick(ref bonepos, ref boneVelocity);
+                BonePositionTick(ref bonepos, ref boneVelocity, limb);
                 limb.dislocationTimer = CalculateDislocationTimer(bonepos, limb);
                 if (limb.dislocationTimer < (dislocation_timer_minigame_end_treshholddddddddddd + disl_timer_tolerance)) { // just larger tolerance
                     limb.UnDislocate();
@@ -1790,16 +1791,12 @@ namespace Together {
             if (MedicalSync.Server_CheckCanHealerUseItemForLimb(clientId, targetplr, limbid, needleid, out ScavPlayer plr, out NetBody targetsci, out SyncInfo si)) {
                 Limb limb = targetsci.body.limbs[limbid];
 
-                if (limb.shrapnel == 1) {//needle was already broken
-                    return;
-                }
-
                 if (DebugHelp._DEV_VISUALISE_NET_EVENTS) {
                     DebugHelp.OnNetEvent(plr.body.transform.position, $"S: broke needle oops {plr.playerName} -> {targetsci.playerName} {si}");
                 }
 
                 if (!plr.IsLocal) {
-                    //OG: SyringeMinigame.Update   V5t4   it ends mingame
+                    // stock always adds the pain. Max does not add a second piece when one is already there.
                     limb.shrapnel = Math.Max(limb.shrapnel, 1);
                     limb.pain += 20f;
                 }
@@ -2016,7 +2013,7 @@ namespace Together {
             Vector2 pos = bone.anchoredPosition;
             Vector2 vel = basedmt.boneVelocity;
 
-            MinigameMPManager.DislocationMinigameSession.BonePositionTick(ref pos, ref vel);
+            MinigameMPManager.DislocationMinigameSession.BonePositionTick(ref pos, ref vel, basedmt.limb);
             float new_dislocationTimer = MinigameMPManager.DislocationMinigameSession.CalculateDislocationTimer(pos, basedmt.limb);
 
             if (new_dislocationTimer <= MinigameMPManager.DislocationMinigameSession.dislocation_timer_minigame_end_treshholddddddddddd) {
@@ -2123,13 +2120,13 @@ namespace Together {
 
                     just_received_new_packet = false;
 
-                    bone.anchoredPosition = lastreceived_bonepos;
-                    __instance.boneVelocity = (lastreceived_boneVelocity);
+                    bone.anchoredPosition = Vector2.Lerp(bone.anchoredPosition, lastreceived_bonepos, Time.deltaTime);
+                    __instance.boneVelocity = Vector2.Lerp(__instance.boneVelocity, lastreceived_boneVelocity, Time.deltaTime);
                 } else {
                     bone.anchoredPosition = (Vector2.Lerp(bone.anchoredPosition, lastreceived_bonepos, Time.deltaTime));
                 }
             }
-            MinigameMPManager.DislocationMinigameSession.BonePositionTick(ref lastreceived_bonepos, ref lastreceived_boneVelocity);
+            MinigameMPManager.DislocationMinigameSession.BonePositionTick(ref lastreceived_bonepos, ref lastreceived_boneVelocity, __instance.limb);
 
 
 
@@ -2816,10 +2813,12 @@ namespace Together {
         }
 
         static void SpendPatch(Item item, int holeCount) {
+            if (item == null || holeCount < 1)
+                return;
             item.condition -= (1f / holeCount) - 0.0015f;
-            if (item.condition < 0.01f) {
+            // stock zeros a remainder of about 2% so a finished sheet leaves the inventory.
+            if (item.condition <= 0.02f)
                 item.condition = 0f;
-            }
         }
     }
 

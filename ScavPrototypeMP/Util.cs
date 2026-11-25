@@ -1719,67 +1719,102 @@ public static class Util {
 
 
 
-    // i don't know how this works, or if it works
+    // a full heal brings missing limbs back. it must not ragdoll the body or rewrite
+    // the torso, or the head hinge is cleared and the next ragdoll lets it roll away.
     public static void RegrowAllLimbs(this Body body) {
-        if (body.IsAnyLimbMissing()) {
-
-            var ogbodypos = body.transform.position;
-
-            var wasstanding = body.standing;
-
-            if (!body.isRight) {
-                body.ForceSwitchDir();
+        if (body == null || body.limbs == null || !body.IsAnyLimbMissing()) {
+            return;
+        }
+        Vector3 og = body.transform.position;
+        bool standing = body.standing;
+        for (int i = 0; i < body.limbs.Length; i++) {
+            Limb limb = body.limbs[i];
+            if (limb == null || !limb.dismembered) {
+                continue;
             }
-            body.Ragdoll();
+            limb.dismembered = false;
+            limb.gameObject.SetActive(true);
+            RestoreDetachedLimb(limb);
+        }
+        IgnoreOwnLimbCollisions(body);
+        RebindLimbHinges(body);
+        body.transform.position = og;
+        if (standing && !body.standing) {
+            body.ForceStand();
+        }
+    }
 
-
-            var a = body.GetComponentsInChildren<ClientMain.SavedHingeJointState>(true);
-
-            foreach (var item in a) {
-
-                item.transform.localPosition = item.a;
-                item.transform.localRotation = item.b;
-
-                item.connectedBody.transform.localPosition = item.aa;
-
-                var euler_with_reference = item.bb.eulerAngles;
-                euler_with_reference.z = item.transform.localRotation.eulerAngles.z - item.referenceAngle;
-
-                item.connectedBody.transform.localRotation = Quaternion.Euler(euler_with_reference);
-
+    // disabling a limb clears HingeJoint2D.connectedBody. enabling it does not put the hinge back.
+    public static void RebindLimbHinges(this Body body) {
+        if (body == null) {
+            return;
+        }
+        ClientMain.SavedHingeJointState[] states = body.GetComponentsInChildren<ClientMain.SavedHingeJointState>(true);
+        for (int i = 0; i < states.Length; i++) {
+            ClientMain.SavedHingeJointState state = states[i];
+            if (state == null || state.hinge == null || state.connectedBody == null) {
+                continue;
             }
-            for (int i = 0; i < body.limbs.Length; i++) {
-                var limb = body.limbs[i];
-                limb.gameObject.SetActive(false);
-                limb.dismembered = false;
+            if (!state.gameObject.activeInHierarchy) {
+                continue;
             }
-
-
-            foreach (Limb limb in body.limbs) {
-                limb.gameObject.SetActive(true);
-                limb.dismembered = false;
+            HingeJoint2D hinge = state.hinge;
+            if (hinge.connectedBody == state.connectedBody) {
+                continue;
             }
-
-            foreach (var item in a) {
-                item.hinge.connectedBody = item.connectedBody;
+            hinge.enabled = false;
+            hinge.autoConfigureConnectedAnchor = false;
+            hinge.connectedBody = state.connectedBody;
+            hinge.useLimits = state.useLimits;
+            if (state.useLimits) {
+                JointAngleLimits2D limits = hinge.limits;
+                limits.min = state.limitsmin;
+                limits.max = state.limitsmax;
+                hinge.limits = limits;
             }
+            hinge.enabled = true;
+        }
+    }
 
+    public static void RestoreDetachedLimb(Limb limb) {
+        if (limb == null) {
+            return;
+        }
+        ClientMain.SavedHingeJointState state = limb.GetComponent<ClientMain.SavedHingeJointState>();
+        if (state == null) {
+            return;
+        }
+        Rigidbody2D rb = limb.rb;
+        if (rb != null) {
+            rb.simulated = false;
+        }
+        limb.transform.localPosition = state.a;
+        limb.transform.localRotation = state.b;
+        if (rb != null && limb.body != null && !limb.body.standing) {
+            rb.simulated = true;
+        }
+    }
 
-            foreach (Limb limb in body.limbs) {
-
-                // because this shit gets reset for some reason 
-                var ca = limb.GetComponent<Collider2D>();
-                foreach (var other_npc in NetBody.all_instances) {
-                    var other_chara = other_npc.transform.parent;
-                    var b = other_chara.GetComponentsInChildren<Collider2D>(true);
-                    foreach (var cb in b) {
-                        Physics2D.IgnoreCollision(ca, cb, true);
-                    }
+    public static void IgnoreOwnLimbCollisions(Body body) {
+        if (body == null || body.limbs == null) {
+            return;
+        }
+        int n = body.limbs.Length;
+        Collider2D[] cols = new Collider2D[n];
+        for (int i = 0; i < n; i++) {
+            Limb limb = body.limbs[i];
+            cols[i] = limb != null ? limb.GetComponent<Collider2D>() : null;
+        }
+        for (int i = 0; i < n; i++) {
+            if (cols[i] == null) {
+                continue;
+            }
+            for (int j = i + 1; j < n; j++) {
+                if (cols[j] == null) {
+                    continue;
                 }
+                Physics2D.IgnoreCollision(cols[i], cols[j], true);
             }
-
-            body.shock = 0;
-            body.transform.position = ogbodypos;
         }
     }
 
@@ -2040,4 +2075,27 @@ public static class Util {
     #endregion
 
 
+}
+
+// stock Reattach turns the limb back on and parks it at local zero. the hinge stays broken,
+// so the next ragdoll drops that limb, and a following heal used to drop the head with it.
+[HarmonyPatch(typeof(Limb), nameof(Limb.Reattach))]
+static class Limb_Reattach_RebindHinge_MultiplayerPatch {
+    static void Prefix(Limb __instance, out bool __state) {
+        __state = __instance != null && __instance.dismembered;
+    }
+
+    static void Postfix(Limb __instance, bool __state) {
+        if (!__state || __instance == null || __instance.body == null) {
+            return;
+        }
+        Body body = __instance.body;
+        Limb top = body.GetTopOfExtremity(__instance);
+        List<Limb> lower = TourniquetScript.GetLowerLimbs(top != null ? top : __instance);
+        for (int i = 0; i < lower.Count; i++) {
+            Util.RestoreDetachedLimb(lower[i]);
+        }
+        Util.IgnoreOwnLimbCollisions(body);
+        Util.RebindLimbHinges(body);
+    }
 }

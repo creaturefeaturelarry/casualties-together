@@ -552,12 +552,8 @@ internal static class TraderCommit {
         if (!ItemSync.CheckIfBodyReachThisItem(itemsi, actor) || (trader.reputation < 30f)) {
             return;
         }
-#if FULLGAME
-        // full marks many shared mats untradeable. stock roll already skips them; sell must too.
-        if (itemsi.item.Stats != null && itemsi.item.Stats.untradeable) {
-            return;
-        }
-#endif
+        // untradeable only keeps an item out of the trader's own stock roll.
+        // GiveItem sells when GetValue is above 0, so a minibarrel of valuable liquid still counts.
         trader.GiveItem(itemsi.item);
     }
 

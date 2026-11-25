@@ -691,7 +691,7 @@ public class NetBody : MonoBehaviour {
 
         // consoleScript noclip writes carrier transform in Update - after FixedUpdate pin.
         if (piggybacking_on != null && body != null) {
-            HandlePiggybackUpdate("late");
+            HandlePiggybackUpdate();
         }
 
         if (!last_alive && !body.alive) { // because body is not losing its temperature when dead for some reason
@@ -1575,7 +1575,7 @@ public class NetBody : MonoBehaviour {
 
     void FixedUpdate() {
 
-        HandlePiggybackUpdate("fixed");
+        HandlePiggybackUpdate();
 
 
         if (Net.IsRunning) {
@@ -1859,7 +1859,7 @@ public class NetBody : MonoBehaviour {
     }
 
     // called from FixedUpdate; also LateUpdate so we follow noclip (moves carrier in Update).
-    void HandlePiggybackUpdate(string phase) {
+    void HandlePiggybackUpdate() {
 
         if (carrying_person != null) {
             body.idleTime = 0f; // disable idle animations
@@ -1894,11 +1894,6 @@ public class NetBody : MonoBehaviour {
                 target_uppertorso_pos = Vector2.LerpUnclamped(piggybacking_on.pos + standupamount, target_uppertorso_pos, 0.1f);
             }
             body.crouchAmount = piggybacking_on.body.crouchAmount;
-
-            float step = CarryProbe.Measure(body);
-            float chestErr = Vector2.Distance(torsorb.position, target_uppertorso_pos);
-            Vector2 carrierVelNow = targetbody.rb.velocity;
-            CarryProbe.Rel(body, carrierVelNow, out float relIn, out float maxAng, out int hot);
 
             if (body.alive) {
                 // alive: shift the whole pose onto the back and lerp limb velocity toward the carrier.
@@ -1950,10 +1945,6 @@ public class NetBody : MonoBehaviour {
                 torsorb.angularVelocity = targettorsorb.angularVelocity;
                 torsorb.MoveRotation(targettorsorb.rotation);
             }
-
-            CarryProbe.Rel(body, carrierVelNow, out float relOut, out float angAfter, out int hotAfter);
-            CarryProbe.Write(body, phase, step, chestErr, relIn, relOut, maxAng > angAfter ? maxAng : angAfter, hot >= 0 ? hot : hotAfter);
-            CarryProbe.Save(body);
 
         }
 
@@ -2052,7 +2043,7 @@ public class NetBody : MonoBehaviour {
             Sound.Play("backpack" + UnityEngine.Random.Range(1, 3), target.carrying_person.body.transform.position, twoDimensional: false, pitchShift: false, target.carrying_person.body.transform, 1f, UnityEngine.Random.Range(0.8f, 1.2f));
 
             target.body.rb.velocity = Vector2.Lerp(target.body.rb.velocity, body.rb.velocity, 0.5f);
-            HandlePiggybackUpdate("start");
+            HandlePiggybackUpdate();
 
             if (IsPlayer) {
 

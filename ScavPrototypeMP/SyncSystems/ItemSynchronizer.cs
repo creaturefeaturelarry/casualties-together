@@ -1161,8 +1161,8 @@ public static class PlayerCamera_TryPerformInventoryAction_MultiplayerPatch {
                     __result = true;
                     return false;
                 }
-                // nothing moved. still finish combine and the slot here, so the original unload-first branch does not run.
-                __result = FinishSlotOrCombine(__instance, component, item);
+                // nothing fit. stock still returns success so the bag stays in hand.
+                __result = true;
                 return false;
             }
 
@@ -1200,35 +1200,6 @@ public static class PlayerCamera_TryPerformInventoryAction_MultiplayerPatch {
         }
         return any;
     }
-
-    // the tail of TryPerformInventoryAction, after a bag pour that moved nothing.
-    static bool FinishSlotOrCombine(PlayerCamera cam, InvButton button, Item under) {
-        Item drag = cam.dragItem;
-        if ((bool)under && cam.body.CanCombine(under, drag)) {
-            cam.body.CombineItems(under, drag);
-            return true;
-        }
-        if (!button.isBody)
-            return false;
-        if (drag.Stats.wearable && !drag.Stats.wearableCanBeHeld) {
-            cam.DoAlert(Locale.GetOther("alertpickupwearable"));
-            return true;
-        }
-        if (cam.body.HoldingItem(button.slot) && cam.body.HoldingItem(drag)) {
-            cam.body.SwapSlots(button.slot, cam.body.SlotOf(drag));
-            button.transform.localScale = Vector3.one * 1.5f;
-        } else {
-            if (cam.body.HoldingItem(drag))
-                cam.body.DropItem(drag);
-            if (cam.body.HoldingItem(button.slot))
-                cam.body.DropItem(button.slot);
-            cam.body.PickUpItem(drag, button.slot);
-            button.transform.localScale = Vector3.one * 1.5f;
-        }
-        return true;
-    }
-
-
 
     [ServerReceiver((byte)NetmsgId.SERVER_ItemBatteryManipulation)]
     static void Server_ItemBatteryManipulation(knetid clientId, LiteNetLib.Utils.NetDataReader reader) {

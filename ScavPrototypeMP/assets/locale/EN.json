@@ -297,6 +297,8 @@
   "casualtiestogether_rule_desc_ScatterMinGroupSize": "Percentage of living players who must be nearby to avoid the separation mood penalty, including yourself. The required player count is rounded up.\n0 disables the separation penalty.",
   "casualtiestogether_rule_desc_AllowClientCheatCommands": "Deprecated, you should just give them \"adminpriv\"\nThis rule only allows for executing client-side commands, like \"tp\"",
   "casualtiestogether_rule_desc_AlwaysAllowCarry": "Allow picking up and carrying conscious and standing players.",
+  "casualtiestogether_rule_name_RagdollImpact": "Ragdoll Impact",
+  "casualtiestogether_rule_desc_RagdollImpact": "While a player is ragdolled and moving faster than a walk, their limbs hit other players like falling crates. Milky hits lighter and Dune hits harder. Holding the carry key makes you immune so a catch stays safe. A carried player does not hit anyone until they are dropped.",
   "casualtiestogether_rule_desc_OnlyProximityChat": "Text chat can only be heard within radius of \"ProximityHearDistance\".",
   "casualtiestogether_rule_desc_PVP": "Enable friendly fire.",
   "casualtiestogether_rule_desc_SavePlayerState": "Save player health when disconnected.",

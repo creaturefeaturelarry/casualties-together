@@ -77,9 +77,11 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
         var body = nb.body;
 
         bool alreadyCarried = nb.piggybacking_on != null;
+        // the crate hit already put them down. this packet was built while they were still standing.
+        bool keepCrateRagdoll = this.standing && PlayerFallCrate.RecentlyHurt(body);
         {
             // a packet still in flight from the ground must not stand them up or clear the carry
-            if (!alreadyCarried) {
+            if (!alreadyCarried && !keepCrateRagdoll) {
                 if (this.standing) {
                     is_piggyback = false;
                     body.shock = 0; // ensure that he will not get ragdolled later imidietly
@@ -125,7 +127,7 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
             WritePiggyback(nb);
         }
 
-        if (nb.piggybacking_on == null) {
+        if (nb.piggybacking_on == null && !keepCrateRagdoll) {
             nb.SetBodyPosition(this.pos);
 
             if (body.IsBodyLocal() && body.alive) {
@@ -151,7 +153,8 @@ public partial struct ClientToServer_NetBodySyncPacket : INetSerializeByMemcpy {
         Vector2 targetvel = (Vector2)this.velocity;
 
         // setVelocity writes every limb. doing that while carried cancels the ragdoll flop and yanks them off the chest.
-        if (nb.piggybacking_on == null) {
+        // a standing packet's velocity is ~0 and would cancel the fall that just ragdolled them.
+        if (nb.piggybacking_on == null && !keepCrateRagdoll) {
             if (body.standing) {
                 body.rb.velocity = targetvel;
             } else {
@@ -206,9 +209,6 @@ public static class Body_FixedUpdate_RemoteRagdoll {
         }
         if (!__instance.TryGetNetBody(out NetBody nb) || !nb.IsPlayer) {
             return true;
-        }
-        if (nb.piggybacking_on != null) {
-            CarryProbe.MarkSkip(__instance);
         }
         if (__instance.rb != null) {
             __instance.rb.gravityScale = 1f;
