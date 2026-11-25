@@ -3838,6 +3838,8 @@ public class Con : CasualtiesTogetherSingleton {
 
             if (!onlyOne) {
                 if (loweredPlrname.TryTrimStart("@team:", out var team, true)) {
+                    if (team.Length == 0)
+                        return list;
                     if (team.StartsWith('#') && Color24.TryParseHex(team, out var teamColor)) {
                     } else if (TryGetPlayerFromPartialName(plrname.Substring("@team:".Length), out var plr, toFilter)) {
                         teamColor = plr.playerColor;
