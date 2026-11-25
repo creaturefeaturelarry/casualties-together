@@ -15,7 +15,13 @@ namespace Multiupdater
         public static readonly string TempDirectory = String.Join(Path.DirectorySeparatorChar.ToString(), Path.GetTempPath(), "CTAutoUpdater");
         public const string StageDirectoryName = "MULTIPLAYER_STAGED";
         public const string MultiReleaseURL = @"https://api.github.com/repos/creaturefeaturelarry/casualties-together/releases/latest";
+        // full game zips are MPMod_5.5.5_fullgame_whatever and demo zips are DEMO_5.4.2_whatever
+        // both go up in the same release
+#if FULLGAME
         public const string MultiArchiveNameContract = "MPMod_";
+#else
+        public const string MultiArchiveNameContract = "DEMO_";
+#endif
         //public static readonly HashSet<string> VersionBlacklist = new HashSet<string>
         //{
         //    "v5.4.1.9",
