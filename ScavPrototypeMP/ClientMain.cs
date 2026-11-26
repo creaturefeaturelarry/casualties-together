@@ -281,6 +281,7 @@ public class ClientMain : MonoBehaviour {
 
                     if (cansendsyncnow) {
                         ClientMain.Client_SendCharacterSyncPacket();
+                        _last_sync_time = Time.realtimeSinceStartupAsDouble;
                     }
                 }
             }

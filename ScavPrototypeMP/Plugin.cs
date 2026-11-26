@@ -1299,6 +1299,7 @@ namespace Together {
         }
 
         private void Update() {
+            CapPhysicsCatchUp();
             using (FindTheBugInator.Time(FindTheBugInator.Plugin)) {
                 TitleScreenFpsCap.Tick();
                 PlayerCheckpoint.Tick();
@@ -1326,6 +1327,28 @@ namespace Together {
             }
 #endif
         }
+
+        // one step while the frame is keeping up. match the frame between one and two steps.
+        // past two steps, stay at two. more catch-up is what turns a late frame into the next later one.
+        // the local body is sped up inside those two steps so its walk still covers the real frame.
+        static void CapPhysicsCatchUp() {
+            double now = Time.realtimeSinceStartupAsDouble;
+            float real = _physClock == 0d ? 0f : (float)(now - _physClock);
+            _physClock = now;
+            float step = Time.fixedDeltaTime;
+            if (step < 0.01f)
+                step = 0.02f;
+            float cap = real;
+            if (cap < step)
+                cap = step;
+            float two = step * 2f;
+            if (cap > two)
+                cap = two;
+            Time.maximumDeltaTime = cap;
+            LocalWalk.Note(real, cap);
+        }
+
+        static double _physClock;
 
         private void FixedUpdate() {
             using (FindTheBugInator.Time(FindTheBugInator.FixedStep)) {

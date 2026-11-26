@@ -72,15 +72,30 @@ public static class OptimizerMain {
         Try(typeof(FixItemTooltip));
         Try(typeof(FixInvDrag));
         Try(typeof(FixSimRange));
+        InstallCpuAdv();
         Try(typeof(IKHandle_LocalSolve_MultiplayerPatch));
         FindTheBug.Install(_harmony);
-        Try(typeof(ItemTick));
+        SyncInfoPark.Install(_harmony);
+        FarBody.Install(_harmony);
         Try(typeof(HeldSeat));
         Try(typeof(BodyCache));
         _reportAt = Time.realtimeSinceStartup + Mathf.Max(1f, ReportSeconds.Value);
         Log.LogDebug($"[KrokV5Opt] v{OptimizerMain.Version} compress={CompressPooling.Value} imgui={CacheImguiStyles.Value}");
 
         SyncFixes();
+    }
+
+    static void InstallCpuAdv() {
+        CpuAdvConfig.Bind();
+        if (CpuAdvConfig.Enabled == null || !CpuAdvConfig.Enabled.Value)
+            return;
+        SpawnHook.Apply(_harmony);
+        Try(typeof(GenWatchCreate));
+        Try(typeof(GenWatchPods));
+        Log.LogDebug("[KrokV5Opt] cpuadv props=" + CpuAdvConfig.PropWakeDistance.Value
+            + " enemies=" + CpuAdvConfig.EnemyWakeDistance.Value
+            + " tick=" + CpuAdvConfig.TickSeconds.Value
+            + " flips=" + CpuAdvConfig.MaxFlipsPerTick.Value);
     }
 
     static void SyncFixes() {
@@ -105,6 +120,7 @@ public static class OptimizerMain {
         WallholeZones.Tick();
         BagPlace.Tick();
         FixInvSync.Tick();
+        CullWorld.Tick();
         if (ReportSeconds.Value <= 0f)
             return;
         if (Time.realtimeSinceStartup < _reportAt)

@@ -18,6 +18,8 @@ internal static class FixContainerInfo
 		internal ushort Net;
 		internal byte Data;
 		internal byte Ver;
+		internal byte Live;
+		internal bool SawLive;
 		internal bool Wait;
 		internal bool Known;
 	}
@@ -42,8 +44,10 @@ internal static class FixContainerInfo
 	internal static bool Begin(SyncInfo __instance, out Shot __state)
 	{
 		__state = default;
-		if (__instance.item == null)
+		if (__instance.item == null) {
+			SyncStep.Container(true);
 			return true;
+		}
 		// reading .Value copies the struct. FieldInfo.GetValue boxed the whole SyncVar.
 		__state.Ok = true;
 		__state.Data = __instance.container_data1.Value;
@@ -53,6 +57,7 @@ internal static class FixContainerInfo
 		{
 			__state.Via = "link";
 			ParentHolds++;
+			SyncStep.Container(false);
 			return false;
 		}
 		Item item = __instance.item;
@@ -62,19 +67,22 @@ internal static class FixContainerInfo
 		if (!Cache.TryGetValue(id, out Hold hold) || !hold.Known || hold.Wait || hold.Parent != parent)
 		{
 			__state.Via = "original";
+			SyncStep.Container(true);
 			return true;
 		}
-		// same transform, new entity life. the cached id now belongs to whatever spawned next.
-		if (LiveVer(item, out byte live) && live != hold.Ver)
+		// parent entity version, not container_ver. those two bytes are different numbers, so this used to miss every tick.
+		if (LiveVer(item, out byte live))
 		{
-			__state.Via = "generation";
-			return true;
+			if (!hold.SawLive || live != hold.Live)
+			{
+				__state.Via = "generation";
+				SyncStep.Container(true);
+				return true;
+			}
 		}
-		__instance.container_netId.Value = hold.Net;
-		__instance.container_ver.Value = hold.Ver;
-		__instance.container_data1.Value = hold.Data;
 		Hits++;
 		__state.Via = "cache";
+		SyncStep.Container(false);
 		return false;
 	}
 
@@ -89,10 +97,11 @@ internal static class FixContainerInfo
 		byte ver = __instance.container_ver.Value;
 		int parent = ParentId(item);
 		// container_netId 0 with a parent means the container was not registered yet. caching that leaves the client unable to parent.
+		bool saw = LiveVer(item, out byte live);
 		bool wait = net == 0 && parent != 0;
 		if (Cache.Count > 20000)
 			Cache.Clear();
-		Cache[item.GetInstanceID()] = new Hold { Parent = parent, Net = net, Data = data, Ver = ver, Wait = wait, Known = true };
+		Cache[item.GetInstanceID()] = new Hold { Parent = parent, Net = net, Data = data, Ver = ver, Live = live, SawLive = saw, Wait = wait, Known = true };
 	}
 
 	// FixInvSync calls this after it stores a parent, so the next WriteContainerInfo does not rebuild the note.
@@ -101,6 +110,7 @@ internal static class FixContainerInfo
 		if (item == null)
 			return;
 		int parent = ParentId(item);
+		bool saw = LiveVer(item, out byte live);
 		if (Cache.Count > 20000)
 			Cache.Clear();
 		Cache[item.GetInstanceID()] = new Hold
@@ -109,6 +119,8 @@ internal static class FixContainerInfo
 			Net = net,
 			Data = data,
 			Ver = ver,
+			Live = live,
+			SawLive = saw,
 			Wait = net == 0 && parent != 0,
 			Known = true
 		};

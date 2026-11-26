@@ -148,8 +148,8 @@ namespace Together {
 
         // extended for multiplayer
         public static bool WorldInSimRange(Vector2 pos) {
-            // offline still trusts the camera renderer. a kept throw has to count before that.
-            if (SimKeep.Covers(pos)) {
+            // the host keeps a throw simulating. a client sleeps it until the view radius covers it.
+            if ((!Net.IsRunning || Net.IsServer) && SimKeep.Covers(pos)) {
                 return true;
             }
 

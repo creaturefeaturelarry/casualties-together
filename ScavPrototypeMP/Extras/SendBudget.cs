@@ -4,27 +4,29 @@ using UnityEngine;
 
 namespace Together;
 
-// bodies and anything on a body stay every tick.
-// a ground item or building that is not near a player waits three ticks out of four.
+// bodies and anything carried on a body stay every tick.
+// a loose SyncInfo is sent only inside that player's view radius.
 // les only asks this for an active player. a joiner still on a baseline gets everything.
 internal static class SendBudget
 {
 	internal static bool Allow(InternalEntity entity, NetPlayer player)
 	{
-		if (player == null || entity == null || Keep(entity))
+		if (player == null || entity == null)
 			return true;
-		ushort tick = entity.EntityManager != null ? entity.EntityManager.Tick : (ushort)0;
-		return (entity.Id & 3) == (tick & 3);
+		if (entity is not SyncInfo info || OnBody(info))
+		{
+			SyncStep.Arm(entity, player);
+			return true;
+		}
+		bool send = SyncStep.InView(info, player);
+		SyncStep.Dist(send);
+		if (send)
+			SyncStep.Arm(entity, player);
+		return send;
 	}
 
-	static bool Keep(InternalEntity entity)
+	static bool OnBody(SyncInfo info)
 	{
-		if (entity is not SyncInfo info)
-			return true;
-		if (info.tracker != null && (info.tracker.isNearby || info.tracker.IsCrystal()))
-			return true;
-		if (info.go != null && info.go.transform.parent != null && info.go.transform.parent.GetComponentInParent<Body>() != null)
-			return true;
-		return false;
+		return info.go != null && info.go.transform.parent != null && info.go.transform.parent.GetComponentInParent<Body>() != null;
 	}
 }

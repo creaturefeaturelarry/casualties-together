@@ -44,6 +44,7 @@ namespace Together {
 
         internal static void Tick() {
             FindTheBugReports.Tick();
+            SyncStep.Pulse();
         }
 
         // 10s frame timers. each line is one part of the mod. the last line is the rest of the frame, the game.
@@ -158,6 +159,7 @@ namespace Together {
                 PlayerLoop.SetPlayerLoop(loop);
                 _installed = true;
                 _windowStart = Stopwatch.GetTimestamp();
+                SyncStep.Install();
             } catch (Exception e) {
                 log.l("[findthebuginator] install failed " + e.Message, false);
             }

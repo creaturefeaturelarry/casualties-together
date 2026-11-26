@@ -66,6 +66,30 @@ public static class ChunkSleep {
             IgnoredIds.Add(go.GetInstanceID());
     }
 
+    internal static bool KeepsAwake(Vector2 pos) {
+        return Hot(pos);
+    }
+
+    internal static bool KeepsAwake(GameObject go) {
+        if (go == null) {
+            return false;
+        }
+        float extra = 0f;
+        if (Keep.UsesWideRange(go)) {
+            extra = CpuAdvConfig.EnemyWakeDistance != null ? CpuAdvConfig.EnemyWakeDistance.Value : 60f;
+        }
+        if (Net.IsRunning && Net.IsServer && SimKeep.Covers(go.transform.position)) {
+            return true;
+        }
+        return SyncStep.NearAny(go.transform.position, extra);
+    }
+
+    internal static bool IsAsleep(GameObject go) {
+        if (go == null)
+            return false;
+        return ById.TryGetValue(go.GetInstanceID(), out Entry entry) && entry.Asleep;
+    }
+
     internal static void Watch(Component body) {
         if (body == null)
             return;
@@ -142,10 +166,12 @@ public static class ChunkSleep {
         long key = ChunkStamp.Pack(ChunkStamp.ChunkOf(pos));
         Place(entry, key);
         // something else switched it off. the chunk has to try waking it again.
-        if (entry.Settled && !entry.Go.activeSelf)
+        if (entry.Settled && !entry.Go.activeSelf && !CullWorld.HoldsOff(entry.Go))
             MarkSettled(entry, false);
         // tiles already drawing. do not count a cold second and turn it back off.
-        if (Hot(pos) || Shown(pos)) {
+        if (KeepsAwake(entry.Go)) {
+            if (CullWorld.HoldsOff(entry.Go))
+                return;
             entry.ColdSince = -1f;
             Wake(entry);
             return;
@@ -157,24 +183,12 @@ public static class ChunkSleep {
             Sleep(entry);
     }
 
-    // host keeps every player's 3x3. everyone else only their own, so a far mesh can be off here and still live on the host.
+    // host keeps every player's view radius, and a throw so its rigidbody keeps moving.
+    // a client only keeps its own radius. a far throw stays asleep until it enters that circle.
     static bool Hot(Vector2 pos) {
-        // a kept throw holds its 3x3 on every machine. the host stamp alone does not cover a client.
-        if (SimKeep.Covers(pos))
+        if (Net.IsRunning && Net.IsServer && SimKeep.Covers(pos))
             return true;
-        if (Net.IsRunning && Net.IsServer)
-            return SharedMain.PositionIsInSimulatedChunk(pos);
-        WorldGeneration world = WorldGeneration.world;
-        if (world == null || !LocalChunk(out Vector2Int mine))
-            return true;
-        Vector2Int chunk = world.BlockToChunkPos(world.WorldToBlockPos(pos));
-        int dx = chunk.x - mine.x;
-        int dy = chunk.y - mine.y;
-        if (dx < 0)
-            dx = -dx;
-        if (dy < 0)
-            dy = -dy;
-        return dx <= 1 && dy <= 1;
+        return SyncStep.NearAny(pos, 0f);
     }
 
     static bool LocalChunk(out Vector2Int chunk) {
