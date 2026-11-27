@@ -66,7 +66,9 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
     public float furBloodAmount { get { return compressednumfurBloodAmount / 25.5f; } set { compressednumfurBloodAmount = (byte)(Mathf.Clamp(value, 0f, 10f) * 25.5f); } }
 
     private byte compressednum6;
-    public float muscleHealth { get { return compressednum6 / 2.55f; } set { compressednum6 = (byte)(Mathf.Clamp(value, 0f, 100f) * 2.55f); } }
+    // a positive value must not pack to 0: a prosthetic below 0.39 read as 0 on clients, and the stock
+    // per-frame check Dismembered it there on every push while the host kept it (prostheticBreak loop).
+    public float muscleHealth { get { return compressednum6 / 2.55f; } set { float v = Mathf.Clamp(value, 0f, 100f); byte b = (byte)(v * 2.55f); if (b == 0 && v > 0f) b = 1; compressednum6 = b; } }
 
     private byte compressednum7;
     public float skinHealth { get { return compressednum7 / 2.55f; } set { compressednum7 = (byte)(Mathf.Clamp(value, 0f, 100f) * 2.55f); } }
@@ -283,6 +285,17 @@ public struct CharacterLimbHealthState : INetSerializeByMemcpy {
         limb.pain = pain;
         limb.disinfectionTime = disinfectionTime;
         limb.bandageSlowAmount = bandageSlowAmount;
+#if FULLGAME
+        // the host decides when a prosthetic breaks (it pushes dismembered then). stock Limb.Update turns
+        // missing skin into wear and Dismembers at <= 0, so a client must not keep one the host still has
+        // at a value that check destroys, or it breaks, bleeds and drops the hand's item on every push.
+        if (Net.IsClient && has_prosthetic && !dismembered && limb.HasProsthetic()) {
+            limb.skinHealth = 100f;
+            if (limb.muscleHealth <= 0f) {
+                limb.muscleHealth = 0.01f;
+            }
+        }
+#endif
     }
 
     static bool ProsthesisBendInProgress(Limb limb) {
