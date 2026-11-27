@@ -2321,7 +2321,10 @@ public static class TurretScript_Shoot_MultiplayerPatch {
 
         if (!HitOnlyStatic) {
             // the shooter's own copy. the host's own shot keeps the stock damage and reports nothing for it.
-            if (Net.IsServer) return false;
+            if (Net.IsServer) {
+                MarkGuardHurtByPlayer(building);
+                return false;
+            }
             if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(building.transform.position, $"Shoot: forwarded enemy hit", Color.green);
             JustHitBuildings.Add(si);
             return true;
@@ -2332,6 +2335,16 @@ public static class TurretScript_Shoot_MultiplayerPatch {
         // a third client still gets the number and gore from ApplyShootDamages. the host's list is never used.
         if (!Net.IsServer) JustHitBuildings.Add(si);
         return true;
+    }
+
+    // stock Shoot sets GuardScript.hurtByPlayer only when FireInfo.ignoreBody is on, and mp player shots always
+    // fire with ignoreBody = false. GuardScript.Die turns hurtByPlayer into anyGuardKilled, which EscapeEnding reads,
+    // so in mp a guard shot dead by a player never counted. the host owns guard AI and Die, so it marks it here.
+    internal static void MarkGuardHurtByPlayer(BuildingEntity b) {
+#if FULLGAME
+        if (b != null && b.TryGetComponent(out GuardScript guard) && guard != null)
+            guard.hurtByPlayer = true;
+#endif
     }
 
     // returns false to damage the building
@@ -2553,8 +2566,10 @@ public static class TurretScript_Shoot_MultiplayerPatch {
         var damage = (b.animal ? (gst.og.animalDamage * num) : (gst.og.structureDamage * num));
 
         // host applies the shot from the reported id. the client keeps the sound and waits for that health.
-        if (!(Net.IsRunning && Net.IsClient))
+        if (!(Net.IsRunning && Net.IsClient)) {
             b.SetHealth(b.GetHealth() - damage);
+            MarkGuardHurtByPlayer(b);
+        }
         if (b.animal) {
             // stock Shoot sends it with DontRequireReceiver
             b.gameObject.SendMessage("AnimalHit", damage, SendMessageOptions.DontRequireReceiver);
