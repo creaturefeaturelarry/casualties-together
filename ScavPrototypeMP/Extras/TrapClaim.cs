@@ -1168,22 +1168,53 @@ internal static class TrapClaim {
 #if FULLGAME
     // cryodrone (LaserDroneScript): host AI + FireShot. the host ray is the hit that sticks.
     internal static void ClientCryoFollowHost(LaserDroneScript drone) {
-        if (drone == null || !NetObjectRegistry.TryGetSyncInfo(drone, out var si)) {
+        if (Net.IsServer || drone == null || !NetObjectRegistry.TryGetSyncInfo(drone, out var si)) {
             return;
         }
         // host FixedUpdate owns the chase. the client copy was drifting, so shots landed off the host's drone.
         Vector2 hostPos = si._position.InterpolatedValue;
-        drone.transform.position = hostPos;
+        float hostAng = si._rotation.InterpolatedValue.Degrees;
+        drone.transform.SetPositionAndRotation(hostPos, Quaternion.Euler(0f, 0f, hostAng));
         if (drone.TryGetComponent(out Rigidbody2D rb) && rb != null) {
-            rb.simulated = false;
+            // #88: simulated=false took the colliders out of every query, so client bullets went through it.
+            // it stays simulated and frozen instead. the entity sync only writes bodyType, never constraints,
+            // so nothing undoes this each frame. a simulated Dynamic copy can make LocalOwnsLoose skip the
+            // generic pose, which is why the angle is stamped here too.
+            PinCryoForClient(rb);
             rb.position = hostPos;
+            rb.rotation = hostAng;
             rb.velocity = Vector2.zero;
+            rb.angularVelocity = 0f;
         }
         bool hostOpen = si.specialdata1.Value != 0;
         if (drone.open != hostOpen) {
             ApplyCryoOpenVisual(drone, hostOpen);
         }
         drone.openAmount = Mathf.MoveTowards(drone.openAmount, hostOpen ? 1f : 0f, Time.deltaTime * 2f);
+    }
+
+    static void PinCryoForClient(Rigidbody2D rb) {
+        if (!rb.TryGetComponent(out CryoClientPin pin)) {
+            pin = rb.gameObject.AddComponent<CryoClientPin>();
+            pin.Saved = rb.constraints;
+        }
+        if (rb.constraints != RigidbodyConstraints2D.FreezeAll) {
+            rb.constraints = RigidbodyConstraints2D.FreezeAll;
+        }
+        if (!rb.simulated) {
+            rb.simulated = true;
+        }
+    }
+
+    // a client that became host gets its drone's own constraints back, or FixedUpdate could not move it.
+    internal static void HostCryoUnpin(LaserDroneScript drone) {
+        if (drone == null || !drone.TryGetComponent(out CryoClientPin pin)) {
+            return;
+        }
+        if (drone.TryGetComponent(out Rigidbody2D rb) && rb != null) {
+            rb.constraints = pin.Saved;
+        }
+        Object.Destroy(pin);
     }
 
     static void ApplyCryoOpenVisual(LaserDroneScript drone, bool open) {
@@ -1905,3 +1936,9 @@ static class GunmineScript_OnWillRender_TrapClaim {
         return false;
     }
 }
+#if FULLGAME
+// client cryodrone copy is frozen by TrapClaim.ClientCryoFollowHost. remembers what it had before.
+internal sealed class CryoClientPin : MonoBehaviour {
+    internal RigidbodyConstraints2D Saved;
+}
+#endif

@@ -784,9 +784,11 @@ static class LaserDroneScript_Update_HostAuth_MultiplayerPatch {
             return true;
         }
         if (Net.IsClient) {
+            // pinned (simulated, frozen) at the host pose. it stays hittable for client bullets (#88).
             TrapClaim.ClientCryoFollowHost(__instance);
             return false;
         }
+        TrapClaim.HostCryoUnpin(__instance);
         BodyGetterOverrider bgo = __instance.GetOrAddComponent<BodyGetterOverrider>();
         bgo.SetNearestBody();
         if (bgo.body == null && PlayerCamera.main != null) {
