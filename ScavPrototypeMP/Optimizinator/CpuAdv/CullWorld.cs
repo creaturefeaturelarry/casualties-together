@@ -63,8 +63,18 @@ internal static class CullWorld
 	private static bool _hosting;
 	private static float _prop;
 	private static float _enemy;
-	private static readonly List<Vector2> Others = new List<Vector2>(8);
+	private static readonly List<HostWatch.Watch> Others = new List<HostWatch.Watch>(8);
+	private static readonly List<bool> _otherMoved = new List<bool>(8);
+	private static readonly Dictionary<int, Vector2> _otherPos = new Dictionary<int, Vector2>();
+	private static readonly Dictionary<int, Vector2> _otherHalf = new Dictionary<int, Vector2>();
+	private static readonly HashSet<int> _otherPending = new HashSet<int>();
+	private static readonly List<int> _otherDrop = new List<int>(8);
 	private static readonly List<Rect2> Guards = new List<Rect2>(8);
+	private static readonly List<Rect2> _coverProp = new List<Rect2>(8);
+	private static readonly List<Rect2> _coverEnemy = new List<Rect2>(8);
+	private static int _coverFrame = -1;
+	private static int _othersFrame = -1;
+	private static bool _camPending;
 
 	internal static bool OwnsVisibility(WorldGeneration world)
 	{
@@ -162,16 +172,19 @@ internal static class CullWorld
 			_scanned = true;
 			_haveView = false;
 			_pendingFar = true;
+			_camPending = true;
+			_otherPos.Clear();
+			_otherHalf.Clear();
+			_otherPending.Clear();
+			_othersFrame = -1;
+			_coverFrame = -1;
 		}
 
 		Camera cam = ViewCamera();
 		bool camOk = cam != null && cam.orthographic;
 		Body localBody = PlayerCamera.main != null ? PlayerCamera.main.body : null;
 		_hosting = HostWatch.IsHost();
-		if (_hosting)
-			HostWatch.CopyOthers(Others, localBody);
-		else
-			Others.Clear();
+		EnsureOthers(localBody);
 		int stamps = (camOk ? 1 : 0) + Others.Count;
 		if (stamps == 0)
 			return;
@@ -184,13 +197,18 @@ internal static class CullWorld
 			float cap = ViewCap.HalfHeight(cam);
 			half = cap > 0.5f && liveHalf > cap ? cap : liveHalf;
 		}
-		bool moved = camOk && (!_haveView
+		bool camMoved = camOk && (!_haveView
 			|| (anchor.x - _viewX) * (anchor.x - _viewX) + (anchor.y - _viewY) * (anchor.y - _viewY) > 0.25f
 			|| Mathf.Abs(half - _viewH) > 0.05f);
-		if (moved)
+		bool othersMoved = NoteOtherMotion();
+		if (camMoved || othersMoved) {
 			_pendingFar = true;
+			if (camMoved)
+				_camPending = true;
+			BuildingEntity_Update_MultiplayerPatch.NoteWindowMoved();
+		}
 		bool catchUp = CatchUpActive(world, camOk ? anchor : (Vector2?)null);
-		if (!_hosting && !moved && !_pendingFar && !catchUp)
+		if (!camMoved && !othersMoved && !_camPending && _otherPending.Count == 0 && !catchUp)
 			return;
 
 		float dt = Time.unscaledDeltaTime;
@@ -201,13 +219,6 @@ internal static class CullWorld
 		if (_age < interval)
 			return;
 		_age = 0f;
-		if (camOk)
-		{
-			_haveView = true;
-			_viewX = anchor.x;
-			_viewY = anchor.y;
-			_viewH = half;
-		}
 
 		_prop = CpuAdvConfig.PropWakeDistance != null ? CpuAdvConfig.PropWakeDistance.Value : 8f;
 		_enemy = CpuAdvConfig.EnemyWakeDistance != null ? CpuAdvConfig.EnemyWakeDistance.Value : 60f;
@@ -215,8 +226,6 @@ internal static class CullWorld
 			_prop = 0f;
 		if (_enemy < 0f)
 			_enemy = 0f;
-		if (_hosting)
-			_prop *= 2f;
 		if (_enemy < _prop)
 			_enemy = _prop;
 
@@ -229,30 +238,39 @@ internal static class CullWorld
 		}
 		for (int i = 0; i < Others.Count; i++)
 		{
-			Vector2 p = Others[i];
-			Guards.Add(new Rect2(p.x, p.y, p.x, p.y));
+			HostWatch.Watch w = Others[i];
+			Guards.Add(PlayerView(w));
 		}
 
-		if (_stamp >= stamps)
-			_stamp = 0;
-		int stamp = _stamp;
-		_stamp++;
+		int stamp = NextDue(camOk, camMoved, catchUp, stamps);
+		if (stamp < 0)
+		{
+			_camPending = false;
+			_otherPending.Clear();
+			_pendingFar = false;
+			return;
+		}
+		_stamp = stamp + 1;
 		if (_stamp >= stamps)
 			_stamp = 0;
 
 		Rect2 view;
-		bool drawChunks;
+		int otherIndex = -1;
 		if (camOk && stamp == 0)
 		{
 			view = cameraView;
-			drawChunks = true;
+			_haveView = true;
+			_viewX = anchor.x;
+			_viewY = anchor.y;
+			_viewH = half;
 		}
 		else
 		{
-			int index = stamp - (camOk ? 1 : 0);
-			Vector2 p = Others[index];
-			view = new Rect2(p.x, p.y, p.x, p.y);
-			drawChunks = false;
+			otherIndex = stamp - (camOk ? 1 : 0);
+			HostWatch.Watch w = Others[otherIndex];
+			view = PlayerView(w);
+			_otherPos[w.Id] = w.Pos;
+			_otherHalf[w.Id] = new Vector2(w.HalfW, w.HalfH);
 		}
 
 		int budget = CpuAdvConfig.MaxFlipsPerTick != null ? CpuAdvConfig.MaxFlipsPerTick.Value : 8;
@@ -284,9 +302,122 @@ internal static class CullWorld
 		ApplyObjects(view, nearBudget);
 		float reach = _enemy > _prop ? _enemy : _prop;
 		int turnedOff = SweepFar(view.Expand(reach), farBudget);
-		if (turnedOff == 0 && stamp == stamps - 1)
-			_pendingFar = false;
+		if (turnedOff == 0)
+		{
+			if (otherIndex < 0)
+				_camPending = false;
+			else
+				_otherPending.Remove(Others[otherIndex].Id);
+		}
+		_pendingFar = _camPending || _otherPending.Count > 0;
 		Beat(world, true, _hosting ? "host" : "play");
+	}
+
+	// One copy of the remote views per frame. Covers and the cull tick both read it.
+	private static void EnsureOthers(Body local)
+	{
+		if (_othersFrame == Time.frameCount)
+			return;
+		_othersFrame = Time.frameCount;
+		if (HostWatch.IsHost())
+			HostWatch.CopyOthers(Others, local);
+		else
+			Others.Clear();
+	}
+
+	private static Rect2 PlayerView(HostWatch.Watch watch)
+	{
+		return new Rect2(
+			watch.Pos.x - watch.HalfW,
+			watch.Pos.y - watch.HalfH,
+			watch.Pos.x + watch.HalfW,
+			watch.Pos.y + watch.HalfH);
+	}
+
+	// Compared with the position last applied, so a player who has not moved is not a stamp.
+	private static bool NoteOtherMotion()
+	{
+		_otherMoved.Clear();
+		bool any = false;
+		for (int i = 0; i < Others.Count; i++)
+		{
+			HostWatch.Watch watch = Others[i];
+			bool moved = true;
+			if (_otherPos.TryGetValue(watch.Id, out Vector2 prev) && _otherHalf.TryGetValue(watch.Id, out Vector2 half))
+			{
+				float dx = watch.Pos.x - prev.x;
+				float dy = watch.Pos.y - prev.y;
+				moved = dx * dx + dy * dy > 0.25f
+					|| Mathf.Abs(watch.HalfW - half.x) > 0.05f
+					|| Mathf.Abs(watch.HalfH - half.y) > 0.05f;
+			}
+			_otherMoved.Add(moved);
+			if (moved)
+			{
+				any = true;
+				_otherPending.Add(watch.Id);
+			}
+		}
+		if (DropMissingOthers())
+			any = true;
+		return any;
+	}
+
+	private static bool DropMissingOthers()
+	{
+		_otherDrop.Clear();
+		foreach (KeyValuePair<int, Vector2> pair in _otherPos)
+		{
+			int id = pair.Key;
+			bool seen = false;
+			for (int i = 0; i < Others.Count; i++)
+			{
+				if (Others[i].Id == id)
+				{
+					seen = true;
+					break;
+				}
+			}
+			if (!seen)
+				_otherDrop.Add(id);
+		}
+		if (_otherDrop.Count == 0)
+			return false;
+		for (int i = 0; i < _otherDrop.Count; i++)
+		{
+			int id = _otherDrop[i];
+			_otherPos.Remove(id);
+			_otherHalf.Remove(id);
+			_otherPending.Remove(id);
+		}
+		_camPending = true;
+		for (int i = 0; i < Others.Count; i++)
+			_otherPending.Add(Others[i].Id);
+		return true;
+	}
+
+	private static int NextDue(bool camOk, bool camMoved, bool catchUp, int stamps)
+	{
+		for (int n = 0; n < stamps; n++)
+		{
+			int stamp = _stamp + n;
+			if (stamp >= stamps)
+				stamp -= stamps;
+			if (StampDue(stamp, camOk, camMoved, catchUp))
+				return stamp;
+		}
+		return -1;
+	}
+
+	private static bool StampDue(int stamp, bool camOk, bool camMoved, bool catchUp)
+	{
+		if (camOk && stamp == 0)
+			return camMoved || _camPending || catchUp;
+		int index = stamp - (camOk ? 1 : 0);
+		if (index < 0 || index >= Others.Count)
+			return false;
+		bool moved = index < _otherMoved.Count && _otherMoved[index];
+		return moved || _otherPending.Contains(Others[index].Id);
 	}
 
 	internal static void Consider(GameObject go)
@@ -788,6 +919,12 @@ internal static class CullWorld
 		_hotCursor = 0;
 		_haveView = false;
 		_pendingFar = false;
+		_camPending = false;
+		_otherPos.Clear();
+		_otherHalf.Clear();
+		_otherPending.Clear();
+		_othersFrame = -1;
+		_coverFrame = -1;
 		_added = 0;
 		_stamp = 0;
 	}
@@ -829,6 +966,12 @@ internal static class CullWorld
 		_hotCursor = 0;
 		_haveView = false;
 		_pendingFar = false;
+		_camPending = false;
+		_otherPos.Clear();
+		_otherHalf.Clear();
+		_otherPending.Clear();
+		_othersFrame = -1;
+		_coverFrame = -1;
 		_added = 0;
 		_stamp = 0;
 	}
@@ -954,6 +1097,87 @@ internal static class CullWorld
 		if (player != null && player.body != null)
 			return player.body.transform.position;
 		return cam.transform.position;
+	}
+
+	internal static bool Covers(Vector2 pos, bool enemy)
+	{
+		if (CpuAdvConfig.Enabled == null || !CpuAdvConfig.Enabled.Value)
+			return false;
+		EnsureCovers();
+		int cell = Together.OffMain.Cell(pos.x, pos.y);
+		if (Together.OffMain.TryCover(cell, enemy, out bool hit))
+			return hit;
+		Together.OffMain.WatchCell(cell, pos.x, pos.y);
+		List<Rect2> list = enemy ? _coverEnemy : _coverProp;
+		float x = pos.x;
+		float y = pos.y;
+		for (int i = 0; i < list.Count; i++)
+		{
+			if (list[i].Overlaps(x, y, x, y))
+				return true;
+		}
+		return false;
+	}
+
+	// Built once a frame. ChunkSleep asks this dozens of times, and each ask used to walk every player.
+	private static void EnsureCovers()
+	{
+		int frame = Time.frameCount;
+		if (frame == _coverFrame)
+			return;
+		_coverFrame = frame;
+		_coverProp.Clear();
+		_coverEnemy.Clear();
+		float prop = CpuAdvConfig.PropWakeDistance != null ? CpuAdvConfig.PropWakeDistance.Value : 8f;
+		float enemy = CpuAdvConfig.EnemyWakeDistance != null ? CpuAdvConfig.EnemyWakeDistance.Value : 60f;
+		if (prop < 0f)
+			prop = 0f;
+		if (enemy < 0f)
+			enemy = 0f;
+		if (enemy < prop)
+			enemy = prop;
+		Body local = PlayerCamera.main != null ? PlayerCamera.main.body : null;
+		EnsureOthers(local);
+		Camera cam = ViewCamera();
+		if (cam != null && cam.orthographic)
+		{
+			Rect2 view = ViewOf(cam, Anchor(cam));
+			_coverProp.Add(view.Expand(prop));
+			_coverEnemy.Add(view.Expand(enemy));
+		}
+		for (int i = 0; i < Others.Count; i++)
+		{
+			Rect2 box = PlayerView(Others[i]);
+			_coverProp.Add(box.Expand(prop));
+			_coverEnemy.Add(box.Expand(enemy));
+		}
+		PublishCovers();
+	}
+
+	static float[] _packProp = System.Array.Empty<float>();
+	static float[] _packEnemy = System.Array.Empty<float>();
+
+	static void PublishCovers()
+	{
+		_packProp = Pack(_coverProp, _packProp);
+		_packEnemy = Pack(_coverEnemy, _packEnemy);
+		Together.OffMain.SetRects(_packProp, _coverProp.Count, _packEnemy, _coverEnemy.Count);
+	}
+
+	static float[] Pack(System.Collections.Generic.List<Rect2> list, float[] buf)
+	{
+		int n = list.Count * 4;
+		if (buf.Length < n)
+			buf = new float[n < 16 ? 16 : n];
+		for (int i = 0; i < list.Count; i++)
+		{
+			Rect2 rect = list[i];
+			buf[i * 4] = rect.X0;
+			buf[i * 4 + 1] = rect.Y0;
+			buf[i * 4 + 2] = rect.X1;
+			buf[i * 4 + 3] = rect.Y1;
+		}
+		return buf;
 	}
 
 	private static Rect2 ViewOf(Camera cam, Vector2 center)

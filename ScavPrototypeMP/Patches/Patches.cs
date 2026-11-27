@@ -623,6 +623,17 @@ public static class Body_HandleVisuals_MultiplayerPatch {
 }
 
 
+[HarmonyPatch(typeof(Body), "HandleGroundedState")]
+static class Body_HandleGroundedState_ClientRemote {
+    // the host already simulated a remote body. the client only needs the pose packet.
+    static bool Prefix(Body __instance) {
+        if (!Net.IsRunning || Net.IsServer) {
+            return true;
+        }
+        return Util.IsBodyLocal(__instance);
+    }
+}
+
 [HarmonyPatch(typeof(Body), nameof(Body.Update))]
 public static class Body_Update_MultiplayerPatch {
     static void Prefix(Body __instance) {
@@ -716,6 +727,8 @@ public static class Body_Update_MultiplayerPatch {
                     }
                 }
 
+                // host scores every body. a client only needs the local one.
+                if (Net.IsServer || Util.IsBodyLocal(body)) {
                 var nearestpossiblemedic = ScavPlayer.GetNearestConsciousPlayerToThisBody(npc);
                 var last_standing = nearestpossiblemedic.Item1 == null; // no one else was found, this person is the last one
                 var is_dying_alone = (
@@ -853,6 +866,7 @@ public static class Body_Update_MultiplayerPatch {
                         }
                     }
 
+                }
                 }
             } else {
 

@@ -654,7 +654,7 @@ namespace Together {
                     ServerEntitySendRate,
                     ServerSendRate.EqualToFPS
                 );
-                // distant objects skip three sends out of four. worldgen queues one more full baseline.
+                // worldgen still queues one full baseline. after that, each diff is sent the tick it is built.
                 ServerEntityManager.ShouldSendEntityDiff = SendBudget.Allow;
                 ServerEntityManager.BeforeLogicTick = FixRejoinBaseline.BeforeTick;
 
@@ -684,6 +684,7 @@ namespace Together {
 
         internal static void DoUpdate() {
             try {
+                OffMain.Drain();
                 using (FindTheBugInator.Time(FindTheBugInator.Transport)) {
                     Transport?.Update();
                 }

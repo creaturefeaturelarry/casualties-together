@@ -17,8 +17,8 @@ namespace KrokV5Optimization;
 internal static class FixSimRange {
     internal static long Grids;
 
-    // vanilla draws about two chunks out and forces the next ring off. four covers that window around a client who is not the host.
-    internal const int WindowRadius = 4;
+    // one chunk each way: the player's chunk plus its neighbours. searches stay inside that 3x3.
+    internal const int WindowRadius = 1;
 
     static FieldInfo _table;
     static bool _gateMiss;
@@ -72,6 +72,7 @@ internal static class FixSimRange {
         // thrown stuff, a fired hook, and a lit stick of dynamite stamp the same 3x3 a player would.
         SimKeep.Stamp(table, world);
         Grids++;
+        Together.BuildingEntity_Update_MultiplayerPatch.NoteWindowMoved();
         return false;
     }
 
@@ -190,10 +191,10 @@ static class IKHandle_LocalSolve_MultiplayerPatch {
     static bool Prefix(IKHandle __instance) {
         if (!Net.IsRunning || __instance == null)
             return true;
-        return Near(__instance.transform.position);
+        return Inside(__instance.transform.position);
     }
 
-    static bool Near(Vector2 pos) {
+    internal static bool Inside(Vector2 pos) {
         WorldGeneration world = WorldGeneration.world;
         if (world == null || !world.worldExists)
             return true;

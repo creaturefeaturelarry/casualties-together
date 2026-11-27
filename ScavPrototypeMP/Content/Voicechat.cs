@@ -868,6 +868,14 @@ public class Voicechat :  CasualtiesTogetherSingleton {
 
     static AudioOpusEncoding encoder;
 
+    internal static byte[] EncodeOffThread(float[] data) {
+        if (data == null || data.Length == 0)
+            return null;
+        if (encoder == null)
+            encoder = new AudioOpusEncoding();
+        return encoder.Encode(data, (ushort)SAMPLE_RATE);
+    }
+
     internal static bool ENABLE_LOCAL_LOOPBACK = false;
     internal static VoicechatOutputDebugVisualiser ENABLE_LOCAL_LOOPBACK_VCINSTANCE = null;
     internal static int TEMPDEV_LAST_OPUS_ENCODED_SIZE = 0;
@@ -1344,33 +1352,7 @@ public class Voicechat :  CasualtiesTogetherSingleton {
         }
 
         if (Net.IsConnected && !Net.IsDedicatedServer) {
-
-            // new opus encoder 
-            byte[] voiceblob = encoder.Encode(data, (ushort)SAMPLE_RATE);
-
-            if (voiceblob.Length > 0) {
-
-                TEMPDEV_LAST_OPUS_ENCODED_SIZE = voiceblob.Length;
-                TEMPDEV_LAST_OPUS_BEFORE_ENCODED_SIZE = data.Length;
-
-
-                var writer = Net.CreateWriter(NetmsgId.SERVER_VoiceChatBlob);
-
-                writer.Put((byte)Array.IndexOf(STANDART_FREQUENCIES, (ushort)SAMPLE_RATE));
-                writer.PutBytesWithLength(voiceblob);
-                writer.Put((ushort)data.Length);
-                writer.Put(is_not_last);
-
-                Net.Client_Send(DeliveryMethod.Unreliable, writer);
-
-                // WRITER END;
-
-            } else {
-#if TESTING
-                log.warn($" VOICECHAT: Failed to encode opus to send???  data.Length:{data.Length} ");
-#endif
-            }
-
+            OffMain.QueueVoice(data, data.Length, is_not_last);
         }
 
     }

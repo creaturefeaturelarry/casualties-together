@@ -29,14 +29,20 @@ internal static class ResettableDeflate
 
 	internal static void WriteGzip(byte[] data, int offset, int length, MemoryStream dest)
 	{
+		WriteGzipDedicated(GzipDeflater, Crc, Scratch, data, offset, length, dest);
+	}
+
+	// own deflater, crc, and scratch. the shared ones stay on the game thread.
+	internal static void WriteGzipDedicated(Deflater deflater, Crc32 crc, byte[] scratch, byte[] data, int offset, int length, MemoryStream dest)
+	{
 		dest.SetLength(0);
 		dest.Position = 0;
 		dest.Write(GzipHeader, 0, GzipHeader.Length);
-		DeflateRaw(GzipDeflater, data, offset, length, dest);
-		Crc.Reset();
+		DeflateRaw(deflater, scratch, data, offset, length, dest);
+		crc.Reset();
 		if (length > 0)
-			Crc.Update(new ArraySegment<byte>(data, offset, length));
-		WriteU32(dest, (uint)Crc.Value);
+			crc.Update(new ArraySegment<byte>(data, offset, length));
+		WriteU32(dest, (uint)crc.Value);
 		WriteU32(dest, unchecked((uint)length));
 	}
 
@@ -105,6 +111,11 @@ internal static class ResettableDeflate
 
 	private static void DeflateRaw(Deflater deflater, byte[] data, int offset, int length, MemoryStream dest)
 	{
+		DeflateRaw(deflater, Scratch, data, offset, length, dest);
+	}
+
+	private static void DeflateRaw(Deflater deflater, byte[] scratch, byte[] data, int offset, int length, MemoryStream dest)
+	{
 		deflater.Reset();
 		try
 		{
@@ -114,10 +125,10 @@ internal static class ResettableDeflate
 			int spins = 0;
 			while (!deflater.IsFinished)
 			{
-				int n = deflater.Deflate(Scratch, 0, Scratch.Length);
+				int n = deflater.Deflate(scratch, 0, scratch.Length);
 				if (n > 0)
 				{
-					dest.Write(Scratch, 0, n);
+					dest.Write(scratch, 0, n);
 					if (dest.Length > MaxOutputBytes)
 						throw new InvalidDataException("deflate output exceeded cap");
 					continue;

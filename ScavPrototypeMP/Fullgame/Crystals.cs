@@ -158,6 +158,7 @@ public static class CrystalAuthority {
         _nextFillAt.Clear();
         _nextSpecialAt.Clear();
         _pendingCapture.Clear();
+        _liveCrystals.Clear();
         _nextBlankScanAt = 0f;
         CrystalDelayedFx.ClearArmBroadcasts();
         CrystalLocalAuthority.ClearLayerCaches();
@@ -723,6 +724,7 @@ public static class CrystalAuthority {
     }
 
     public static void ClientTryApplyOrRequest(SyncInfo si) {
+        NoteCrystal(si);
         if (!Net.IsClient || si == null || si.go == null) {
             return;
         }
@@ -853,12 +855,26 @@ public static class CrystalAuthority {
     }
 
     // specials keep requesting every 1s until an effect payload actually applies. No attempt cap.
+    static readonly List<SyncInfo> _liveCrystals = new List<SyncInfo>();
+
+    static void NoteCrystal(SyncInfo si) {
+        if (si == null) {
+            return;
+        }
+        for (int i = 0; i < _liveCrystals.Count; i++) {
+            if (_liveCrystals[i] == si) {
+                return;
+            }
+        }
+        _liveCrystals.Add(si);
+    }
+
     static void TickSpecialRetries() {
         if (Net.IsServer) {
             return;
         }
-        foreach (var kv in NetObjectRegistry.SyncRegistry) {
-            SyncInfo si = kv.Value;
+        for (int i = _liveCrystals.Count - 1; i >= 0; i--) {
+            SyncInfo si = _liveCrystals[i];
             if (si == null || si.go == null || _specialsApplied.Contains(si.syncId)) {
                 continue;
             }
@@ -873,6 +889,9 @@ public static class CrystalAuthority {
         if (!Net.IsClient || !Net.IsRunning || !SharedMain.LocalWorldIsGenerated) {
             return;
         }
+        if (_liveCrystals.Count == 0) {
+            return;
+        }
         TickSpecialRetries();
         float now = Time.unscaledTime;
         if (now < _nextBlankScanAt) {
@@ -881,11 +900,8 @@ public static class CrystalAuthority {
         _nextBlankScanAt = now + BlankScanInterval;
 
         int sent = 0;
-        foreach (var kv in NetObjectRegistry.SyncRegistry) {
-            if (sent >= BlankScanBudget) {
-                break;
-            }
-            SyncInfo si = kv.Value;
+        for (int i = _liveCrystals.Count - 1; i >= 0 && sent < BlankScanBudget; i--) {
+            SyncInfo si = _liveCrystals[i];
             if (si == null || si.go == null) {
                 continue;
             }
@@ -1413,6 +1429,9 @@ public static class CrystalAuthority {
                     }
                     MarkGenerationDone(be.gameObject);
                     HostCapture(be.gameObject);
+                    if (NetObjectRegistry.TryGetSyncInfo(be.gameObject, out SyncInfo crystalSi)) {
+                        NoteCrystal(crystalSi);
+                    }
                 }
                 HostFlushPendingCaptures();
                 HostPushRegisteredCrystalStates();

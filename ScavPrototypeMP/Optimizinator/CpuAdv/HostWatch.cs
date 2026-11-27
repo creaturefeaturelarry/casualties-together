@@ -16,7 +16,15 @@ internal static class HostWatch
 		return Net.IsRunning && Net.IsDedicatedServer;
 	}
 
-	internal static int CopyOthers(List<Vector2> into, Body local)
+	internal struct Watch
+	{
+		public int Id;
+		public Vector2 Pos;
+		public float HalfW;
+		public float HalfH;
+	}
+
+	internal static int CopyOthers(List<Watch> into, Body local)
 	{
 		into.Clear();
 		if (!IsHost())
@@ -29,7 +37,14 @@ internal static class HostWatch
 				continue;
 			if (local != null && plr.body == local)
 				continue;
-			into.Add(plr.body.transform.position);
+			SyncStep.HalfExtents((byte)plr.playerId.id, false, out float halfW, out float halfH);
+			into.Add(new Watch
+			{
+				Id = plr.playerId.id,
+				Pos = plr.body.transform.position,
+				HalfW = halfW,
+				HalfH = halfH
+			});
 		}
 		return into.Count;
 	}

@@ -152,6 +152,12 @@ namespace Together {
             if ((!Net.IsRunning || Net.IsServer) && SimKeep.Covers(pos)) {
                 return true;
             }
+            if (Net.IsRunning && CullWorld.Covers(pos, true)) {
+                return true;
+            }
+            if (CpuAdvConfig.Enabled != null && CpuAdvConfig.Enabled.Value) {
+                return false;
+            }
 
             bool stamped = false;
             if (!KrokV5Optimization.FixSimRange.Range(pos, ref stamped)) {

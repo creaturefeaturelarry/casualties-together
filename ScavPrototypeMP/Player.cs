@@ -971,8 +971,10 @@ namespace Together {
                 writer.Put((ushort)visible.netId);
                 int length = writer.Length;
                 ClientMain.WriteRagdollPacket(ref writer, visible.body);
-                writer.CompressWriter(length);
-                Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, playerId);
+                if (!OffMain.SendServer(DeliveryMethod.Unreliable, writer, length, playerId)) {
+                    writer.CompressWriter(length);
+                    Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, playerId);
+                }
             }
         }
 

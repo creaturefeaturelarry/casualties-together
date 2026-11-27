@@ -90,8 +90,13 @@ namespace Together {
                 KrokoshaCasualtiesMP_DISABLED_STATE.KrokoshaCasualtiesMP_DISABLED_BUTTON_HANDLER.ON_CLICK_WILL_ENABLE_THE_MOD = false;
                 this.GetOrAddComponent<KrokoshaCasualtiesMP_DISABLED_STATE.KrokoshaCasualtiesMP_DISABLED_BUTTON_HANDLER>();
             }
+            bool _sawBody;
+
             void OnGUI() {
-                if (GameObject.FindObjectOfType<Body>()) {
+                if (!_sawBody && PlayerCamera.main != null && PlayerCamera.main.body != null) {
+                    _sawBody = true;
+                }
+                if (_sawBody) {
                     return;
                 }
                 GUI.Label(new Rect(20, 20, Screen.width, Screen.height), $"CO-OP MOD v{Plugin.FULL_MOD_VERSION} failed to load!!!!!! \n\n{errorstr}");
@@ -1310,7 +1315,7 @@ namespace Together {
             using (FindTheBugInator.Time(FindTheBugInator.Chunks)) {
                 ChunkSleep.Tick();
                 BagSleep.Tick();
-                HeaterMultiplayerRewrite.Tick();
+                ClientSpiderBite.Tick();
             }
             using (FindTheBugInator.Time(FindTheBugInator.Opt)) {
                 OptimizerMain.Tick();
@@ -1322,8 +1327,6 @@ namespace Together {
 #if FULLGAME
             using (FindTheBugInator.Time(FindTheBugInator.Crystals)) {
                 CrystalAuthority.ClientTickBlankResync();
-                ConcurrentEndings.TickLocalAscent();
-                BlueHeartMp.Server_EnsureAllMissingCargoOnAscent();
             }
 #endif
         }

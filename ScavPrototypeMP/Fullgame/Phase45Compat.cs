@@ -1114,19 +1114,25 @@ internal static class CeilingTurretHostSim {
         source.pitch = 0.5f + timeSaw * 1.5f;
     }
 
-    static CeilingTurret[] _cached;
-    static int _cachedFrame = -1;
+    static readonly List<CeilingTurret> _guns = new List<CeilingTurret>();
+
+    internal static void Note(CeilingTurret gun) {
+        if (gun != null && !_guns.Contains(gun)) {
+            _guns.Add(gun);
+        }
+    }
+
+    internal static void Forget(CeilingTurret gun) {
+        _guns.Remove(gun);
+    }
 
     static CeilingTurret FindNear(Vector2 pos) {
-        if (_cached == null || Time.frameCount - _cachedFrame > 45) {
-            _cached = UnityEngine.Object.FindObjectsByType<CeilingTurret>(FindObjectsSortMode.None);
-            _cachedFrame = Time.frameCount;
-        }
         CeilingTurret best = null;
         float bestSqr = 64f;
-        for (int i = 0; i < _cached.Length; i++) {
-            CeilingTurret ct = _cached[i];
+        for (int i = _guns.Count - 1; i >= 0; i--) {
+            CeilingTurret ct = _guns[i];
             if (ct == null) {
+                _guns.RemoveAt(i);
                 continue;
             }
             float sqr = ((Vector2)ct.transform.position - pos).sqrMagnitude;
@@ -1318,6 +1324,20 @@ internal static class CeilingTurretHostSim {
 }
 
 [HarmonyPatch(typeof(CeilingTurret), "Update")]
+[HarmonyPatch(typeof(CeilingTurret), "OnEnable")]
+static class CeilingTurret_OnEnable_Note {
+    static void Postfix(CeilingTurret __instance) {
+        CeilingTurretHostSim.Note(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(CeilingTurret), "OnDestroy")]
+static class CeilingTurret_OnDestroy_Note {
+    static void Postfix(CeilingTurret __instance) {
+        CeilingTurretHostSim.Forget(__instance);
+    }
+}
+
 static class CeilingTurret_Update_HostSim_MultiplayerPatch {
     static bool Prefix(CeilingTurret __instance) {
         if (!Net.IsRunning) {

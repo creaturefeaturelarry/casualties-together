@@ -2659,16 +2659,18 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
             writer.Put(nb.healthConfirm);
             nb.healthConfirm = false;
 
-            writer.CompressWriter();
-
-            // a forced push is a level-up or a carried-weight tick. the slow unreliable
-            // round robin is what made crafting intelligence show up late, or not at all.
-            // another player's health is only useful in view. their own client still gets it.
             IReadOnlyList<knetid> viewers = HealthRecipients(nb);
             if (viewers.Count == 0) {
                 return;
             }
-            Net.Server_SendToClients(force ? DeliveryMethod.ReliableUnordered : DeliveryMethod.Unreliable, writer, clientIds: viewers);
+            if (!OffMain.SendServer(force ? DeliveryMethod.ReliableUnordered : DeliveryMethod.Unreliable, writer, sizeof(NetmsgId), viewers)) {
+                writer.CompressWriter();
+                Net.Server_SendToClients(force ? DeliveryMethod.ReliableUnordered : DeliveryMethod.Unreliable, writer, clientIds: viewers);
+            }
+
+            // a forced push is a level-up or a carried-weight tick. the slow unreliable
+            // round robin is what made crafting intelligence show up late, or not at all.
+            // another player's health is only useful in view. their own client still gets it.
 
             // WRITER END;
         }

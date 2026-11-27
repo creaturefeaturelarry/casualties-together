@@ -274,7 +274,7 @@ public static class Item_Update_MultiplayerPatch {
                 // stock wets from OnWillRenderObject, which this build skips. the view flag
                 // used to be required here, so a torch outside the host camera never got wet
                 // and the host condition put the client's flame back on.
-                if (TorchWet.InWetLiquid(__instance) && __instance.canGetWet) {
+                if (__instance.canGetWet && TorchWet.InWetLiquid(__instance)) {
                     __instance.wetTime = Time.time;
                     if (__instance.id == "torch") {
                         if (Net.IsServer)
@@ -361,6 +361,7 @@ public static class Item_Update_MultiplayerPatch {
 static class TorchWet {
     static readonly Dictionary<int, Item> Noted = new Dictionary<int, Item>();
     static readonly Dictionary<int, float> NextReport = new Dictionary<int, float>();
+    static readonly Dictionary<int, float> SentCondition = new Dictionary<int, float>();
     static readonly List<int> Drop = new List<int>();
 
     [CTPostInit]
@@ -428,12 +429,19 @@ static class TorchWet {
             if (item.gameObject.activeInHierarchy || item.condition <= 0f)
                 continue;
             item.condition = Mathf.Max(0f, item.condition - dt);
-            if (NetObjectRegistry.TryGetSyncInfo(item, out SyncInfo si) && si != null && !si.IsDestroyed)
-                si.WriteObjectIntoPacket();
+            if (!NetObjectRegistry.TryGetSyncInfo(item, out SyncInfo si) || si == null || si.IsDestroyed)
+                continue;
+            int id = pair.Key;
+            bool due = !SentCondition.TryGetValue(id, out float sent) || sent - item.condition >= 0.05f || item.condition <= 0f;
+            if (!due)
+                continue;
+            SentCondition[id] = item.condition;
+            si.WriteObjectIntoPacket();
         }
         for (int i = 0; i < Drop.Count; i++) {
             Noted.Remove(Drop[i]);
             NextReport.Remove(Drop[i]);
+            SentCondition.Remove(Drop[i]);
         }
     }
 }
@@ -458,6 +466,8 @@ static class Item_HandleDecay_MultiplayerPatch {
         if (Net.IsClient && (__instance is not null) && NetObjectRegistry.IsRegistered(__instance.gameObject)) {
             return false;
         }
+        if (__instance.Stats == null || __instance.Stats.rotSpeed == 0f)
+            return false;
 
         float decMultiplier = __instance.decayMultiplier * (__instance.isWet ? 6f : 1f) * WorldGeneration.globalDecayRate;
         if ((__instance.Stats.decayInfo & (byte)ItemInfo.DecayType.NoDecayWithoutContainerItem) != 0 && __instance.cont.itemCount == 0) {

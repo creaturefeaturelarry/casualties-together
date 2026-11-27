@@ -22,10 +22,8 @@ internal static class ContainerLink {
         if (!NetBody.TryGetNetBodyFromId(new knetid(id), out body) || body == null || body.syncBody == null) {
             return false;
         }
-        if (body.syncBody.Version != item.container_ver.Value) {
-            body = null;
-            return false;
-        }
+        // the body with this id is the one in the session. a version miss used to
+        // hide the hotbar, so the item never got an object and could not be taken out.
         return true;
     }
 

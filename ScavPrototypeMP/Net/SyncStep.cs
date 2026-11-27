@@ -274,6 +274,25 @@ namespace Together {
             return (point - from).sqrMagnitude <= radius * radius;
         }
 
+        internal static void HalfExtents(byte id, bool localCamera, out float halfW, out float halfH) {
+            float aspect;
+            if (localCamera && Camera.main != null) {
+                halfH = Camera.main.orthographicSize;
+                aspect = Camera.main.aspect;
+            } else if (id < Known.Length && Known[id]) {
+                halfH = HalfH[id];
+                aspect = Aspect[id];
+            } else {
+                halfH = StandH;
+                aspect = StandAspect;
+            }
+            if (halfH < 1f)
+                halfH = StandH;
+            if (aspect < 0.5f)
+                aspect = StandAspect;
+            halfW = halfH * aspect;
+        }
+
         static float RadiusOf(byte id, bool localCamera) {
             float halfH;
             float aspect;

@@ -133,6 +133,21 @@ namespace Together {
             Interlocked.Increment(ref _outMsgs);
         }
 
+        internal static void NoteSteamIo(long inBytes, long inMsgs, long outBytes, long outMsgs) {
+            if (inBytes > 0) {
+                Interlocked.Add(ref _inBytes, inBytes);
+            }
+            if (inMsgs > 0) {
+                Interlocked.Add(ref _inMsgs, inMsgs);
+            }
+            if (outBytes > 0) {
+                Interlocked.Add(ref _outBytes, outBytes);
+            }
+            if (outMsgs > 0) {
+                Interlocked.Add(ref _outMsgs, outMsgs);
+            }
+        }
+
         internal static void Install() {
             if (_installed) {
                 return;
