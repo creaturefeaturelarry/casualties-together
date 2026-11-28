@@ -3027,7 +3027,7 @@ public class Con : CasualtiesTogetherSingleton {
                 ConFailIfNetworkIsRunningAndIsClient();
 
                 con.CheckArgumentCount(splited, 1);
-                Multiplayer.PLAYER_COUNT_LIMIT = (byte)Mathf.Clamp(con.ParseInt(splited[1]), 0, 251);
+                Multiplayer.PLAYER_COUNT_LIMIT = (byte)Mathf.Clamp(con.ParseInt(splited[1]), 0, Multiplayer.CONST_MAX_POSSIBLE_PLAYER_COUNT);
 
                 con.LogToConsole($"Set player count limit to: {Multiplayer.PLAYER_COUNT_LIMIT}");
 
@@ -4590,7 +4590,7 @@ public class Con : CasualtiesTogetherSingleton {
                 if (splited.Count() < 3) {
                     return $"expected a number ";
                 } else {
-                    Multiplayer.PLAYER_COUNT_LIMIT = (byte)Mathf.Clamp((ushort.Parse(splited[2])), 0, 251);
+                    Multiplayer.PLAYER_COUNT_LIMIT = (byte)Mathf.Clamp((ushort.Parse(splited[2])), 0, Multiplayer.CONST_MAX_POSSIBLE_PLAYER_COUNT);
                     return $"Set player count limit to: {Multiplayer.PLAYER_COUNT_LIMIT} ";
                 }
 

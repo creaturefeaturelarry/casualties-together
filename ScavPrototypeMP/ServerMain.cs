@@ -1528,8 +1528,11 @@ public class ServerMain : MonoBehaviour {
 #if FULLGAME
             // one player at the top starts the scroller. autocontinue must not skip it.
             if (FullgameWorldCompat.IsAscentLayer()) {
-                ConcurrentEndings.Server_TryStartAscentCutscene();
-                return;
+                if (Net.IsServer) {
+                    ConcurrentEndings.Server_TryStartAscentCutscene();
+                    return;
+                }
+                ConcurrentEndings.TickLocalAscent();
             }
 #endif
             if (!WorldGeneration.world.doingRegen && !WorldGeneration.world.generatingWorld && WorldGeneration.world.worldExists) {

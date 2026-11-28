@@ -191,6 +191,7 @@ namespace Together {
             public int str;
             public int res;
             public int intel;
+            public float raw;
             public Body body;
         }
 
@@ -256,6 +257,9 @@ namespace Together {
         static bool Prefix(Skills __instance, int stat, float xp, ref ExpState __state) {
             Body body = BodyOf(__instance);
             __state.body = body;
+            // AddExp writes the multiplied amount back over this argument (starg).
+            // the postfix would otherwise report that, and the host would multiply again.
+            __state.raw = xp;
             bool remoteHost = IsRemoteOnHost(body);
             if (remoteHost && _hostGrant == 0 && _allowVanilla == 0) {
                 __state.skipped = true;
@@ -283,7 +287,7 @@ namespace Together {
             if (stat < 0 || stat > 2 || xp <= 0f || float.IsNaN(xp) || float.IsInfinity(xp)) {
                 return;
             }
-            _pending[stat] += xp;
+            _pending[stat] += __state.raw;
             bool leveled = __state.body.skills.STR > __state.str
                 || __state.body.skills.RES > __state.res
                 || __state.body.skills.INT > __state.intel;

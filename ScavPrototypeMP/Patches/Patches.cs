@@ -608,12 +608,13 @@ public static class DrillPod_Update_MultiplayerPatch {
 
 [HarmonyPatch(typeof(Body), nameof(Body.HandleVisuals))]
 public static class Body_HandleVisuals_MultiplayerPatch {
-    static void Prefix(Body __instance, Painkillers pnk, ref bool __state) {
+    static bool Prefix(Body __instance, Painkillers pnk, ref bool __state) {
         __state = __instance.inWater;
         if (!Util.IsBodyLocal(__instance)) {// patch the SetDroplets, so that remote peers dont create phantom water overlay
             __instance.inWater = false;
             __instance.lastLiquidColor = Color.clear;
         }
+        return BodyViewStep.Allow(__instance);
     }
     static void Postfix(Body __instance, ref bool __state) {
         __instance.inWater = __state;
@@ -622,6 +623,17 @@ public static class Body_HandleVisuals_MultiplayerPatch {
     }
 }
 
+
+[HarmonyPatch(typeof(Body), "HandleGroundedState")]
+static class Body_HandleGroundedState_ClientRemote {
+    // the host already simulated a remote body. the client only needs the pose packet.
+    static bool Prefix(Body __instance) {
+        if (!Net.IsRunning || Net.IsServer) {
+            return true;
+        }
+        return Util.IsBodyLocal(__instance);
+    }
+}
 
 [HarmonyPatch(typeof(Body), nameof(Body.Update))]
 public static class Body_Update_MultiplayerPatch {
@@ -716,11 +728,14 @@ public static class Body_Update_MultiplayerPatch {
                     }
                 }
 
-                var nearestpossiblemedic = ScavPlayer.GetNearestConsciousPlayerToThisBody(npc);
-                var last_standing = nearestpossiblemedic.Item1 == null; // no one else was found, this person is the last one
+                // host scores every body. a client only needs the local one.
+                // one other player every half second. the pass keeps the last finished nearest.
+                if (Net.IsServer || Util.IsBodyLocal(body)) {
+                DyingAloneScan.Read(body, out bool anyNear, out float nearSqr);
+                var last_standing = !anyNear;
                 var is_dying_alone = (
-                        last_standing || // theres no one else alive
-                        nearestpossiblemedic.Item2 > 1600 // or everyones too far (  40 blocks )
+                        last_standing ||
+                        nearSqr > 1600 // or everyones too far (  40 blocks )
                     );
                 var isLastAlive = ScavPlayer.AllLivingPlayers.Count == 1 && body.alive;
 
@@ -853,6 +868,7 @@ public static class Body_Update_MultiplayerPatch {
                         }
                     }
 
+                }
                 }
             } else {
 

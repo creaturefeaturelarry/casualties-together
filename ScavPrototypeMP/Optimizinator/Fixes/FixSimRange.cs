@@ -17,8 +17,8 @@ namespace KrokV5Optimization;
 internal static class FixSimRange {
     internal static long Grids;
 
-    // vanilla draws about two chunks out and forces the next ring off. four covers that window around a client who is not the host.
-    internal const int WindowRadius = 4;
+    // one chunk each way: the player's chunk plus its neighbours. searches stay inside that 3x3.
+    internal const int WindowRadius = 1;
 
     static FieldInfo _table;
     static bool _gateMiss;
@@ -72,7 +72,40 @@ internal static class FixSimRange {
         // thrown stuff, a fired hook, and a lit stick of dynamite stamp the same 3x3 a player would.
         SimKeep.Stamp(table, world);
         Grids++;
+        // the table is rebuilt every frame. the building and item caches only need to drop when the stamp changes.
+        if (WindowChanged(world, players))
+            Together.BuildingEntity_Update_MultiplayerPatch.NoteWindowMoved();
         return false;
+    }
+
+    static int _windowSig;
+    static bool _windowHave;
+
+    static bool WindowChanged(WorldGeneration world, int players) {
+        unchecked {
+            int sig = world != null ? world.biomeDepth : 0;
+            sig = sig * 31 + players;
+            if (world != null && world.worldExists) {
+                foreach (KeyValuePair<Body, ScavPlayer> pair in ScavPlayer.BodyToPlayerDict) {
+                    if (pair.Value == null)
+                        continue;
+                    Vector2Int chunk = world.BlockToChunkPos(world.WorldToBlockPos(pair.Value.pos));
+                    sig = sig * 31 + chunk.x;
+                    sig = sig * 31 + chunk.y;
+                }
+                if (players == 0 && Camera.main != null) {
+                    Vector2Int chunk = world.BlockToChunkPos(world.WorldToBlockPos(Camera.main.transform.position));
+                    sig = sig * 31 + chunk.x;
+                    sig = sig * 31 + chunk.y;
+                }
+            }
+            sig = sig * 31 + SimKeep.Signature(world);
+            if (_windowHave && sig == _windowSig)
+                return false;
+            _windowHave = true;
+            _windowSig = sig;
+            return true;
+        }
     }
 
     // in mp, ignore the host renderer. offline returns true and stock keeps its own test.
@@ -190,10 +223,10 @@ static class IKHandle_LocalSolve_MultiplayerPatch {
     static bool Prefix(IKHandle __instance) {
         if (!Net.IsRunning || __instance == null)
             return true;
-        return Near(__instance.transform.position);
+        return Inside(__instance.transform.position);
     }
 
-    static bool Near(Vector2 pos) {
+    internal static bool Inside(Vector2 pos) {
         WorldGeneration world = WorldGeneration.world;
         if (world == null || !world.worldExists)
             return true;
@@ -214,15 +247,29 @@ static class IKHandle_LocalSolve_MultiplayerPatch {
 // vanilla UpdateChunkVisibility only walks mainCam, so a client's chunks stay dark on the host and ChunkScript.Update never runs.
 [HarmonyPatch(typeof(WorldGeneration), nameof(WorldGeneration.UpdateChunkVisibility))]
 static class UpdateChunkVisibility_ClientWindows_MultiplayerPatch {
+    const float OffAfter = 1f;
     static HashSet<long> Now = new HashSet<long>();
     static HashSet<long> Prev = new HashSet<long>();
+    static readonly HashSet<long> Held = new HashSet<long>();
+    static readonly Dictionary<long, float> Cold = new Dictionary<long, float>();
+    static readonly List<long> Drop = new List<long>();
+    static readonly List<Collider2D> Cols = new List<Collider2D>(4);
 
     static void Postfix(WorldGeneration __instance) {
-        if (!Net.IsRunning || !Net.IsServer || __instance == null || __instance.generatingWorld)
+        if (!Net.IsRunning || __instance == null)
             return;
+        if (__instance.generatingWorld) {
+            Held.Clear();
+            Cold.Clear();
+            return;
+        }
         TilemapRenderer[,] chunks = __instance.renderChunks;
         if (chunks == null)
             return;
+        if (!Net.IsServer) {
+            ClientChunks(__instance, chunks);
+            return;
+        }
 
         Now.Clear();
         if (__instance.mainCam != null)
@@ -271,5 +318,104 @@ static class UpdateChunkVisibility_ClientWindows_MultiplayerPatch {
         TilemapRenderer renderer = chunks[x, y];
         if (renderer != null && renderer.enabled != enabled)
             renderer.enabled = enabled;
+    }
+
+    // a client turns on each chunk the view circle touches, colliders included.
+    // a chunk that the circle leaves stays up for a second so a step across the border does not thrash it.
+    static void ClientChunks(WorldGeneration world, TilemapRenderer[,] chunks) {
+        if (!SyncStep.LocalCircle(out Vector2 pos, out float radius))
+            return;
+        int size = WorldGeneration.CHUNKSIZE;
+        if (size < 1)
+            size = 64;
+        Vector2Int mine = world.BlockToChunkPos(world.WorldToBlockPos(pos));
+        int maxX = chunks.GetLength(0);
+        int maxY = chunks.GetLength(1);
+        int reach = Mathf.CeilToInt((radius + size) / size);
+        if (reach < 3)
+            reach = 3;
+        float r2 = radius * radius;
+        Now.Clear();
+        for (int y = mine.y - reach; y <= mine.y + reach; y++) {
+            if ((uint)y >= (uint)maxY)
+                continue;
+            for (int x = mine.x - reach; x <= mine.x + reach; x++) {
+                if ((uint)x >= (uint)maxX)
+                    continue;
+                long key = ((long)x << 32) | (uint)y;
+                TilemapRenderer renderer = chunks[x, y];
+                if (Touches(world, x, y, size, pos, r2)) {
+                    Now.Add(key);
+                    Cold.Remove(key);
+                    if (Held.Add(key))
+                        Apply(renderer, true);
+                    else if (renderer != null && !renderer.enabled)
+                        renderer.enabled = true;
+                    continue;
+                }
+                if (Held.Contains(key))
+                    continue;
+                if (renderer != null && renderer.enabled)
+                    Apply(renderer, false);
+            }
+        }
+        float now = Time.unscaledTime;
+        Drop.Clear();
+        foreach (long key in Held) {
+            if (Now.Contains(key))
+                continue;
+            if (!Cold.TryGetValue(key, out float since)) {
+                Cold[key] = now;
+                continue;
+            }
+            if (now - since < OffAfter)
+                continue;
+            int x = (int)(key >> 32);
+            int y = (int)key;
+            if ((uint)x < (uint)maxX && (uint)y < (uint)maxY)
+                Apply(chunks[x, y], false);
+            Drop.Add(key);
+        }
+        for (int i = 0; i < Drop.Count; i++) {
+            Held.Remove(Drop[i]);
+            Cold.Remove(Drop[i]);
+        }
+    }
+
+    static bool Touches(WorldGeneration world, int x, int y, int size, Vector2 pos, float r2) {
+        Vector2 a = world.BlockToWorldPos(new Vector2Int(x * size, y * size));
+        Vector2 b = world.BlockToWorldPos(new Vector2Int(x * size + size, y * size + size));
+        float x0 = a.x < b.x ? a.x : b.x;
+        float x1 = a.x > b.x ? a.x : b.x;
+        float y0 = a.y < b.y ? a.y : b.y;
+        float y1 = a.y > b.y ? a.y : b.y;
+        float cx = pos.x < x0 ? x0 : (pos.x > x1 ? x1 : pos.x);
+        float cy = pos.y < y0 ? y0 : (pos.y > y1 ? y1 : pos.y);
+        float dx = pos.x - cx;
+        float dy = pos.y - cy;
+        return dx * dx + dy * dy <= r2;
+    }
+
+    static void Apply(TilemapRenderer renderer, bool on) {
+        if (renderer == null)
+            return;
+        if (renderer.enabled != on)
+            renderer.enabled = on;
+        Cols.Clear();
+        renderer.GetComponents(Cols);
+        bool composite = false;
+        for (int i = 0; i < Cols.Count; i++) {
+            if (Cols[i] is CompositeCollider2D)
+                composite = true;
+        }
+        for (int i = 0; i < Cols.Count; i++) {
+            Collider2D col = Cols[i];
+            if (col == null)
+                continue;
+            if (composite && col is not CompositeCollider2D)
+                continue;
+            if (col.enabled != on)
+                col.enabled = on;
+        }
     }
 }

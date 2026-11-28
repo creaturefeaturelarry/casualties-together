@@ -491,6 +491,14 @@
 		</EmbeddedResource>
 	</ItemGroup>
 
+	<Target Name="BuildSteamIo" BeforeTargets="BeforeBuild">
+		<Exec WorkingDirectory="$(MSBuildProjectDirectory)\Native" Command="cmd /c &quot;call &quot;C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat&quot; &amp;&amp; cl /nologo /O2 /LD /W3 /Fo&quot;$(MSBuildProjectDirectory)\Native\TogetherSteamIo.obj&quot; TogetherSteamIo.c /link /OUT:&quot;$(MSBuildProjectDirectory)\Native\TogetherSteamIo.dll&quot;&quot;" />
+	</Target>
+
+	<ItemGroup>
+		<None Include="Native\TogetherSteamIo.dll" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
 	<Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile">
 		<WriteLinesToFile File="$(IntermediateOutputPath)BuildInfo.cs" Lines="namespace Together%3B public static class BuildInfo { public const string MOD_VERSION = &quot;$(FullModVersion)&quot;%3B }" Overwrite="true" />
 		<ItemGroup>
@@ -506,6 +514,8 @@
 		</ItemGroup>
 
 		<Copy SourceFiles="@(BuildOutputFiles)" DestinationFolder="$(ModPluginOutputDir)" SkipUnchangedFiles="true" />
+		<Copy SourceFiles="$(MSBuildProjectDirectory)\Native\TogetherSteamIo.dll" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" Condition="Exists('$(MSBuildProjectDirectory)\Native\TogetherSteamIo.dll')" />
+		<Copy SourceFiles="$(MSBuildProjectDirectory)\Native\TogetherSteamIo.dll" DestinationFolder="$(ModPluginOutputDir)" SkipUnchangedFiles="true" Condition="Exists('$(MSBuildProjectDirectory)\Native\TogetherSteamIo.dll')" />
 
 		<ItemGroup>
 			<LibraryFiles Include="$(SlnRoot)\libs\dlls\*.dll" Exclude="$(SlnRoot)\libs\dlls\com.rlabrecque.steamworks.net.dll;$(SlnRoot)\libs\dlls\steam_api64.dll" />

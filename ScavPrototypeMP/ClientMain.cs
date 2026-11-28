@@ -281,6 +281,7 @@ public class ClientMain : MonoBehaviour {
 
                     if (cansendsyncnow) {
                         ClientMain.Client_SendCharacterSyncPacket();
+                        _last_sync_time = Time.realtimeSinceStartupAsDouble;
                     }
                 }
             }
@@ -304,8 +305,10 @@ public class ClientMain : MonoBehaviour {
         if (mydata.IncludeRagData() && loc_nb.alive) {
             WriteRagdollPacket(ref writer, loc_nb.body);
         }
-        writer.CompressWriter();
-        Net.Client_Send(DeliveryMethod.Unreliable, writer);
+        if (!OffMain.SendClient(DeliveryMethod.Unreliable, writer)) {
+            writer.CompressWriter();
+            Net.Client_Send(DeliveryMethod.Unreliable, writer);
+        }
         // WRITER END;
     }
 

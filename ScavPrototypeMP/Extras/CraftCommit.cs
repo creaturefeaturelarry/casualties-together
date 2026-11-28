@@ -141,6 +141,8 @@ public static class CraftCommit {
     static readonly Queue<uint> SeenOrder = new Queue<uint>();
     static readonly List<byte> SeenLiquidId = new List<byte>();
     static readonly List<ushort> SeenLiquidMl = new List<ushort>();
+    static float _scanAt;
+    const float ScanGap = 0.1f;
 
     internal static void Tick() {
         if (!Net.IsRunning) {
@@ -152,6 +154,10 @@ public static class CraftCommit {
         _running = true;
         if (_session == 0)
             _session = (uint)UnityEngine.Random.Range(1, int.MaxValue);
+
+        if (Time.unscaledTime < _scanAt)
+            return;
+        _scanAt = Time.unscaledTime + ScanGap;
 
         if (!Net.IsServer) {
             float now = Time.realtimeSinceStartup;

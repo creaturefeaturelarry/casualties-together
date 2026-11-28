@@ -933,15 +933,25 @@ namespace Together {
             visiblebodies.Clear();
             if (!Net.IsServer || !Util.IsWorldGenerated())
                 return;
-            NetBody.GetBodiesInRadius(pos, 40f, visiblebodies);
-            if (ServerPlayerState != null && ServerPlayerState.is_loaded_in)
-                Server_SendRagdollPackets();
-            // v4 sent the pose as a packet. this group lerps in from the origin and the client throws that away.
+            NetPlayer viewer = BasePlayer != null ? BasePlayer.serverNetPlayer : null;
             foreach (SyncBody otherBody in Net.ServerEntityManager.GetEntities<SyncBody>()) {
                 if (otherBody == null)
                     continue;
+                // the limb group lerps in from the origin, so the pose stays on the ragdoll packet.
                 Net.ServerEntityManager.ToggleSyncGroup((byte)playerId, otherBody, SyncGroup.SyncGroup3, false);
+                bool near = viewer != null && otherBody.nb != null && SyncStep.Hot((Vector2)otherBody.nb.transform.position, viewer);
+                Net.ServerEntityManager.ToggleSyncGroup((byte)playerId, otherBody, SyncGroup.SyncGroup4, near);
+                if (near)
+                    visiblebodies.Add(otherBody.nb);
             }
+            foreach (BasePlayer pawn in Net.ServerEntityManager.GetEntities<BasePlayer>()) {
+                if (pawn == null || pawn.player == null)
+                    continue;
+                bool near = viewer != null && SyncStep.Hot(pawn.player.pos, viewer);
+                Net.ServerEntityManager.ToggleSyncGroup((byte)playerId, pawn, SyncGroup.SyncGroup4, near);
+            }
+            if (ServerPlayerState != null && ServerPlayerState.is_loaded_in)
+                Server_SendRagdollPackets();
         }
 
         // krok v4. each viewer gets the ragdolls near them. the host does not send this to itself.
@@ -961,8 +971,10 @@ namespace Together {
                 writer.Put((ushort)visible.netId);
                 int length = writer.Length;
                 ClientMain.WriteRagdollPacket(ref writer, visible.body);
-                writer.CompressWriter(length);
-                Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, playerId);
+                if (!OffMain.SendServer(DeliveryMethod.Unreliable, writer, length, playerId)) {
+                    writer.CompressWriter(length);
+                    Net.Server_SendToClients(DeliveryMethod.Unreliable, writer, playerId);
+                }
             }
         }
 

@@ -1093,6 +1093,7 @@ public static class UIMainMenu {
             GUILayout.FlexibleSpace();
         }
         GUILayout.EndHorizontal();
+        DrawPlayerCountWarning(r2.width);
 
 
         GUI.skin.label.alignment = TextAnchor.UpperLeft;
@@ -1667,6 +1668,8 @@ public static class UIMainMenu {
                         log.error($"_GUI___ConnectionSecondPanel_ContentRender_RenderRulesList: \nFLD: {fld} \n{e.ToString()}");
                     }
                     GUILayout.EndHorizontal();
+                    if (fld.Name == nameof(MultiplayerGameRules.PLAYER_COUNT_LIMIT))
+                        DrawPlayerCountWarning(r2.width - GUI.skin.verticalScrollbar.fixedWidth);
                 }
             }
             _GUI____RenderRuleField_last_max_width = Mathf.Min(r2.width * 0.5f, _GUI____RenderRuleField_cur_max_width);
@@ -1675,6 +1678,25 @@ public static class UIMainMenu {
 
         GUILayout.EndScrollView();
 
+    }
+
+    const string PlayerCountWarning = "Multiplayer is not balanced for groups of players over 10. Performance is also no longer guaranteed. A higher cap than 5-6 is not advised!";
+
+    static void DrawPlayerCountWarning(float width) {
+        if (Multiplayer.PLAYER_COUNT_LIMIT <= 10 || width <= 1f)
+            return;
+        var style = new GUIStyle(GUI.skin.label) {
+            wordWrap = true,
+            alignment = TextAnchor.UpperLeft,
+            stretchWidth = false
+        };
+        style.margin = new RectOffset(0, 0, style.margin.top, style.margin.bottom);
+        var content = FixGuiContent.Content(PlayerCountWarning, 19);
+        float height = style.CalcHeight(content, width);
+        var color = GUI.color;
+        GUI.color = Color.red;
+        GUILayout.Label(content, style, GUILayout.Width(width), GUILayout.MaxWidth(width), GUILayout.Height(height));
+        GUI.color = color;
     }
 
     static string _GUI____RenderRuleField_search = "";

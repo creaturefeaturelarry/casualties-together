@@ -90,8 +90,13 @@ namespace Together {
                 KrokoshaCasualtiesMP_DISABLED_STATE.KrokoshaCasualtiesMP_DISABLED_BUTTON_HANDLER.ON_CLICK_WILL_ENABLE_THE_MOD = false;
                 this.GetOrAddComponent<KrokoshaCasualtiesMP_DISABLED_STATE.KrokoshaCasualtiesMP_DISABLED_BUTTON_HANDLER>();
             }
+            bool _sawBody;
+
             void OnGUI() {
-                if (GameObject.FindObjectOfType<Body>()) {
+                if (!_sawBody && PlayerCamera.main != null && PlayerCamera.main.body != null) {
+                    _sawBody = true;
+                }
+                if (_sawBody) {
                     return;
                 }
                 GUI.Label(new Rect(20, 20, Screen.width, Screen.height), $"CO-OP MOD v{Plugin.FULL_MOD_VERSION} failed to load!!!!!! \n\n{errorstr}");
@@ -1299,17 +1304,19 @@ namespace Together {
         }
 
         private void Update() {
+            CapPhysicsCatchUp();
             using (FindTheBugInator.Time(FindTheBugInator.Plugin)) {
                 TitleScreenFpsCap.Tick();
                 PlayerCheckpoint.Tick();
                 CraftCommit.Tick();
                 MoveCommit.Tick();
                 TorchWet.Tick();
+                UntouchedDespawn.Tick();
             }
             using (FindTheBugInator.Time(FindTheBugInator.Chunks)) {
                 ChunkSleep.Tick();
                 BagSleep.Tick();
-                HeaterMultiplayerRewrite.Tick();
+                ClientSpiderBite.Tick();
             }
             using (FindTheBugInator.Time(FindTheBugInator.Opt)) {
                 OptimizerMain.Tick();
@@ -1320,12 +1327,33 @@ namespace Together {
             }
 #if FULLGAME
             using (FindTheBugInator.Time(FindTheBugInator.Crystals)) {
+                CrystalChunkSim.Tick();
                 CrystalAuthority.ClientTickBlankResync();
-                ConcurrentEndings.TickLocalAscent();
-                BlueHeartMp.Server_EnsureAllMissingCargoOnAscent();
             }
 #endif
         }
+
+        // one step while the frame is keeping up. match the frame between one and two steps.
+        // past two steps, stay at two. more catch-up is what turns a late frame into the next later one.
+        // the local body is sped up inside those two steps so its walk still covers the real frame.
+        static void CapPhysicsCatchUp() {
+            double now = Time.realtimeSinceStartupAsDouble;
+            float real = _physClock == 0d ? 0f : (float)(now - _physClock);
+            _physClock = now;
+            float step = Time.fixedDeltaTime;
+            if (step < 0.01f)
+                step = 0.02f;
+            float cap = real;
+            if (cap < step)
+                cap = step;
+            float two = step * 2f;
+            if (cap > two)
+                cap = two;
+            Time.maximumDeltaTime = cap;
+            LocalWalk.Note(real, cap);
+        }
+
+        static double _physClock;
 
         private void FixedUpdate() {
             using (FindTheBugInator.Time(FindTheBugInator.FixedStep)) {

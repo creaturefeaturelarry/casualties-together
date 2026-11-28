@@ -791,9 +791,9 @@ internal static class FixInvSync
             return false;
         if (data >= 100)
         {
-            if (!NetBody.TryGetNetBodyFromId(new knetid(net), out NetBody body) || body == null || body.syncBody == null)
-                return false;
-            return body.syncBody.Version != ver;
+            // a live body with a stale stamp is still that body. blocking here froze the hotbar.
+            // a missing body is TargetMissing, not a version problem.
+            return false;
         }
         if (!NetObjectRegistry.TryGetSyncInfo(new knetid(net), out SyncInfo bag) || bag == null)
         {

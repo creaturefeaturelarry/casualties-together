@@ -50,6 +50,7 @@ internal static class BagPlace
 	private static readonly List<Pending> Waiting = new List<Pending>(16);
 	private static readonly List<Delay> Announcing = new List<Delay>(8);
 	private static readonly List<SyncInfo> SweepList = new List<SyncInfo>(256);
+	private static readonly List<SyncInfo> Watched = new List<SyncInfo>(64);
 	private static int _sweepAt;
 	private static bool _sweeping;
 	private static float _sweepNext;
@@ -354,15 +355,17 @@ internal static class BagPlace
 		{
 			if (Time.realtimeSinceStartup < _sweepNext)
 				return;
-			IDictionary map = Registry();
 			SweepList.Clear();
-			if (map != null)
+			for (int i = Watched.Count - 1; i >= 0; i--)
 			{
-				foreach (DictionaryEntry entry in map)
+				SyncInfo si = Watched[i];
+				if (si == null || si.go == null || si.IsDestroyed)
 				{
-					if (entry.Value is SyncInfo si)
-						SweepList.Add(si);
+					Watched.RemoveAt(i);
+					continue;
 				}
+				if (si.item != null)
+					SweepList.Add(si);
 			}
 			_sweepAt = 0;
 			_sweeping = SweepList.Count > 0;
@@ -460,6 +463,8 @@ internal static class BagPlace
 			Ensure(item.gameObject);
 			if (!NetObjectRegistry.TryGetSyncInfo(item.gameObject, out SyncInfo si) || si == null)
 				return;
+			if (!Watched.Contains(si))
+				Watched.Add(si);
 			if (LinkMissing(item))
 				return;
 			_write.Invoke(si, null);

@@ -829,44 +829,91 @@ static class PlayerCamera_HandleWhileDragging_MultiplayerPatch {
 // this is some of the ugliest shit i've ever written in my life
 [HarmonyPatch(typeof(WaterContainerItem), "Update")]
 static class WaterContainerItem_Update_BottleFill_MultiplayerPatch {
+    const float FillGap = 0.1f;
     static readonly Dictionary<knetid, float> NextAsk = new Dictionary<knetid, float>();
+    static readonly Dictionary<int, float> NextFill = new Dictionary<int, float>();
+    static AccessTools.FieldRef<WaterContainerItem, SpriteRenderer> _fill;
+    static AccessTools.FieldRef<WaterContainerItem, SpriteRenderer> _main;
 
     static WaterContainerItem_Update_BottleFill_MultiplayerPatch() {
         Multiplayer.RegisterCustomServerReceiver("together.bottle-fill", OnFill);
     }
 
     static bool Prefix(WaterContainerItem __instance) {
-        if (!Net.IsRunning || !Net.IsClient || Net.IsServer || __instance == null || !__instance.AutoFill)
+        if (__instance == null)
             return true;
-        Item item = __instance.GetComponent<Item>();
-        if (item == null || item.condition >= 1f || __instance.SpaceLeft == 0f)
-            return true;
-        if (__instance.transform.parent != null && __instance.transform.parent.GetComponent<Container>() != null)
-            return true;
-        if (WorldGeneration.world == null || FluidManager.main == null)
-            return true;
-        if (!ItemSync.TryGetSyncInfo(item, out SyncInfo si) || si == null)
-            return true;
-        Vector2Int cell = WorldGeneration.world.WorldToBlockPos(__instance.transform.position);
-        if (FluidManager.main.GetLiquid(cell.x, cell.y) == 0)
-            return true;
-        if (__instance.hasSprite) {
-            SpriteRenderer fill = Traverse.Create(__instance).Field("fillRenderer").GetValue<SpriteRenderer>();
-            SpriteRenderer main = Traverse.Create(__instance).Field("_renderer").GetValue<SpriteRenderer>();
-            if (fill != null && main != null)
-                fill.enabled = main.enabled;
-        }
-        float now = Time.unscaledTime;
-        if (!NextAsk.TryGetValue(si.syncId, out float next) || now >= next) {
-            NextAsk[si.syncId] = now + 0.25f;
-            // i ran out of rum right about here.............
-            LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("together.bottle-fill");
-            writer.Put(si.syncId);
-            writer.Put(cell.x);
-            writer.Put(cell.y);
-            Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
-        }
+        SyncFill(__instance);
+        if (Net.IsRunning && Net.IsClient)
+            ClientAsk(__instance);
+        else
+            HostFill(__instance);
         return false;
+    }
+
+    static void SyncFill(WaterContainerItem box) {
+        if (!box.hasSprite)
+            return;
+        if (_fill == null) {
+            _fill = AccessTools.FieldRefAccess<WaterContainerItem, SpriteRenderer>("fillRenderer");
+            _main = AccessTools.FieldRefAccess<WaterContainerItem, SpriteRenderer>("_renderer");
+        }
+        SpriteRenderer fill = _fill(box);
+        SpriteRenderer main = _main(box);
+        if (fill == null || main == null)
+            return;
+        bool on = main.enabled;
+        if (fill.enabled != on)
+            fill.enabled = on;
+    }
+
+    static void HostFill(WaterContainerItem box) {
+        if (!box.AutoFill || box.SpaceLeft == 0f)
+            return;
+        if (WorldGeneration.world == null || FluidManager.main == null)
+            return;
+        int id = box.GetInstanceID();
+        float now = Time.unscaledTime;
+        if (NextFill.TryGetValue(id, out float next) && now < next)
+            return;
+        NextFill[id] = now + FillGap;
+        if (box.transform.parent != null && box.transform.parent.GetComponent<Container>() != null)
+            return;
+        Item item = box.GetComponent<Item>();
+        if (item == null || item.condition >= 1f)
+            return;
+        Vector2Int cell = WorldGeneration.world.WorldToBlockPos(box.transform.position);
+        byte liquid = FluidManager.main.GetLiquid(cell.x, cell.y);
+        if (liquid == 0 || !NamedWorldLiquid(liquid, out string liquidId))
+            return;
+        if (box.AddLiquid(liquidId, 200f) <= 0f)
+            return;
+        FluidManager.main.SetLiquid(cell.x, cell.y, 0);
+    }
+
+    static void ClientAsk(WaterContainerItem box) {
+        if (!box.AutoFill || box.SpaceLeft == 0f)
+            return;
+        Item item = box.GetComponent<Item>();
+        if (item == null || item.condition >= 1f)
+            return;
+        if (box.transform.parent != null && box.transform.parent.GetComponent<Container>() != null)
+            return;
+        if (WorldGeneration.world == null || FluidManager.main == null)
+            return;
+        if (!ItemSync.TryGetSyncInfo(item, out SyncInfo si) || si == null)
+            return;
+        Vector2Int cell = WorldGeneration.world.WorldToBlockPos(box.transform.position);
+        if (FluidManager.main.GetLiquid(cell.x, cell.y) == 0)
+            return;
+        float now = Time.unscaledTime;
+        if (NextAsk.TryGetValue(si.syncId, out float next) && now < next)
+            return;
+        NextAsk[si.syncId] = now + 0.25f;
+        LiteNetLib.Utils.NetDataWriter writer = Multiplayer.CreateNamedWriter("together.bottle-fill");
+        writer.Put(si.syncId);
+        writer.Put(cell.x);
+        writer.Put(cell.y);
+        Net.Client_Send(DeliveryMethod.ReliableUnordered, writer);
     }
 
     static void OnFill(ScavPlayer plr, LiteNetLib.Utils.NetDataReader reader) {
@@ -888,12 +935,20 @@ static class WaterContainerItem_Update_BottleFill_MultiplayerPatch {
         if (Vector2.Distance(plr.body.transform.position, cell) > 4f && Vector2.Distance(si.item.transform.position, cell) > 4f)
             return;
         byte liquid = FluidManager.main.GetLiquid(x, y);
-        if (liquid == 0 || FluidManager.WorldFluidToLiquidID == null || !FluidManager.WorldFluidToLiquidID.ContainsKey((int)liquid))
+        if (liquid == 0 || !NamedWorldLiquid(liquid, out string liquidId))
             return;
-        if (bottle.AddLiquid(FluidManager.WorldFluidToLiquidID[(int)liquid], 200f) <= 0f)
+        if (bottle.AddLiquid(liquidId, 200f) <= 0f)
             return;
         FluidManager.main.SetLiquid(x, y, 0);
         si.WriteObjectIntoPacket();
+    }
+
+    // world fluid 6 is present in the map and its value is "". that is not a liquid.
+    static bool NamedWorldLiquid(byte liquid, out string liquidId) {
+        liquidId = null;
+        return FluidManager.WorldFluidToLiquidID != null
+            && FluidManager.WorldFluidToLiquidID.TryGetValue((int)liquid, out liquidId)
+            && !string.IsNullOrEmpty(liquidId);
     }
 }
 

@@ -44,6 +44,7 @@ namespace Together {
 
         internal static void Tick() {
             FindTheBugReports.Tick();
+            SyncStep.Pulse();
         }
 
         // 10s frame timers. each line is one part of the mod. the last line is the rest of the frame, the game.
@@ -132,6 +133,21 @@ namespace Together {
             Interlocked.Increment(ref _outMsgs);
         }
 
+        internal static void NoteSteamIo(long inBytes, long inMsgs, long outBytes, long outMsgs) {
+            if (inBytes > 0) {
+                Interlocked.Add(ref _inBytes, inBytes);
+            }
+            if (inMsgs > 0) {
+                Interlocked.Add(ref _inMsgs, inMsgs);
+            }
+            if (outBytes > 0) {
+                Interlocked.Add(ref _outBytes, outBytes);
+            }
+            if (outMsgs > 0) {
+                Interlocked.Add(ref _outMsgs, outMsgs);
+            }
+        }
+
         internal static void Install() {
             if (_installed) {
                 return;
@@ -158,6 +174,7 @@ namespace Together {
                 PlayerLoop.SetPlayerLoop(loop);
                 _installed = true;
                 _windowStart = Stopwatch.GetTimestamp();
+                SyncStep.Install();
             } catch (Exception e) {
                 log.l("[findthebuginator] install failed " + e.Message, false);
             }

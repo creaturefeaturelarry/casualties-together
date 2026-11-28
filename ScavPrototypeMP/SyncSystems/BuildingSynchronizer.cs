@@ -31,9 +31,6 @@ namespace Together;
 public class HeaterMultiplayerRewrite : MonoBehaviour {
     Heater heater;
     static readonly List<NetBody> _near = new List<NetBody>();
-    static Heater[] _cached = System.Array.Empty<Heater>();
-    static float _nextScan;
-    static float _nextApply;
 
     void Awake() {
         heater = GetComponent<Heater>();
@@ -47,35 +44,24 @@ public class HeaterMultiplayerRewrite : MonoBehaviour {
         Apply(heater);
     }
 
-    // structure AC is a child sprite. the host camera never draws it when the host is elsewhere, so OnWillRender never fires.
-    // chunk sleep also turns the whole structure off. this still lerps anyone standing in it and sends the temperature.
-    internal static void Tick() {
-        if (!Net.IsRunning || !Net.IsServer) {
-            return;
+    // someone is standing in it, so chunk sleep leaves the object awake and Update keeps applying.
+    internal static bool Occupied(GameObject go) {
+        if (go == null || !go.TryGetComponent(out Heater heater)) {
+            return false;
         }
-        if (!SharedMain.LocalWorldIsGenerated) {
-            return;
+        float radius = heater.maxDistance;
+        if (radius <= 0.01f) {
+            radius = 10f;
         }
-        float now = Time.unscaledTime;
-        if (now < _nextApply) {
-            return;
-        }
-        _nextApply = now + 0.5f;
-        if (now >= _nextScan) {
-            _cached = UnityEngine.Object.FindObjectsByType<Heater>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            _nextScan = now + 2f;
-        }
-        for (int i = 0; i < _cached.Length; i++) {
-            Heater heater = _cached[i];
-            if (heater == null) {
-                continue;
+        _near.Clear();
+        NetBody.GetBodiesInRadius(heater.transform.position, radius, _near);
+        for (int i = 0; i < _near.Count; i++) {
+            NetBody nb = _near[i];
+            if (nb != null && nb.body != null) {
+                return true;
             }
-            // an awake rewrite already applies in Update
-            if (heater.gameObject.activeInHierarchy && heater.GetComponent<HeaterMultiplayerRewrite>() != null) {
-                continue;
-            }
-            Apply(heater);
         }
+        return false;
     }
 
     internal static void Apply(Heater heater) {
@@ -120,8 +106,6 @@ public class HeaterMultiplayerRewrite : MonoBehaviour {
     }
 
 }
-
-
 
 // this can be used on dead players
 public class CorpseScriptMultiplayerRewrite : MonoBehaviour {
@@ -506,9 +490,19 @@ public class BaseSpecialStaticEntityTracker : UnityEngine.MonoBehaviour {
     }
 
     public static T GetAtPos<T>(Vector2 pos) where T : BaseSpecialStaticEntityTracker {
-        foreach (var item in UnityEngine.Object.FindObjectsOfType<T>()) {
-            if ((Vector2)(item.transform.position) == (Vector2)(pos)) {
-                return item;
+        if (typeof(T) == typeof(TrackerStaticCaveTicks)) {
+            for (int i = 0; i < TrackerStaticCaveTicks.Alive.Count; i++) {
+                TrackerStaticCaveTicks item = TrackerStaticCaveTicks.Alive[i];
+                if (item != null && (Vector2)item.transform.position == pos) {
+                    return item as T;
+                }
+            }
+            return null;
+        }
+        for (int i = 0; i < TrackerClimbableEntity.Alive.Count; i++) {
+            TrackerClimbableEntity item = TrackerClimbableEntity.Alive[i];
+            if (item is T match && (Vector2)item.transform.position == pos) {
+                return match;
             }
         }
         return null;
@@ -520,6 +514,17 @@ public class BaseSpecialStaticEntityTracker : UnityEngine.MonoBehaviour {
 
 
 public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
+    internal static readonly List<TrackerClimbableEntity> Alive = new List<TrackerClimbableEntity>();
+
+    void OnEnable() {
+        if (!Alive.Contains(this)) {
+            Alive.Add(this);
+        }
+    }
+
+    void OnDisable() {
+        Alive.Remove(this);
+    }
     public const string sandvine_new_id = "Special/sandvinerope";// originally "sandvine";
     public const string climbingropeextended_id = "climbingropeextended";
     public const string mushroomrope_new_id = "Special/mushroomrope";
@@ -650,7 +655,16 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
     SpriteRenderer[] _sprites;
     GameObject _capTop;
     GameObject _capBot;
-    static float _capSweep;
+    internal static readonly List<BuildingEntity> Caps = new List<BuildingEntity>();
+
+    internal static void NoteCap(BuildingEntity build) {
+        if (build == null || !IsDecoration(build.gameObject)) {
+            return;
+        }
+        if (!Caps.Contains(build)) {
+            Caps.Add(build);
+        }
+    }
 
     // worldgen builds these beside the climbable. they are not part of the rope object.
     internal static bool IsDecoration(GameObject go) {
@@ -669,16 +683,15 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
     internal static void SweepOrphanDecorations(bool force) {
         if (!Net.IsClient || Net.IsServer)
             return;
-        if (!force && Time.realtimeSinceStartup < _capSweep)
-            return;
-        _capSweep = Time.realtimeSinceStartup + 0.5f;
-        BuildingEntity[] builds = UnityEngine.Object.FindObjectsOfType<BuildingEntity>();
-        for (int i = 0; i < builds.Length; i++) {
-            BuildingEntity build = builds[i];
-            if (build == null || !IsDecoration(build.gameObject))
+        for (int i = Caps.Count - 1; i >= 0; i--) {
+            BuildingEntity build = Caps[i];
+            if (build == null) {
+                Caps.RemoveAt(i);
                 continue;
+            }
             if (build.GetComponentInParent<TrackerClimbableEntity>() != null)
                 continue;
+            Caps.RemoveAt(i);
             UnityEngine.Object.Destroy(build.gameObject);
         }
     }
@@ -697,7 +710,8 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
     internal static TrackerClimbableEntity FindNear(Vector2 pos) {
         TrackerClimbableEntity best = null;
         float bestSqr = 1f;
-        foreach (TrackerClimbableEntity item in UnityEngine.Object.FindObjectsOfType<TrackerClimbableEntity>()) {
+        for (int i = 0; i < Alive.Count; i++) {
+            TrackerClimbableEntity item = Alive[i];
             if (item == null)
                 continue;
             float sqr = ((Vector2)item.transform.position - pos).sqrMagnitude;
@@ -987,6 +1001,17 @@ public class TrackerClimbableEntity : BaseSpecialStaticEntityTracker {
 
 
 public class TrackerStaticCaveTicks : BaseSpecialStaticEntityTracker {
+    internal static readonly List<TrackerStaticCaveTicks> Alive = new List<TrackerStaticCaveTicks>();
+
+    void OnEnable() {
+        if (!Alive.Contains(this)) {
+            Alive.Add(this);
+        }
+    }
+
+    void OnDisable() {
+        Alive.Remove(this);
+    }
 
     void Awake() {
         REQ = (byte)NetmsgId.SERVER_Krokosha_CaveTicks_Tracker_request;
@@ -1226,7 +1251,15 @@ internal static class TrapSupport {
 public static class BuildingEntity_Update_MultiplayerPatch {
 
     static bool Prefix(BuildingEntity __instance, ref Vector3 __state) {
-        __state = new Vector3();
+        __state = default;
+        if (__instance == null)
+            return true;
+        Rigidbody2D rb = null;
+        if (!__instance.ignoreBodyOptimize) {
+            rb = BuildingRb(__instance);
+            if (rb != null && StaticCached(rb))
+                return false;
+        }
         // the server sends the destruction and loot; clients must not roll their own drops.
         // the skip used to drop the break particle, the dust, and AnimalDeath with them.
         if (Net.IsRunning && Net.IsClient && __instance.GetHealth() < 0.5f) {
@@ -1235,14 +1268,18 @@ public static class BuildingEntity_Update_MultiplayerPatch {
         }
         // a loose fan used to stay on the stock path, which forces Static whenever
         // the host chunk renderer is off and wipes the fall on the next step.
-        if (Net.IsRunning && TrapSupport.FanIsLoose(__instance))
+        if (Net.IsRunning && LooseFan(__instance, rb))
             __instance.ignoreBodyOptimize = false;
         // stock sets Static when the host chunk renderer is off. putting Dynamic
         // back in the same update zeros velocity, so a fall far from the host
         // never gets past one physics step.
-        if (__instance != null && __instance.TryGetComponent(out Rigidbody2D rb) && !__instance.ignoreBodyOptimize) {
-            BuildingOptimization(rb);
-            return false;
+        if (!__instance.ignoreBodyOptimize) {
+            if (rb == null)
+                rb = BuildingRb(__instance);
+            if (rb != null) {
+                BuildingOptimization(rb);
+                return false;
+            }
         }
         return true;
     }
@@ -1288,9 +1325,52 @@ public static class BuildingEntity_Update_MultiplayerPatch {
             Object.Instantiate(Resources.Load("BloodExplosion"), pos, Quaternion.identity);
         }
     }
-    static void Postfix(BuildingEntity __instance) {
-        if (__instance != null)
-            ChunkSleep.Watch(__instance);
+    sealed class SimSlot {
+        internal int Cx;
+        internal int Cy = int.MinValue;
+        internal int Gen = int.MinValue;
+        internal bool Dynamic;
+        internal bool Have;
+        internal bool FanKnown;
+        internal bool IsFan;
+    }
+
+    static readonly Dictionary<int, SimSlot> _sim = new Dictionary<int, SimSlot>();
+    static int _windowGen;
+    static AccessTools.FieldRef<BuildingEntity, Rigidbody2D> _buildingRb;
+
+    static Rigidbody2D BuildingRb(BuildingEntity building) {
+        if (_buildingRb == null)
+            _buildingRb = AccessTools.FieldRefAccess<BuildingEntity, Rigidbody2D>("rb");
+        return _buildingRb(building);
+    }
+
+    internal static int WindowGeneration => _windowGen;
+
+    internal static void NoteWindowMoved() {
+        _windowGen++;
+    }
+
+    static bool StaticCached(Rigidbody2D rb) {
+        if (WorldGeneration.world == null || !WorldGeneration.world.worldExists || Time.timeScale > 5f)
+            return false;
+        if (!_sim.TryGetValue(rb.GetInstanceID(), out SimSlot slot) || !slot.Have || slot.Dynamic || !slot.FanKnown || slot.IsFan)
+            return false;
+        // a static building does not move. the chunk stored with this window is still its chunk.
+        return slot.Gen == _windowGen;
+    }
+
+    static bool LooseFan(BuildingEntity building, Rigidbody2D rb) {
+        if (rb != null && _sim.TryGetValue(rb.GetInstanceID(), out SimSlot slot) && slot.FanKnown && !slot.IsFan)
+            return false;
+        return TrapSupport.FanIsLoose(building);
+    }
+
+    static void LearnFan(SimSlot slot, Rigidbody2D rb) {
+        if (slot.FanKnown)
+            return;
+        slot.FanKnown = true;
+        slot.IsFan = rb.TryGetComponent<FanTrap>(out _);
     }
 
     static void BuildingOptimization(Rigidbody2D rb) {
@@ -1303,7 +1383,28 @@ public static class BuildingEntity_Update_MultiplayerPatch {
             return;
         }
 
+        int id = rb.GetInstanceID();
+        Vector2Int chunk = ChunkStamp.ChunkOf(rb.position);
+        if (!_sim.TryGetValue(id, out SimSlot slot)) {
+            slot = new SimSlot();
+            _sim[id] = slot;
+        }
+        LearnFan(slot, rb);
+        if (slot.Have && slot.Cx == chunk.x && slot.Cy == chunk.y && slot.Gen == _windowGen) {
+            if (!slot.Dynamic)
+                return;
+            if (rb.bodyType != RigidbodyType2D.Dynamic)
+                rb.bodyType = RigidbodyType2D.Dynamic;
+            if (!rb.simulated)
+                rb.simulated = true;
+            return;
+        }
         bool inSimRange = SharedMain.WorldInSimRange(rb.position);
+        slot.Have = true;
+        slot.Cx = chunk.x;
+        slot.Cy = chunk.y;
+        slot.Gen = _windowGen;
+        slot.Dynamic = inSimRange;
         RigidbodyType2D want = inSimRange ? RigidbodyType2D.Dynamic : RigidbodyType2D.Static;
         if (rb.bodyType != want)
             rb.bodyType = want;
@@ -1427,6 +1528,8 @@ public static class BuildingEntity_Start_MultiplayerPatch {
     static void Postfix(BuildingEntity __instance) {
         if (SavesystemPatch.InDebugMap)
             MapPoses.Capture(__instance);
+        TrackerClimbableEntity.NoteCap(__instance);
+        ChunkSleep.Watch(__instance);
         if (!Net.IsRunning) return;
 
         // the AC is a child of the structure, not a heater on the building root
@@ -1513,6 +1616,88 @@ public static class BuildingEntity_Start_MultiplayerPatch {
     }
 }
 
+
+static class ClientSpiderBite {
+    const float Gap = 0.1f;
+    const float Reach = 1.5f;
+    static readonly Collider2D[] Hits = new Collider2D[8];
+    static readonly Dictionary<int, float> Sent = new Dictionary<int, float>();
+    static float _next;
+
+    internal static void Tick() {
+        if (!Net.IsRunning || Net.IsServer) {
+            return;
+        }
+        float now = Time.unscaledTime;
+        if (now < _next) {
+            return;
+        }
+        _next = now + Gap;
+        Body body = PlayerCamera.main != null ? PlayerCamera.main.body : null;
+        if (body == null || !body.alive || !body.conscious) {
+            return;
+        }
+        int n = Physics2D.OverlapCircleNonAlloc(body.transform.position, Reach, Hits);
+        for (int i = 0; i < n; i++) {
+            Collider2D hit = Hits[i];
+            Hits[i] = null;
+            if (hit == null) {
+                continue;
+            }
+            SpiderHandler spider = hit.GetComponentInParent<SpiderHandler>();
+            if (spider == null || spider is SpiderHandlerTBE || spider.GetComponent<ElderThornbackBehaviour>() != null) {
+                continue;
+            }
+            int id = spider.GetInstanceID();
+            if (Sent.TryGetValue(id, out float at) && now < at) {
+                continue;
+            }
+            if (!spider.TryGetComponent(out SyncInfoGameObjectTracker tracker) || tracker.syncId == 0) {
+                continue;
+            }
+            Limb limb = Closest(body, spider.transform.position);
+            if (limb == null) {
+                continue;
+            }
+            Sent[id] = now + 0.5f;
+            Multiplayer.Client_SendSimpleMessageToServer((byte)NetmsgId.SERVER_SpiderJustBitMeFuck, tracker.syncId, Util.GetLimbIndex(limb), false);
+        }
+    }
+
+    static Limb Closest(Body body, Vector3 at) {
+        Limb[] limbs = body.limbs;
+        if (limbs == null) {
+            return null;
+        }
+        Limb best = null;
+        float bestSqr = Reach * Reach;
+        for (int i = 0; i < limbs.Length; i++) {
+            Limb limb = limbs[i];
+            if (limb == null) {
+                continue;
+            }
+            float sqr = ((Vector2)limb.transform.position - (Vector2)at).sqrMagnitude;
+            if (sqr < bestSqr) {
+                bestSqr = sqr;
+                best = limb;
+            }
+        }
+        return best;
+    }
+}
+
+[HarmonyPatch(typeof(SpiderHandler), "Update")]
+static class SpiderHandler_Update_ClientOff {
+    static bool Prefix(SpiderHandler __instance) {
+        if (!Net.IsRunning || Net.IsServer) {
+            return true;
+        }
+        if (__instance is SpiderHandlerTBE || __instance.GetComponent<ElderThornbackBehaviour>() != null) {
+            return true;
+        }
+        return false;
+    }
+}
 
 [HarmonyPatch(typeof(SpiderHandler), nameof(SpiderHandler.PlayThreatMusic))]
 static class SpiderHandler_PlayThreatMusic_MultiplayerPatch {

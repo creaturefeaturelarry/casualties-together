@@ -60,6 +60,25 @@ public sealed class SimKeep : MonoBehaviour {
         }
     }
 
+    // chunk of each live keep. Rebuild uses this so a quiet frame does not drop the sim caches.
+    internal static int Signature(WorldGeneration world) {
+        unchecked {
+            int sig = Live.Count;
+            if (world == null || !world.worldExists)
+                return sig;
+            float now = Time.time;
+            for (int i = 0; i < Live.Count; i++) {
+                SimKeep keep = Live[i];
+                if (keep == null || now >= keep.Until)
+                    continue;
+                Vector2Int at = world.BlockToChunkPos(world.WorldToBlockPos(keep.transform.position));
+                sig = sig * 31 + at.x;
+                sig = sig * 31 + at.y;
+            }
+            return sig;
+        }
+    }
+
     // true when pos sits in some kept object's 3x3. empty is the common case.
     internal static bool Covers(Vector2 pos) {
         if (Live.Count == 0)

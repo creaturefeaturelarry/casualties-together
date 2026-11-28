@@ -6,12 +6,14 @@ using LiteNetLib.Utils;
 using Steamworks;
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Unity.VisualScripting;
 using UnityEngine;
 using static Together.KSteam;
@@ -2121,10 +2123,12 @@ namespace Together {
                     if (connectionMapping.ContainsKey(clientId) == false) {
                         SteamConnectionData nCon = new SteamConnectionData(pCallback.m_info.m_identityRemote.GetSteamID());
                         nCon.connection = pCallback.m_hConn;
+                        nCon.Ready = true;
                         connectionMapping.Add(clientId, nCon);
                     } else {
                         //should be redundent but update the conneciton handle anyway
                         connectionMapping[clientId].connection = pCallback.m_hConn;
+                        connectionMapping[clientId].Ready = true;
                     }
 
                     //return NetworkEvent.Connect;
@@ -2201,6 +2205,8 @@ namespace Together {
             internal SteamNetConnectionRealTimeStatus_t connectionStatus = new();
             internal CSteamID id;
             internal HSteamNetConnection connection;
+            // The IO thread stays off this handle until the handshake has reached Connected.
+            internal bool Ready;
 
 
 
@@ -2266,8 +2272,6 @@ namespace Together {
         // one buffer for the life of the transport. A client used to allocate 65535 slots every frame.
         const int ClientPollCap = 256;
         const int HostPollCap = 255;
-        IntPtr[] _pollPtrs;
-        readonly List<SteamConnectionData> _pollConnections = new List<SteamConnectionData>(4);
 
         public byte hostLobbyBucket;
 
@@ -2581,7 +2585,13 @@ namespace Together {
 
             // callbacks are run by the singleton
 
+            EnsureIo();
+            LogSendFails();
             UpdateTheIDDicts();
+            PublishPollSnapshot();
+            _ioClient = Net.IsClient;
+            DrainHostPace();
+            KickIo();
             _Update_PollMessages();
 
             one_second_timer += Time.unscaledDeltaTime;
@@ -2596,6 +2606,8 @@ namespace Together {
         public SteamNetConnectionRealTimeStatus_t client_status = new();
         void UpdateOneSecond() {
             CheckLobbyMembersList();
+            if (_nativeIo != IntPtr.Zero && ApplyNativeStatus())
+                return;
 
             SteamNetConnectionRealTimeStatus_t status = new();
             SteamNetConnectionRealTimeLaneStatus_t laneStatus = new();
@@ -2634,6 +2646,52 @@ namespace Together {
         }
 
 
+
+        bool ApplyNativeStatus() {
+            var rows = new SteamIoNative.NativeStatus[64];
+            int n;
+            try {
+                n = SteamIoNative.CopyStatus(_nativeIo, rows, out int pollUs);
+                OffMain.NoteStatus(pollUs);
+            } catch (EntryPointNotFoundException) {
+                return false;
+            }
+            if (n <= 0)
+                return true;
+            if (Net.IsServer) {
+                for (int i = 0; i < n; i++) {
+                    if (rows[i].Ok == 0)
+                        continue;
+                    if (SteamIDToNetPlayerDict.TryGetValue(rows[i].SteamId, out ScavPlayer plr))
+                        plr.ping = rows[i].Ping * 0.001f;
+                }
+                return true;
+            }
+            for (int i = 0; i < n; i++) {
+                if (rows[i].Ok == 0)
+                    continue;
+                SteamIoNative.NativeStatus row = rows[i];
+                var status = new SteamNetConnectionRealTimeStatus_t();
+                status.m_eState = (ESteamNetworkingConnectionState)row.State;
+                status.m_nPing = row.Ping;
+                status.m_flConnectionQualityLocal = row.QualityLocal;
+                status.m_flConnectionQualityRemote = row.QualityRemote;
+                status.m_flOutPacketsPerSec = row.OutPps;
+                status.m_flOutBytesPerSec = row.OutBps;
+                status.m_flInPacketsPerSec = row.InPps;
+                status.m_flInBytesPerSec = row.InBps;
+                status.m_nSendRateBytesPerSecond = row.SendRate;
+                status.m_cbPendingUnreliable = row.PendingUnreliable;
+                status.m_cbPendingReliable = row.PendingReliable;
+                status.m_cbSentUnackedReliable = row.SentUnacked;
+                status.m_usecQueueTime = (SteamNetworkingMicroseconds)row.QueueTime;
+                ClientMain.LOCAL_PING = row.Ping;
+                ClientMain.MY_CONNECTION_QUALITY = (byte)(Mathf.Clamp01(row.QualityLocal) * 100f);
+                client_status = status;
+                return true;
+            }
+            return true;
+        }
 
         void CheckLobbyMembersList() {
             if (!KSteam.IS_IN_LOBBY) {
@@ -2699,53 +2757,33 @@ namespace Together {
             }
         }
         void _Update_PollMessages() {
-            // receive only what this frame will dispatch. Steam leaves the rest queued.
-            int cap = Net.IsClient ? ClientPollCap : HostPollCap;
-            if (_pollPtrs == null || _pollPtrs.Length < cap) {
-                _pollPtrs = new IntPtr[cap];
-            }
-
-            _pollConnections.Clear();
-            foreach (SteamConnectionData connectionData in connectionMapping.Values) {
-                _pollConnections.Add(connectionData);
-            }
-
-            int remaining = cap;
-            for (int c = 0; c < _pollConnections.Count; c++) {
-                if (Net.IsClient && remaining <= 0) {
-                    break;
-                }
-
-                SteamConnectionData connectionData = _pollConnections[c];
-                int take = Net.IsClient ? remaining : cap;
-                // if the connection handle is invalid, -1 is returned. If no data is available, 0 is returned.
-                int messageCount = is_steamserver
-                    ? SteamGameServerNetworkingSockets.ReceiveMessagesOnConnection(connectionData.connection, _pollPtrs, take)
-                    : SteamNetworkingSockets.ReceiveMessagesOnConnection(connectionData.connection, _pollPtrs, take);
-                if (messageCount <= 0) {
-                    continue;
-                }
-
-                if (messageCount > take) {
-                    messageCount = take;
-                }
-
-                for (int i = 0; i < messageCount; i++) {
-                    SteamNetworkingMessage_t data = Marshal.PtrToStructure<SteamNetworkingMessage_t>(_pollPtrs[i]);
-                    FindTheBugInator.NoteSteamIn(data.m_cbSize);
-                    byte[] buffer = new byte[data.m_cbSize];
-                    Marshal.Copy(data.m_pData, buffer, 0, data.m_cbSize);
-                    SteamNetworkingMessage_t.Release(_pollPtrs[i]);
-
+            if (_nativeIo != IntPtr.Zero) {
+                int guard = 0;
+                while (guard++ < 4096 && SteamIoNative.PopIn(_nativeIo, out ulong steamId, out byte[] data)) {
+                    if (!connectionMapping.TryGetValue(steamId, out SteamConnectionData connectionData)) {
+                        continue;
+                    }
                     try {
-                        _K_OnReceiveNetworkingMessage(connectionData, buffer);
+                        _K_OnReceiveNetworkingMessage(connectionData, data);
                     } catch (Exception e) {
                         Plugin.Logger.LogError($"{this.GetType().Name}._K_OnReceiveNetworkingMessage\n ERROR:\n{e.ToString()}\nCURRENT LOBBY:{(KSteam.CURRENT_LOBBY == null ? "NULL_LOBBY" : KSteam.CURRENT_LOBBY.DebugReadableDump())}\nconnectionData: {connectionData}");
                     }
                 }
-
-                if (Net.IsClient) {
-                    remaining -= messageCount;
+                return;
+            }
+            // Managed fallback. The native thread is the one that should be running.
+            int waiting = _incoming.Count;
+            for (int n = 0; n < waiting; n++) {
+                if (!_incoming.TryDequeue(out Incoming msg)) {
+                    break;
+                }
+                if (!connectionMapping.TryGetValue(msg.SteamId, out SteamConnectionData connectionData)) {
+                    continue;
+                }
+                try {
+                    _K_OnReceiveNetworkingMessage(connectionData, msg.Data);
+                } catch (Exception e) {
+                    Plugin.Logger.LogError($"{this.GetType().Name}._K_OnReceiveNetworkingMessage\n ERROR:\n{e.ToString()}\nCURRENT LOBBY:{(KSteam.CURRENT_LOBBY == null ? "NULL_LOBBY" : KSteam.CURRENT_LOBBY.DebugReadableDump())}\nconnectionData: {connectionData}");
                 }
             }
         }
@@ -2928,6 +2966,7 @@ namespace Together {
 
 
                 connectionMapping.Remove(steamID);
+                _pace.Remove(steamID);
 #if TESTING
                 log.warn($"OnLobbyMemberListChanged: removing {steamID} from connectionMapping ");
 #endif
@@ -3005,6 +3044,7 @@ namespace Together {
             if (serverUser != null) {
                 if (connectionMapping.ContainsKey(serverUser.id.m_SteamID)) {
                     connectionMapping.Remove(serverUser.id.m_SteamID);
+                    _pace.Remove(serverUser.id.m_SteamID);
                 }
 
                 if (is_steamserver) {
@@ -3016,6 +3056,7 @@ namespace Together {
             serverUser = null;
         }
         private void CloseP2PSessions() {
+            StopIo();
             CloseConnectionOnServerUser();
 
             foreach (SteamConnectionData user in connectionMapping.Values) {
@@ -3027,6 +3068,7 @@ namespace Together {
             }
 
             connectionMapping.Clear();
+            _pace.Clear();
             if (log.verbose) {
                 KSteam.steamtestlog($"{this.GetType().Name}.CloseP2PSessions - has Closed P2P Sessions With all Users");
             }
@@ -3090,7 +3132,15 @@ namespace Together {
 
             //check if we have a mapped user for this ID
             if (connectionMapping.TryGetValue(steamID, out SteamConnectionData mappedconnection)) {
-                //grab a pointer to the user's connection
+                // Host gameplay traffic is released a few frames later. A full flush
+                // landed as one 256-message receive on the client.
+                // The jump relay is the only thing that clears a remote body's grounded flag.
+                // Clients skip HandleGroundedState for that body, so a relay that waits
+                // behind the position updates plays as a run while he is already in the air.
+                if (Net.IsServer && PaceThis(data)) {
+                    EnqueueHostPace(steamID, data, sendFlag);
+                    return;
+                }
 
                 SendThroughSteamSocket(mappedconnection.connection, data, sendFlag);
             } else {
@@ -3107,10 +3157,166 @@ namespace Together {
             }
         }
         double lastExceedWarn = 0;
+
+        // Steady host traffic goes out at the rate it arrives. A one-frame spike is
+        // spread over PaceSpread frames. The ceiling rises only while a lane stays
+        // backed up, and it stays far under the old 256-message flush.
+        const int PaceMin = 8;
+        const int PaceCeil = 48;
+        const int PaceCeilHard = 96;
+        const int PaceSpread = 6;
+
+        struct PacedSend {
+            public byte[] Data;
+            public int Flag;
+        }
+
+        sealed class PaceLane {
+            public readonly Queue<PacedSend> Pending = new Queue<PacedSend>();
+            public int Inflow;
+            public int Ceil = PaceCeil;
+            public int LastDepth;
+        }
+
+        readonly Dictionary<ulong, PaceLane> _pace = new Dictionary<ulong, PaceLane>();
+
+        struct Outgoing {
+            public ulong SteamId;
+            public HSteamNetConnection Conn;
+            public byte[] Data;
+            public int Flag;
+            public int Epoch;
+            public int Wait;
+        }
+
+        struct Incoming {
+            public ulong SteamId;
+            public byte[] Data;
+        }
+
+        struct SendFail {
+            public EResult Result;
+            public uint Conn;
+            public byte Msg;
+            public bool Known;
+        }
+
+        internal struct PollTarget {
+            public ulong SteamId;
+            public HSteamNetConnection Conn;
+            public bool Ready;
+        }
+
+        readonly ConcurrentQueue<Outgoing> _outNow = new ConcurrentQueue<Outgoing>();
+        readonly Queue<Outgoing> _outLater = new Queue<Outgoing>();
+        readonly ConcurrentQueue<Outgoing> _outPaced = new ConcurrentQueue<Outgoing>();
+        readonly ConcurrentQueue<HSteamNetConnection> _flush = new ConcurrentQueue<HSteamNetConnection>();
+        readonly ConcurrentQueue<Incoming> _incoming = new ConcurrentQueue<Incoming>();
+        readonly ConcurrentQueue<SendFail> _sendFails = new ConcurrentQueue<SendFail>();
+        Thread _ioThread;
+        IntPtr _nativeIo;
+        AutoResetEvent _wake;
+        volatile bool _ioRun;
+        volatile bool _ioStopped;
+        volatile bool _ioClient;
+        volatile PollTarget[] _pollSnap = Array.Empty<PollTarget>();
+        long _limitSteamId;
+        bool _held;
+        Outgoing _heldMsg;
+        int _paceEpoch;
+        int _batchEpoch = -1;
+        bool _haveBatch;
+        Outgoing _batchHeld;
+        long _nextPaced;
+
+        static bool PaceThis(ReadOnlySpan<byte> data) {
+            return data.Length == 0 || data[0] != (byte)NetmsgId.CLIENT_PlayerJumpRelay;
+        }
+
+        void EnqueueHostPace(ulong steamID, ReadOnlySpan<byte> data, int sendFlag) {
+            if (!_pace.TryGetValue(steamID, out PaceLane lane)) {
+                lane = new PaceLane();
+                _pace.Add(steamID, lane);
+            }
+            lane.Pending.Enqueue(new PacedSend { Data = data.ToArray(), Flag = sendFlag });
+            lane.Inflow++;
+        }
+
+        void DrainHostPace() {
+            _paceEpoch++;
+            long limited = _nativeIo != IntPtr.Zero
+                ? SteamIoNative.TakeLimit(_nativeIo)
+                : Interlocked.Exchange(ref _limitSteamId, 0);
+            if (limited != 0 && _pace.TryGetValue((ulong)limited, out PaceLane hit)) {
+                hit.Ceil = Math.Max(PaceMin, hit.Ceil / 2);
+            }
+            if (!Net.IsServer || _pace.Count == 0) {
+                return;
+            }
+
+            List<ulong> drop = null;
+            foreach (KeyValuePair<ulong, PaceLane> item in _pace) {
+                if (!connectionMapping.TryGetValue(item.Key, out SteamConnectionData conn)) {
+                    if (drop == null) {
+                        drop = new List<ulong>();
+                    }
+                    drop.Add(item.Key);
+                    continue;
+                }
+                DrainLane(item.Key, item.Value, conn.connection);
+            }
+            if (drop != null) {
+                for (int i = 0; i < drop.Count; i++) {
+                    _pace.Remove(drop[i]);
+                }
+            }
+        }
+
+        void DrainLane(ulong steamId, PaceLane lane, HSteamNetConnection connection) {
+            int inflow = lane.Inflow;
+            lane.Inflow = 0;
+            int depth = lane.Pending.Count;
+            int spill = depth - inflow;
+            if (spill < 0) {
+                spill = 0;
+            }
+            int budget = inflow + (spill + PaceSpread - 1) / PaceSpread;
+            if (depth > lane.Ceil * PaceSpread && depth >= lane.LastDepth && lane.Ceil < PaceCeilHard) {
+                lane.Ceil = Math.Min(PaceCeilHard, lane.Ceil + 8);
+            } else if (depth < PaceCeil && lane.Ceil > PaceCeil) {
+                lane.Ceil = Math.Max(PaceCeil, lane.Ceil - 4);
+            }
+            int floor = Math.Min(PaceMin, depth);
+            if (budget < floor) {
+                budget = floor;
+            }
+            if (budget > lane.Ceil) {
+                budget = lane.Ceil;
+            }
+            if (budget > depth) {
+                budget = depth;
+            }
+            lane.LastDepth = depth;
+
+            for (int n = 0; n < budget && lane.Pending.Count > 0; n++) {
+                PacedSend msg = lane.Pending.Dequeue();
+                if (_nativeIo != IntPtr.Zero && SteamIoNative.PushPaced(_nativeIo, steamId, connection.m_HSteamNetConnection, msg.Flag, _paceEpoch, msg.Data)) {
+                    continue;
+                }
+                _outPaced.Enqueue(new Outgoing { SteamId = steamId, Conn = connection, Data = msg.Data, Flag = msg.Flag, Epoch = _paceEpoch });
+            }
+        }
+
         public void SendThroughSteamSocket(in HSteamNetConnection connection, ReadOnlySpan<byte> data, int sendFlag) {
+            if (_nativeIo != IntPtr.Zero && SteamIoNative.PushOut(_nativeIo, 0, connection.m_HSteamNetConnection, sendFlag, 0, data)) {
+                SteamIoNative.Kick(_nativeIo);
+                return;
+            }
+            _outNow.Enqueue(new Outgoing { Conn = connection, Data = data.ToArray(), Flag = sendFlag });
+            KickIo();
+        }
 
-            byte[] data_copied = data.ToArray();
-
+        EResult SendBytesOnIo(in HSteamNetConnection connection, byte[] data_copied, int sendFlag) {
             //create an unmanaged array and get a pointer to it
             GCHandle pinnedArray = GCHandle.Alloc(data_copied, GCHandleType.Pinned);
             IntPtr pData = pinnedArray.AddrOfPinnedObject();
@@ -3129,46 +3335,16 @@ namespace Together {
 
             if (response == EResult.k_EResultOK) {
                 FindTheBugInator.NoteSteamOut(data_copied.Length);
+            } else if (response != EResult.k_EResultNoConnection || log.verbose) {
+                _sendFails.Enqueue(new SendFail {
+                    Result = response,
+                    Conn = connection.m_HSteamNetConnection,
+                    Msg = data_copied.Length > 0 ? data_copied[0] : (byte)0,
+                    Known = data_copied.Length > 0
+                });
             }
 
-            if (response != EResult.k_EResultOK) {
-
-                if (response == EResult.k_EResultNoConnection && !log.verbose) {
-                    return;
-                }
-
-
-                var gfgfddfgdfg = connection.m_HSteamNetConnection;
-                SteamConnectionData foundsteamid = connectionMapping.Values.FirstOrDefault(x => x.connection.m_HSteamNetConnection == (gfgfddfgdfg));
-
-                string msgid_as_str = "";
-#if !(RELEASE && !PLAYTEST)
-                try {
-                    NetDataReader read = new NetDataReader(data_copied);
-                    byte msgid = read.GetByte();
-                    msgid_as_str = Net.ByteMsgIdToName(msgid) + " :";
-                } catch (Exception e) { }
-#endif
-
-                if (foundsteamid != null) {
-                    if (response == EResult.k_EResultLimitExceeded) {
-                        if (Time.realtimeSinceStartupAsDouble - lastExceedWarn > 30) {
-                            lastExceedWarn = Time.realtimeSinceStartupAsDouble;
-                            Plugin.Logger.LogError($"{this.GetType().Name}.Send: Could not send: {msgid_as_str}{response} {BetterToStringFromSteamID(foundsteamid.id)}");
-                        }
-                    } else {
-#if TESTING
-                        Plugin.Logger.LogError($"{this.GetType().Name}.Send: Could not send: {msgid_as_str}{response} {BetterToStringFromSteamID(foundsteamid.id)} {new StackTrace()}");
-#else
-                        Plugin.Logger.LogError($"{this.GetType().Name}.Send: Could not send: {msgid_as_str}{response} {BetterToStringFromSteamID(foundsteamid.id)}");
-#endif
-                    }
-                } else {
-                    Plugin.Logger.LogError($"{this.GetType().Name}.Send: Could not send: {msgid_as_str}{response}  UNKNOWN CONNECTION {connection}");
-                }
-
-            }
-
+            return response;
         }
 
 
@@ -3247,14 +3423,313 @@ namespace Together {
 
 
         public void FlushNagle() {
-            SteamNetworkingSockets.FlushMessagesOnConnection(serverUser.connection);
-            foreach (KeyValuePair<ulong, SteamConnectionData> item in connectionMapping) {
-                SteamNetworkingSockets.FlushMessagesOnConnection(item.Value.connection);
+            if (_nativeIo != IntPtr.Zero) {
+                if (serverUser != null) {
+                    SteamIoNative.PushFlush(_nativeIo, serverUser.connection.m_HSteamNetConnection);
+                }
+                foreach (KeyValuePair<ulong, SteamConnectionData> item in connectionMapping) {
+                    SteamIoNative.PushFlush(_nativeIo, item.Value.connection.m_HSteamNetConnection);
+                }
+                SteamIoNative.Kick(_nativeIo);
+                return;
             }
+            if (serverUser != null) {
+                _flush.Enqueue(serverUser.connection);
+            }
+            foreach (KeyValuePair<ulong, SteamConnectionData> item in connectionMapping) {
+                _flush.Enqueue(item.Value.connection);
+            }
+            KickIo();
         }
         public void FlushNagle(knetid plrId) {
             if (SteamIDToClientIDDict.TryGet(plrId, out ulong steamId) && connectionMapping.TryGetValue(steamId, out SteamConnectionData connection)) {
-                SteamNetworkingSockets.FlushMessagesOnConnection(connection.connection);
+                if (_nativeIo != IntPtr.Zero && SteamIoNative.PushFlush(_nativeIo, connection.connection.m_HSteamNetConnection)) {
+                    SteamIoNative.Kick(_nativeIo);
+                    return;
+                }
+                _flush.Enqueue(connection.connection);
+                KickIo();
+            }
+        }
+
+        void EnsureIo() {
+            if (_ioStopped || _nativeIo != IntPtr.Zero || _ioThread != null) {
+                return;
+            }
+            IntPtr native = IntPtr.Zero;
+            string error = null;
+            try {
+                native = SteamIoNative.TryStart(out error);
+            } catch (Exception e) {
+                error = e.GetType().Name + " " + e.Message;
+            }
+            if (native != IntPtr.Zero) {
+                _nativeIo = native;
+                return;
+            }
+            Plugin.Logger.LogError("TogetherSteamIo native thread unavailable: " + error);
+            _ioRun = true;
+            _wake = new AutoResetEvent(false);
+            _ioThread = new Thread(IoLoop) { IsBackground = true, Name = "TogetherSteamIo" };
+            _ioThread.Start();
+        }
+
+        void StopIo() {
+            if (_nativeIo != IntPtr.Zero) {
+                IntPtr native = _nativeIo;
+                _nativeIo = IntPtr.Zero;
+                _ioStopped = true;
+                SteamIoNative.Stop(native);
+            }
+            if (_ioThread == null) {
+                _ioStopped = true;
+                return;
+            }
+            _ioRun = false;
+            _ioStopped = true;
+            _wake.Set();
+            _ioThread.Join(2000);
+            _ioThread = null;
+            _wake.Dispose();
+            _wake = null;
+        }
+
+        void KickIo() {
+            if (_nativeIo != IntPtr.Zero) {
+                SteamIoNative.Kick(_nativeIo);
+                return;
+            }
+            _wake?.Set();
+        }
+
+        void PublishPollSnapshot() {
+            var snap = new PollTarget[connectionMapping.Count];
+            int i = 0;
+            foreach (SteamConnectionData connection in connectionMapping.Values) {
+                snap[i++] = new PollTarget { SteamId = connection.id.m_SteamID, Conn = connection.connection, Ready = connection.Ready };
+            }
+            _pollSnap = snap;
+            if (_nativeIo != IntPtr.Zero) {
+                SteamIoNative.Publish(_nativeIo, snap, Net.IsClient, is_steamserver);
+            }
+        }
+
+        void LogSendFails() {
+            if (_nativeIo != IntPtr.Zero) {
+                SteamIoNative.TakeBytes(_nativeIo);
+                while (SteamIoNative.PopFail(_nativeIo, out int result, out uint conn, out int msg, out int known)) {
+                    _sendFails.Enqueue(new SendFail {
+                        Result = (EResult)result,
+                        Conn = conn,
+                        Msg = (byte)msg,
+                        Known = known != 0
+                    });
+                }
+            }
+            while (_sendFails.TryDequeue(out SendFail fail)) {
+                if (fail.Result == EResult.k_EResultNoConnection && !log.verbose) {
+                    continue;
+                }
+                SteamConnectionData found = null;
+                foreach (SteamConnectionData connection in connectionMapping.Values) {
+                    if (connection.connection.m_HSteamNetConnection == fail.Conn) {
+                        found = connection;
+                        break;
+                    }
+                }
+                string name = fail.Known ? Net.ByteMsgIdToName(fail.Msg) + " :" : "";
+                if (fail.Result == EResult.k_EResultLimitExceeded) {
+                    if (Time.realtimeSinceStartupAsDouble - lastExceedWarn <= 30) {
+                        continue;
+                    }
+                    lastExceedWarn = Time.realtimeSinceStartupAsDouble;
+                }
+                string who = found != null ? BetterToStringFromSteamID(found.id) : "UNKNOWN CONNECTION " + fail.Conn;
+                Plugin.Logger.LogError($"{this.GetType().Name}.Send: Could not send: {name}{fail.Result} {who}");
+            }
+        }
+
+        void IoLoop() {
+            IntPtr[] ptrs = new IntPtr[ClientPollCap];
+            while (_ioRun) {
+                _wake.WaitOne(50);
+                if (!_ioRun) {
+                    break;
+                }
+                try {
+                    SendQueued();
+                    FlushQueued();
+                    ReceiveQueued(ptrs);
+                } catch (Exception e) {
+                    Plugin.Logger.LogError("TogetherSteamIo " + e);
+                }
+                // The Steam service thread needs the connection lock to finish a join.
+                // Coming straight back in here starves that handshake until it times out.
+                Thread.Sleep(5);
+            }
+        }
+
+        enum ConnSeen { Missing, Pending, Ready }
+
+        ConnSeen LookConn(HSteamNetConnection connection) {
+            PollTarget[] snap = _pollSnap;
+            if (snap == null) {
+                return ConnSeen.Missing;
+            }
+            uint handle = connection.m_HSteamNetConnection;
+            for (int i = 0; i < snap.Length; i++) {
+                if (snap[i].Conn.m_HSteamNetConnection != handle) {
+                    continue;
+                }
+                return snap[i].Ready ? ConnSeen.Ready : ConnSeen.Pending;
+            }
+            return ConnSeen.Missing;
+        }
+
+        bool DeferSend(Outgoing msg) {
+            ConnSeen seen = LookConn(msg.Conn);
+            if (seen == ConnSeen.Ready) {
+                return false;
+            }
+            if (seen == ConnSeen.Missing) {
+                msg.Wait++;
+            }
+            if (msg.Wait < 40) {
+                _outLater.Enqueue(msg);
+            }
+            return true;
+        }
+
+        void SendQueued() {
+            int waiting = _outLater.Count;
+            for (int i = 0; i < waiting; i++) {
+                _outNow.Enqueue(_outLater.Dequeue());
+            }
+            if (_held && !TrySend(_heldMsg)) {
+                return;
+            }
+            _held = false;
+            while (_outNow.TryDequeue(out Outgoing msg)) {
+                if (DeferSend(msg)) {
+                    continue;
+                }
+                if (!TrySend(msg)) {
+                    _held = true;
+                    _heldMsg = msg;
+                    return;
+                }
+            }
+            long now = Stopwatch.GetTimestamp();
+            if (now < _nextPaced) {
+                return;
+            }
+            if (_haveBatch) {
+                if (!TrySend(_batchHeld)) {
+                    _held = true;
+                    _heldMsg = _batchHeld;
+                    _haveBatch = false;
+                    return;
+                }
+                _haveBatch = false;
+            }
+            while (_outPaced.TryDequeue(out Outgoing msg)) {
+                if (DeferSend(msg)) {
+                    continue;
+                }
+                if (_batchEpoch == -1) {
+                    _batchEpoch = msg.Epoch;
+                }
+                if (msg.Epoch != _batchEpoch) {
+                    _haveBatch = true;
+                    _batchHeld = msg;
+                    _batchEpoch = -1;
+                    _nextPaced = now + (long)(Stopwatch.Frequency * 0.01);
+                    return;
+                }
+                if (!TrySend(msg)) {
+                    _held = true;
+                    _heldMsg = msg;
+                    _batchEpoch = -1;
+                    _nextPaced = now + (long)(Stopwatch.Frequency * 0.01);
+                    return;
+                }
+            }
+            _batchEpoch = -1;
+            _nextPaced = now + (long)(Stopwatch.Frequency * 0.01);
+        }
+
+        bool TrySend(Outgoing msg) {
+            EResult result = SendBytesOnIo(msg.Conn, msg.Data, msg.Flag);
+            if (result != EResult.k_EResultLimitExceeded) {
+                return true;
+            }
+            if (msg.SteamId != 0) {
+                Interlocked.Exchange(ref _limitSteamId, (long)msg.SteamId);
+            }
+            return false;
+        }
+
+        void FlushQueued() {
+            while (_flush.TryDequeue(out HSteamNetConnection connection)) {
+                if (connection == HSteamNetConnection.Invalid) {
+                    continue;
+                }
+                if (LookConn(connection) != ConnSeen.Ready) {
+                    continue;
+                }
+                if (is_steamserver) {
+                    SteamGameServerNetworkingSockets.FlushMessagesOnConnection(connection);
+                } else {
+                    SteamNetworkingSockets.FlushMessagesOnConnection(connection);
+                }
+            }
+        }
+
+        void ReceiveQueued(IntPtr[] ptrs) {
+            PollTarget[] snap = _pollSnap;
+            if (snap == null || snap.Length == 0) {
+                return;
+            }
+            int cap = _ioClient ? ClientPollCap : HostPollCap;
+            if (_incoming.Count >= cap) {
+                return;
+            }
+            int remaining = cap;
+            for (int c = 0; c < snap.Length; c++) {
+                if (_ioClient && remaining <= 0) {
+                    break;
+                }
+                PollTarget target = snap[c];
+                if (!target.Ready) {
+                    continue;
+                }
+                // Steamworks.NET rejects the call unless the array length equals this count.
+                int messageCount = is_steamserver
+                    ? SteamGameServerNetworkingSockets.ReceiveMessagesOnConnection(target.Conn, ptrs, ptrs.Length)
+                    : SteamNetworkingSockets.ReceiveMessagesOnConnection(target.Conn, ptrs, ptrs.Length);
+                if (messageCount <= 0) {
+                    continue;
+                }
+                if (messageCount > ptrs.Length) {
+                    messageCount = ptrs.Length;
+                }
+                for (int i = 0; i < messageCount; i++) {
+                    SteamNetworkingMessage_t data = Marshal.PtrToStructure<SteamNetworkingMessage_t>(ptrs[i]);
+                    int size = data.m_cbSize;
+                    if (size < 0) {
+                        size = 0;
+                    }
+                    FindTheBugInator.NoteSteamIn(size);
+                    byte[] buffer = new byte[size];
+                    if (size > 0) {
+                        Marshal.Copy(data.m_pData, buffer, 0, size);
+                    }
+                    SteamNetworkingMessage_t.Release(ptrs[i]);
+                    _incoming.Enqueue(new Incoming { SteamId = target.SteamId, Data = buffer });
+                }
+                if (_ioClient) {
+                    remaining -= messageCount;
+                }
             }
         }
 

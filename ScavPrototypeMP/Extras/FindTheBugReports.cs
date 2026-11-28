@@ -47,14 +47,6 @@ namespace Together {
                 return;
             }
             _nextScan = Time.unscaledTime + ScanGap;
-            if (layer == 9 || layer == 10) {
-#if FULLGAME
-                ScanSuckers(layer);
-#endif
-                ScanTurrets(layer);
-                ScanPulse(layer);
-            }
-            ScanBags();
         }
 
         internal static void Say(string topic, string detail) {

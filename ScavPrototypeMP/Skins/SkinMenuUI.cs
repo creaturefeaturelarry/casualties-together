@@ -485,8 +485,8 @@ internal static class SkinMenuUI {
 
         TextMeshProUGUI title = CreateText(bar.transform, "Title", "Skin Replacer", 30,
             GameTheme.TextColor, TextAlignmentOptions.MidlineLeft);
-        SetRect(title.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 0.5f),
-            new Vector2(24f, 0f), new Vector2(360f, 0f));
+        SetRect(title.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
+            new Vector2(24f, -2f), new Vector2(360f, 34f));
 
         Button close = CreateButton(bar.transform, "Close", "X", GameTheme.DangerColor, 20);
         SetRect(close.GetComponent<RectTransform>(), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
@@ -503,29 +503,29 @@ internal static class SkinMenuUI {
         SetRect(_lockStatus.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
             new Vector2(1f, 0.5f), new Vector2(-70f, 0f), new Vector2(300f, 32f));
 
-        TextMeshProUGUI hint = CreateText(window.transform, "Hint",
+        TextMeshProUGUI hint = CreateText(bar.transform, "Hint",
             "Numpad 0 = default, 1-9 = slots.",
             14, GameTheme.MutedColor, TextAlignmentOptions.MidlineLeft);
         hint.enableWordWrapping = false;
-        SetRect(hint.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(24f, -64f), new Vector2(330f, 28f));
+        SetRect(hint.rectTransform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f),
+            new Vector2(24f, 4f), new Vector2(340f, 22f));
 
         _shareButton = CreateButton(window.transform, "Share", "Share: ON",
             GameTheme.SuccessColor, 14);
         SetRect(_shareButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(0f, 1f), new Vector2(360f, -64f), new Vector2(120f, 28f));
+            new Vector2(0f, 1f), new Vector2(104f, -64f), new Vector2(230f, 28f));
         _shareButton.onClick.AddListener(ToggleShare);
 
         _downloadButton = CreateButton(window.transform, "Download", "Download: ON",
             GameTheme.SuccessColor, 14);
         SetRect(_downloadButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(0f, 1f), new Vector2(488f, -64f), new Vector2(150f, 28f));
+            new Vector2(0f, 1f), new Vector2(342f, -64f), new Vector2(280f, 28f));
         _downloadButton.onClick.AddListener(ToggleDownload);
 
         _cacheButton = CreateButton(window.transform, "Cache", "Clear cache",
             GameTheme.MutedColor, 14);
         SetRect(_cacheButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f),
-            new Vector2(0f, 1f), new Vector2(646f, -64f), new Vector2(110f, 28f));
+            new Vector2(0f, 1f), new Vector2(630f, -64f), new Vector2(110f, 28f));
         _cacheButton.onClick.AddListener(ClearCache);
 
         // species tabs own the page below them. each page has its own slots.

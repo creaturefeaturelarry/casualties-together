@@ -28,6 +28,7 @@ public static class BagSleep
 	// scripts we turned off on a belt or trauma rig. renderers stay up.
 	static readonly Dictionary<int, List<Behaviour>> Paused = new Dictionary<int, List<Behaviour>>();
 	static int _sleepLeft;
+	static int _row;
 
 	internal static void Note(Item item)
 	{
@@ -77,8 +78,13 @@ public static class BagSleep
 		if (!SharedMain.LocalWorldIsGenerated || WorldGeneration.world == null || !WorldGeneration.world.worldExists)
 			return;
 		_sleepLeft = SleepBudget;
-		for (int i = Rows.Count - 1; i >= 0; i--)
+		int steps = Rows.Count < SleepBudget ? Rows.Count : SleepBudget;
+		int seen = 0;
+		while (seen < steps && Rows.Count > 0)
 		{
+			if (_row >= Rows.Count)
+				_row = 0;
+			int i = _row;
 			Item item = Rows[i].Item;
 			if (item == null)
 			{
@@ -101,11 +107,15 @@ public static class BagSleep
 			if (KeepAwake(item))
 			{
 				Wake(item);
+				_row = i + 1;
+				seen++;
 				continue;
 			}
 			if (HeldOpen(box) || Breaking(box) || MoveCommit.Busy(item) || KeepLit(item, box))
 			{
 				Wake(item);
+				_row = i + 1;
+				seen++;
 				continue;
 			}
 			Hold(item);
@@ -119,15 +129,22 @@ public static class BagSleep
 			else if (go.activeSelf)
 			{
 				if (_sleepLeft <= 0)
+				{
+					_row = i + 1;
+					seen++;
 					continue;
+				}
 				Resume(item.gameObject.GetInstanceID());
 				go.SetActive(false);
 				_sleepLeft--;
 			}
-			item.HandleDecay();
+			if (!(Net.IsClient && NetObjectRegistry.IsRegistered(item.gameObject)))
+				item.HandleDecay();
 			TickTrade(item);
 			if (Net.IsServer)
 				ItemSync.SpentDestroy(item);
+			_row = i + 1;
+			seen++;
 		}
 	}
 

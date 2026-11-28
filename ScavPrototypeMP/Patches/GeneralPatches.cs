@@ -585,15 +585,19 @@ static class Sound_Play2_MultiplayerPatch {
 // stock LiquidAffect then NREs on null rb / world / FluidManager - and acid path on null talker.
 [HarmonyPatch(typeof(LiquidAffect), "FixedUpdate")]
 static class LiquidAffect_FixedUpdate_NullGuard_MultiplayerPatch {
+    static readonly AccessTools.FieldRef<LiquidAffect, Rigidbody2D> Rb =
+        AccessTools.FieldRefAccess<LiquidAffect, Rigidbody2D>("rb");
+    static readonly AccessTools.FieldRef<LiquidAffect, Limb> LimbOf =
+        AccessTools.FieldRefAccess<LiquidAffect, Limb>("limb");
+
     static bool Prefix(LiquidAffect __instance) {
-        Traverse tr = Traverse.Create(__instance);
-        if (tr.Field("rb").GetValue<Rigidbody2D>() == null) {
+        if (Rb(__instance) == null) {
             return false;
         }
         if (WorldGeneration.world == null || FluidManager.main == null) {
             return false;
         }
-        Limb limb = tr.Field("limb").GetValue<Limb>();
+        Limb limb = LimbOf(__instance);
         if (limb != null && (limb.body == null || limb.body.talker == null)) {
             // acid branch calls talker.FinishedTalking(); skip until talker exists
             return false;
@@ -626,7 +630,7 @@ static class LiquidAffect_FixedUpdate_SkipIdle_MultiplayerPatch {
 
     // host owns water for every player. a client only needs the chunks around itself.
     static bool Kept(Vector2 pos) {
-        if (SimKeep.Covers(pos))
+        if ((!Net.IsRunning || Net.IsServer) && SimKeep.Covers(pos))
             return true;
         WorldGeneration world = WorldGeneration.world;
         if (world == null || !world.worldExists)

@@ -11,6 +11,7 @@ using System.Text;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
+using UnityEngine.Tilemaps;
 using static UnityEngine.GraphicsBuffer;
 
 namespace Together;
@@ -158,6 +159,7 @@ public static class CrystalAuthority {
         _nextFillAt.Clear();
         _nextSpecialAt.Clear();
         _pendingCapture.Clear();
+        _liveCrystals.Clear();
         _nextBlankScanAt = 0f;
         CrystalDelayedFx.ClearArmBroadcasts();
         CrystalLocalAuthority.ClearLayerCaches();
@@ -723,6 +725,7 @@ public static class CrystalAuthority {
     }
 
     public static void ClientTryApplyOrRequest(SyncInfo si) {
+        NoteCrystal(si);
         if (!Net.IsClient || si == null || si.go == null) {
             return;
         }
@@ -853,12 +856,26 @@ public static class CrystalAuthority {
     }
 
     // specials keep requesting every 1s until an effect payload actually applies. No attempt cap.
+    static readonly List<SyncInfo> _liveCrystals = new List<SyncInfo>();
+
+    static void NoteCrystal(SyncInfo si) {
+        if (si == null) {
+            return;
+        }
+        for (int i = 0; i < _liveCrystals.Count; i++) {
+            if (_liveCrystals[i] == si) {
+                return;
+            }
+        }
+        _liveCrystals.Add(si);
+    }
+
     static void TickSpecialRetries() {
         if (Net.IsServer) {
             return;
         }
-        foreach (var kv in NetObjectRegistry.SyncRegistry) {
-            SyncInfo si = kv.Value;
+        for (int i = _liveCrystals.Count - 1; i >= 0; i--) {
+            SyncInfo si = _liveCrystals[i];
             if (si == null || si.go == null || _specialsApplied.Contains(si.syncId)) {
                 continue;
             }
@@ -873,6 +890,9 @@ public static class CrystalAuthority {
         if (!Net.IsClient || !Net.IsRunning || !SharedMain.LocalWorldIsGenerated) {
             return;
         }
+        if (_liveCrystals.Count == 0) {
+            return;
+        }
         TickSpecialRetries();
         float now = Time.unscaledTime;
         if (now < _nextBlankScanAt) {
@@ -881,11 +901,8 @@ public static class CrystalAuthority {
         _nextBlankScanAt = now + BlankScanInterval;
 
         int sent = 0;
-        foreach (var kv in NetObjectRegistry.SyncRegistry) {
-            if (sent >= BlankScanBudget) {
-                break;
-            }
-            SyncInfo si = kv.Value;
+        for (int i = _liveCrystals.Count - 1; i >= 0 && sent < BlankScanBudget; i--) {
+            SyncInfo si = _liveCrystals[i];
             if (si == null || si.go == null) {
                 continue;
             }
@@ -1413,6 +1430,9 @@ public static class CrystalAuthority {
                     }
                     MarkGenerationDone(be.gameObject);
                     HostCapture(be.gameObject);
+                    if (NetObjectRegistry.TryGetSyncInfo(be.gameObject, out SyncInfo crystalSi)) {
+                        NoteCrystal(crystalSi);
+                    }
                 }
                 HostFlushPendingCaptures();
                 HostPushRegisteredCrystalStates();
@@ -2946,36 +2966,184 @@ public static class CrystalTemperature_Start_MultiplayerPatch {
 
 // stock ChunkScript.Update returns while the tile renderer is off, and that renderer only follows the host camera.
 // septic, gravity, drip, burn cooldown, and the unstable fuse all live in CrystalBehaviour.ChunkUpdate.
+// one list ticks those crystals. empty chunks leave the player loop once their tile randomize has finished.
 [HarmonyPatch(typeof(ChunkScript), "Update")]
 static class ChunkScript_Update_CrystalSim_MultiplayerPatch {
+    static bool Prefix(ChunkScript __instance) {
+        CrystalChunkSim.Harvest(__instance);
+        CrystalChunkSim.Park(__instance);
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(ChunkScript), "AddEntity")]
+static class ChunkScript_AddEntity_CrystalSim_MultiplayerPatch {
+    static void Postfix(ChunkScript __instance, ISimEntity entity) {
+        if (entity is CrystalBehaviour crystal)
+            CrystalChunkSim.Add(crystal, __instance);
+    }
+}
+
+[HarmonyPatch(typeof(ChunkScript), "RemoveEntity")]
+static class ChunkScript_RemoveEntity_CrystalSim_MultiplayerPatch {
+    static void Postfix(ISimEntity entity) {
+        if (entity is CrystalBehaviour crystal)
+            CrystalChunkSim.Remove(crystal);
+    }
+}
+
+[HarmonyPatch(typeof(ChunkScript), "OnWillRenderObject")]
+static class ChunkScript_OnWillRenderObject_CrystalSim_MultiplayerPatch {
     static void Postfix(ChunkScript __instance) {
-        if (!Net.IsRunning || !Net.IsServer || __instance == null) {
-            return;
-        }
-        if (__instance.renderer != null && __instance.renderer.enabled) {
-            return;
-        }
-        List<ISimEntity> list = __instance.containedEntities;
-        if (list == null || list.Count == 0) {
-            return;
-        }
+        CrystalChunkSim.NoteRandomize(__instance);
+    }
+}
+
+[HarmonyPatch(typeof(Renderer), "set_enabled")]
+static class Renderer_SetEnabled_CrystalSim_MultiplayerPatch {
+    static void Prefix(Renderer __instance, bool value) {
+        if (value && __instance is TilemapRenderer map)
+            CrystalChunkSim.Wake(map);
+    }
+}
+
+static class CrystalChunkSim {
+    sealed class Row {
+        internal CrystalBehaviour Crystal;
+        internal ChunkScript Chunk;
+    }
+
+    static readonly List<Row> Rows = new List<Row>();
+    static readonly Dictionary<int, int> Index = new Dictionary<int, int>();
+    static readonly HashSet<int> Harvested = new HashSet<int>();
+    static readonly Dictionary<int, int> BusyUntil = new Dictionary<int, int>();
+    static readonly Dictionary<int, bool> Allow = new Dictionary<int, bool>();
+    static int _allowFrame = -1;
+    static AccessTools.FieldRef<ChunkScript, bool> _randomized;
+
+    internal static void Tick() {
         WorldGeneration world = WorldGeneration.world;
-        if (world == null || !world.worldExists || world.generatingWorld) {
+        if (world == null || !world.worldExists || world.generatingWorld || Rows.Count == 0)
+            return;
+        int frame = Time.frameCount;
+        if (_allowFrame != frame) {
+            _allowFrame = frame;
+            Allow.Clear();
+        }
+        bool server = Net.IsRunning && Net.IsServer;
+        for (int i = Rows.Count - 1; i >= 0; i--) {
+            Row row = Rows[i];
+            CrystalBehaviour crystal = row.Crystal;
+            if (crystal == null || row.Chunk == null) {
+                RemoveAt(i);
+                continue;
+            }
+            if (!AllowChunk(row.Chunk, server))
+                continue;
+            crystal.ChunkUpdate();
+        }
+    }
+
+    internal static void Harvest(ChunkScript chunk) {
+        if (chunk == null || !Harvested.Add(chunk.GetInstanceID()))
+            return;
+        List<ISimEntity> list = chunk.containedEntities;
+        if (list == null)
+            return;
+        for (int i = 0; i < list.Count; i++) {
+            if (list[i] is CrystalBehaviour crystal)
+                Add(crystal, chunk);
+        }
+    }
+
+    internal static void Add(CrystalBehaviour crystal, ChunkScript chunk) {
+        if (crystal == null || chunk == null)
+            return;
+        int id = crystal.GetInstanceID();
+        if (Index.TryGetValue(id, out int at)) {
+            Rows[at].Chunk = chunk;
             return;
         }
+        Index[id] = Rows.Count;
+        Rows.Add(new Row { Crystal = crystal, Chunk = chunk });
+    }
+
+    internal static void Remove(CrystalBehaviour crystal) {
+        if (crystal == null)
+            return;
+        if (Index.TryGetValue(crystal.GetInstanceID(), out int at))
+            RemoveAt(at);
+    }
+
+    static void RemoveAt(int at) {
+        int last = Rows.Count - 1;
+        Row gone = Rows[at];
+        if (gone.Crystal != null)
+            Index.Remove(gone.Crystal.GetInstanceID());
+        if (at != last) {
+            Row moved = Rows[last];
+            Rows[at] = moved;
+            if (moved.Crystal != null)
+                Index[moved.Crystal.GetInstanceID()] = at;
+        }
+        Rows.RemoveAt(last);
+    }
+
+    internal static void NoteRandomize(ChunkScript chunk) {
+        if (chunk == null)
+            return;
         int size = WorldGeneration.CHUNKSIZE;
-        if (size < 1) {
+        if (size < 1)
+            size = 64;
+        BusyUntil[chunk.GetInstanceID()] = Time.frameCount + size + 2;
+    }
+
+    internal static void Park(ChunkScript chunk) {
+        if (chunk == null || chunk.renderer == null)
+            return;
+        int id = chunk.GetInstanceID();
+        if (BusyUntil.TryGetValue(id, out int until) && Time.frameCount <= until)
+            return;
+        // not drawn yet. stay off until the tilemap turns on, which is what starts the tile randomize.
+        if (!chunk.renderer.enabled) {
+            chunk.enabled = false;
             return;
         }
-        Vector2Int block = new Vector2Int(__instance.pos.x * size + size / 2, __instance.pos.y * size + size / 2);
-        if (!SharedMain.PositionIsInSimulatedChunk_BlockPos(block)) {
+        // randomize already finished. ChunkUpdate is on the crystal list, so this component has no more work.
+        if (Randomized(chunk))
+            chunk.enabled = false;
+    }
+
+    internal static void Wake(TilemapRenderer renderer) {
+        if (renderer == null)
             return;
-        }
-        for (int i = list.Count - 1; i >= 0; i--) {
-            if (list[i] is CrystalBehaviour crystal && crystal != null) {
-                crystal.ChunkUpdate();
+        ChunkScript chunk = renderer.GetComponent<ChunkScript>();
+        if (chunk == null || chunk.enabled || Randomized(chunk))
+            return;
+        chunk.enabled = true;
+    }
+
+    static bool Randomized(ChunkScript chunk) {
+        if (_randomized == null)
+            _randomized = AccessTools.FieldRefAccess<ChunkScript, bool>("hasRandomized");
+        return _randomized(chunk);
+    }
+
+    static bool AllowChunk(ChunkScript chunk, bool server) {
+        int id = chunk.GetInstanceID();
+        if (Allow.TryGetValue(id, out bool cached))
+            return cached;
+        bool drawing = chunk.renderer != null && chunk.renderer.enabled;
+        bool ok = drawing;
+        if (!ok && server) {
+            int size = WorldGeneration.CHUNKSIZE;
+            if (size > 0) {
+                Vector2Int block = new Vector2Int(chunk.pos.x * size + size / 2, chunk.pos.y * size + size / 2);
+                ok = SharedMain.PositionIsInSimulatedChunk_BlockPos(block);
             }
         }
+        Allow[id] = ok;
+        return ok;
     }
 }
 

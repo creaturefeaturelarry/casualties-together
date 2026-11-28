@@ -30,7 +30,11 @@ public static class ChunkSleep {
         public bool Asleep;
         // true once a pass saw this object awake. WakeFreshChunks skips a chunk whose objects are all settled.
         public bool Settled;
+        public bool WideKnown;
+        public bool Wide;
         public Slot Slot;
+        // last visibility generation that already read this transform. a settled entry skips that read until the window moves.
+        public int SeenGen = -1;
     }
 
     // one occupied chunk. Unsettled counts the placed objects that still need a wake try.
@@ -43,16 +47,31 @@ public static class ChunkSleep {
         public WorldGeneration World;
         public Vector2 Center;
         public TilemapRenderer Renderer;
+        public long Key;
+        public int OpenIndex = -1;
     }
 
     static readonly List<Entry> Entries = new List<Entry>();
     static readonly Dictionary<int, Entry> ById = new Dictionary<int, Entry>();
     static readonly Dictionary<long, Slot> ByChunk = new Dictionary<long, Slot>();
+    static readonly List<Slot> OpenSlots = new List<Slot>();
     static readonly HashSet<Type> IgnoredTypes = new HashSet<Type>();
     static readonly HashSet<int> IgnoredIds = new HashSet<int>();
     static readonly HashSet<long> HotNow = new HashSet<long>();
     static readonly HashSet<long> HotPrev = new HashSet<long>();
     static int _cursor;
+
+    struct VisSpot {
+        public int Id;
+        public long Chunk;
+    }
+
+    // last chunk window we handed to UpdateChunkVisibility. a player who stays inside the chunk does not need another pass.
+    static readonly List<VisSpot> _visNow = new List<VisSpot>(8);
+    static readonly List<VisSpot> _visPrev = new List<VisSpot>(8);
+    static WorldGeneration _visWorld;
+    static int _visDepth = int.MinValue;
+    static int _visGen;
 
     // every object with this component stays on, even past the 3x3.
     public static void Ignore(Type componentType) {
@@ -66,6 +85,36 @@ public static class ChunkSleep {
             IgnoredIds.Add(go.GetInstanceID());
     }
 
+    internal static bool KeepsAwake(Vector2 pos) {
+        return Hot(pos);
+    }
+
+    internal static bool KeepsAwake(GameObject go) {
+        if (go == null)
+            return false;
+        bool wide = ById.TryGetValue(go.GetInstanceID(), out Entry entry) && entry.WideKnown
+            ? entry.Wide
+            : Keep.UsesWideRange(go);
+        return AwakeAt(go.transform.position, wide);
+    }
+
+    static bool AwakeAt(Vector2 pos, bool wide) {
+        if (Net.IsRunning && Net.IsServer && SimKeep.Covers(pos))
+            return true;
+        if (CpuAdvConfig.Enabled != null && CpuAdvConfig.Enabled.Value)
+            return CullWorld.Covers(pos, wide);
+        float extra = 0f;
+        if (wide)
+            extra = CpuAdvConfig.EnemyWakeDistance != null ? CpuAdvConfig.EnemyWakeDistance.Value : 60f;
+        return SyncStep.NearAny(pos, extra);
+    }
+
+    internal static bool IsAsleep(GameObject go) {
+        if (go == null)
+            return false;
+        return ById.TryGetValue(go.GetInstanceID(), out Entry entry) && entry.Asleep;
+    }
+
     internal static void Watch(Component body) {
         if (body == null)
             return;
@@ -77,7 +126,12 @@ public static class ChunkSleep {
             return;
         if (go.GetComponent<ChunkSleepAnchor>() == null)
             go.AddComponent<ChunkSleepAnchor>();
-        Entry entry = new Entry { Id = id, Go = go };
+        Entry entry = new Entry {
+            Id = id,
+            Go = go,
+            Wide = Keep.UsesWideRange(go),
+            WideKnown = true,
+        };
         Entries.Add(entry);
         ById[id] = entry;
     }
@@ -136,18 +190,30 @@ public static class ChunkSleep {
         if (Ignored(entry)) {
             entry.ColdSince = -1f;
             Wake(entry);
+            NoteSeen(entry);
             return;
+        }
+        // settled entries stay where they were until the camera window moves. the transform read is the cost.
+        if (entry.Settled && entry.SeenGen == _visGen) {
+            if (entry.Go.activeSelf || CullWorld.HoldsOff(entry.Go))
+                return;
+            MarkSettled(entry, false);
         }
         Vector2 pos = entry.Go.transform.position;
         long key = ChunkStamp.Pack(ChunkStamp.ChunkOf(pos));
         Place(entry, key);
         // something else switched it off. the chunk has to try waking it again.
-        if (entry.Settled && !entry.Go.activeSelf)
+        if (entry.Settled && !entry.Go.activeSelf && !CullWorld.HoldsOff(entry.Go))
             MarkSettled(entry, false);
         // tiles already drawing. do not count a cold second and turn it back off.
-        if (Hot(pos) || Shown(pos)) {
+        if (AwakeAt(pos, entry.WideKnown ? entry.Wide : Keep.UsesWideRange(entry.Go))) {
+            if (CullWorld.HoldsOff(entry.Go)) {
+                NoteSeen(entry);
+                return;
+            }
             entry.ColdSince = -1f;
             Wake(entry);
+            NoteSeen(entry);
             return;
         }
         float now = Time.unscaledTime;
@@ -155,26 +221,21 @@ public static class ChunkSleep {
             entry.ColdSince = now;
         else if (!entry.Asleep && now - entry.ColdSince >= ColdFor)
             Sleep(entry);
+        NoteSeen(entry);
     }
 
-    // host keeps every player's 3x3. everyone else only their own, so a far mesh can be off here and still live on the host.
+    static void NoteSeen(Entry entry) {
+        entry.SeenGen = entry.Settled ? _visGen : -1;
+    }
+
+    // host keeps every player's view radius, and a throw so its rigidbody keeps moving.
+    // a client only keeps its own radius. a far throw stays asleep until it enters that circle.
     static bool Hot(Vector2 pos) {
-        // a kept throw holds its 3x3 on every machine. the host stamp alone does not cover a client.
-        if (SimKeep.Covers(pos))
+        if (Net.IsRunning && Net.IsServer && SimKeep.Covers(pos))
             return true;
-        if (Net.IsRunning && Net.IsServer)
-            return SharedMain.PositionIsInSimulatedChunk(pos);
-        WorldGeneration world = WorldGeneration.world;
-        if (world == null || !LocalChunk(out Vector2Int mine))
-            return true;
-        Vector2Int chunk = world.BlockToChunkPos(world.WorldToBlockPos(pos));
-        int dx = chunk.x - mine.x;
-        int dy = chunk.y - mine.y;
-        if (dx < 0)
-            dx = -dx;
-        if (dy < 0)
-            dy = -dy;
-        return dx <= 1 && dy <= 1;
+        if (CpuAdvConfig.Enabled != null && CpuAdvConfig.Enabled.Value)
+            return CullWorld.Covers(pos, false);
+        return SyncStep.NearAny(pos, 0f);
     }
 
     static bool LocalChunk(out Vector2Int chunk) {
@@ -209,6 +270,8 @@ public static class ChunkSleep {
     static void Sleep(Entry entry) {
         if (entry.Asleep || entry.Go == null)
             return;
+        if (HeaterMultiplayerRewrite.Occupied(entry.Go))
+            return;
         entry.Go.SetActive(false);
         entry.Asleep = true;
         MarkSettled(entry, false);
@@ -241,16 +304,73 @@ public static class ChunkSleep {
         if (entry.Settled == settled)
             return;
         entry.Settled = settled;
-        if (entry.Slot != null)
+        if (entry.Slot != null) {
             entry.Slot.Unsettled += settled ? -1 : 1;
+            NoteOpen(entry.Slot);
+        }
     }
 
     // stock enables the camera window. a union chunk wakes even when that window leaves it dark.
+    // the host postfix walks every living player, so this runs when one of them changes chunk, not every frame.
     static void EnsureRenderers() {
         WorldGeneration world = WorldGeneration.world;
         if (world == null || world.generatingWorld || !world.worldExists || world.mainCam == null)
             return;
+        if (world != _visWorld || world.biomeDepth != _visDepth) {
+            _visWorld = world;
+            _visDepth = world.biomeDepth;
+            _visPrev.Clear();
+            _visGen++;
+        }
+        if (!VisibilityMoved(world))
+            return;
+        _visGen++;
         world.UpdateChunkVisibility();
+    }
+
+    static void NoteVis(int id, Vector2 pos, WorldGeneration world) {
+        Vector2Int chunk = world.BlockToChunkPos(world.WorldToBlockPos(pos));
+        _visNow.Add(new VisSpot { Id = id, Chunk = ((long)chunk.x << 32) | (uint)chunk.y });
+    }
+
+    static bool VisibilityMoved(WorldGeneration world) {
+        _visNow.Clear();
+        NoteVis(-1, world.mainCam.transform.position, world);
+        if (Util.TryGetLocalBody(out Body body) && body != null)
+            NoteVis(-2, body.transform.position, world);
+        if (Net.IsRunning && Net.IsServer) {
+            List<ScavPlayer> living = ScavPlayer.AllLivingPlayers;
+            for (int i = 0; i < living.Count; i++) {
+                ScavPlayer plr = living[i];
+                if (plr == null)
+                    continue;
+                NoteVis(plr.playerId.id, plr.pos, world);
+            }
+        }
+        bool moved = _visNow.Count != _visPrev.Count;
+        if (!moved) {
+            for (int i = 0; i < _visNow.Count; i++) {
+                VisSpot spot = _visNow[i];
+                bool found = false;
+                for (int j = 0; j < _visPrev.Count; j++) {
+                    VisSpot prev = _visPrev[j];
+                    if (prev.Id == spot.Id && prev.Chunk == spot.Chunk) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    moved = true;
+                    break;
+                }
+            }
+        }
+        if (!moved)
+            return false;
+        _visPrev.Clear();
+        for (int i = 0; i < _visNow.Count; i++)
+            _visPrev.Add(_visNow[i]);
+        return true;
     }
 
     static bool RendererReady(Vector2 pos) {
@@ -273,24 +393,34 @@ public static class ChunkSleep {
         HotNow.Clear();
         WorldGeneration world = WorldGeneration.world;
         float now = Time.unscaledTime;
-        foreach (KeyValuePair<long, Slot> pair in ByChunk) {
-            Slot slot = pair.Value;
-            if (slot.Unsettled <= 0)
+        int i = 0;
+        while (i < OpenSlots.Count) {
+            Slot slot = OpenSlots[i];
+            if (slot.Unsettled <= 0) {
+                NoteOpen(slot);
+                if (i < OpenSlots.Count && OpenSlots[i] == slot)
+                    i++;
                 continue;
-            if (!slot.Near && now < slot.NextCheck)
+            }
+            if (!slot.Near && now < slot.NextCheck) {
+                i++;
                 continue;
-            long key = pair.Key;
+            }
+            long key = slot.Key;
             bool hot = ChunkIsHot(world, slot, key);
             bool shown = ChunkShown(world, slot, key);
             slot.Near = hot || shown;
             if (!slot.Near) {
                 slot.NextCheck = now + FarRecheckSeconds + FarRecheckSpreadSeconds * SpreadOf(key);
+                i++;
                 continue;
             }
             if (hot)
                 HotNow.Add(key);
             if (shown || !HotPrev.Contains(key))
                 WakeSlot(slot);
+            if (i < OpenSlots.Count && OpenSlots[i] == slot)
+                i++;
         }
         HotPrev.Clear();
         foreach (long key in HotNow)
@@ -366,12 +496,35 @@ public static class ChunkSleep {
         Unchunk(entry);
         entry.Placed = true;
         entry.Chunk = key;
-        if (!ByChunk.TryGetValue(key, out Slot slot))
-            ByChunk[key] = slot = new Slot();
+        if (!ByChunk.TryGetValue(key, out Slot slot)) {
+            slot = new Slot { Key = key };
+            ByChunk[key] = slot;
+        }
         slot.List.Add(entry);
         entry.Slot = slot;
-        if (!entry.Settled)
+        if (!entry.Settled) {
             slot.Unsettled++;
+            NoteOpen(slot);
+        }
+    }
+
+    static void NoteOpen(Slot slot) {
+        if (slot.Unsettled > 0) {
+            if (slot.OpenIndex >= 0)
+                return;
+            slot.OpenIndex = OpenSlots.Count;
+            OpenSlots.Add(slot);
+            return;
+        }
+        int index = slot.OpenIndex;
+        if (index < 0)
+            return;
+        int last = OpenSlots.Count - 1;
+        Slot moved = OpenSlots[last];
+        OpenSlots[index] = moved;
+        moved.OpenIndex = index;
+        OpenSlots.RemoveAt(last);
+        slot.OpenIndex = -1;
     }
 
     static void Unchunk(Entry entry) {
@@ -380,8 +533,10 @@ public static class ChunkSleep {
         Slot slot = entry.Slot;
         if (slot != null) {
             slot.List.Remove(entry);
-            if (!entry.Settled)
+            if (!entry.Settled) {
                 slot.Unsettled--;
+                NoteOpen(slot);
+            }
             if (slot.List.Count == 0)
                 ByChunk.Remove(entry.Chunk);
             entry.Slot = null;

@@ -1050,6 +1050,11 @@ public class WorldMP : CasualtiesTogetherSingleton {
 
         try {
             OnWorldgenFinish?.Invoke();
+#if FULLGAME
+            if (Net.IsServer) {
+                BlueHeartMp.Server_EnsureAllMissingCargoOnAscent();
+            }
+#endif
         } catch (Exception e) {
             log.error($"OnWorldgenFinish.Invoke()\n{e.ToString()}");
         }
@@ -1142,6 +1147,9 @@ public class WorldMP : CasualtiesTogetherSingleton {
                 }
 
                 plr.ServerPlayerState.finished_worldgen = true;
+#if FULLGAME
+                BlueHeartMp.Server_TryApplyCargoToLateJoiner(plr);
+#endif
                 if (!plr.ServerPlayerState.did_give_spawn_location) {
                     plr.ServerPlayerState.did_give_spawn_location = true;
                     plr.StartCoroutine(ServerMain.GiveSpawnLocationToPlayer(clientId));

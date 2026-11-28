@@ -2621,6 +2621,29 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
 
 
 
+    static readonly List<knetid> _healthViewers = new List<knetid>();
+
+    // player bodies: recipients inside the view radius, plus the owner. other bodies stay a broadcast.
+    static IReadOnlyList<knetid> HealthRecipients(NetBody nb) {
+        if (nb == null || !nb.IsPlayer || nb.plr == null) {
+            return ServerMain.AllClientIdsExceptHost;
+        }
+        _healthViewers.Clear();
+        Vector2 at = nb.body != null ? (Vector2)nb.body.transform.position : nb.plr.pos;
+        float limit = ItemSync.max_plr_view_distance_sqr;
+        IReadOnlyList<ScavPlayer> players = ServerMain.AllPlayersExceptHost;
+        for (int i = 0; i < players.Count; i++) {
+            ScavPlayer viewer = players[i];
+            if (viewer == null) {
+                continue;
+            }
+            if (viewer == nb.plr || (viewer.pos - at).sqrMagnitude <= limit) {
+                _healthViewers.Add(viewer.playerId);
+            }
+        }
+        return _healthViewers;
+    }
+
     public static void Server_SendCharacterHealth(NetBody nb, bool force = false) {
         if ((force || MedicalSync.CanSyncHealth())) {
 
@@ -2636,11 +2659,18 @@ internal class MedicalSync : CasualtiesTogetherSingleton {
             writer.Put(nb.healthConfirm);
             nb.healthConfirm = false;
 
-            writer.CompressWriter();
+            IReadOnlyList<knetid> viewers = HealthRecipients(nb);
+            if (viewers.Count == 0) {
+                return;
+            }
+            if (!OffMain.SendServer(force ? DeliveryMethod.ReliableUnordered : DeliveryMethod.Unreliable, writer, sizeof(NetmsgId), viewers)) {
+                writer.CompressWriter();
+                Net.Server_SendToClients(force ? DeliveryMethod.ReliableUnordered : DeliveryMethod.Unreliable, writer, clientIds: viewers);
+            }
 
             // a forced push is a level-up or a carried-weight tick. the slow unreliable
             // round robin is what made crafting intelligence show up late, or not at all.
-            Net.Server_SendToClients(force ? DeliveryMethod.ReliableUnordered : DeliveryMethod.Unreliable, writer, clientIds: ServerMain.AllClientIdsExceptHost);
+            // another player's health is only useful in view. their own client still gets it.
 
             // WRITER END;
         }

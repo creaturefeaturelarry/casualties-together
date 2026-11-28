@@ -81,11 +81,7 @@ public partial struct MultiplayerGameRules : INetSerializeByMemcpy {
 
 
     [MultiplayerRuleByte(Multiplayer.CONST_MAX_POSSIBLE_PLAYER_COUNT, "")]
-#if TESTING
-    public byte PLAYER_COUNT_LIMIT = 200;  // DONE
-#else
-    public byte PLAYER_COUNT_LIMIT = 6;  // DONE
-#endif
+    public byte PLAYER_COUNT_LIMIT = 5;
 
     public bool ShowPlayerDirections = true; // DONE
     public bool EnableNametags = true; // DONE
@@ -429,7 +425,7 @@ public class Multiplayer : MonoBehaviour {
     }
 
     public static bool verbose => DebugMenuSettings.is_verbose;
-    public const int CONST_MAX_POSSIBLE_PLAYER_COUNT = 200;
+    public const int CONST_MAX_POSSIBLE_PLAYER_COUNT = 50;
 
     public const int MAX_NAME_LENGTH = 16;
 

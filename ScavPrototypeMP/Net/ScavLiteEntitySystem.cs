@@ -141,7 +141,7 @@ namespace Together {
         private SyncVar<Vector2_4byte_200> _velocity;
 
         private SyncVar<SByteScalarVec2> _moveDir;
-        [SyncVarFlags(SyncFlags.Interpolated | SyncFlags.LagCompensated)]
+        [SyncVarFlags(SyncFlags.Interpolated | SyncFlags.LagCompensated | SyncFlags.SyncGroup4)]
         private SyncVar<Vector2> _targetLookPos;
         private SyncVar<bool> _isRight;
         private SyncVar<bool> _crouching;
@@ -807,6 +807,12 @@ namespace Together {
         }
         internal void ApplyDataToBody() {
             Body body = nb.body;
+            if (body == null)
+                return;
+            // far remote players only keep the root the shift arrow reads.
+            Vector2 at = _standing.Value ? _position.InterpolatedValue : _position.Value;
+            if (FarBody.Hold(nb, at))
+                return;
 
             body.targetLookPos = _targetLookPos.InterpolatedValue;
             body.moveDir = (Vector2)_moveDir.Value;
@@ -830,7 +836,9 @@ namespace Together {
                         Vector2 interp = _position.InterpolatedValue;
                         nb.SetBodyPosition(interp);
                         EnemyMoveProbe.Note(this, EnemyMoveProbe.Interp, interp);
-                        body.ForceSwitchDir(_isRight.Value);
+                        // the facing flag arrives in one step. the look point is still easing over.
+                        // turning from the flag, then letting the game turn back toward the old look, is the one-frame snap.
+                        body.SwitchDirLookAt(body.targetLookPos);
                     } else {
                         if (!KM.DistanceCheck(body.transform.position, _position.Value, 10)) {
                             Vector2 raw = _position.Value;
@@ -1087,6 +1095,9 @@ namespace Together {
         public SyncVar<Vector2_4byte_512> spider_target;
         public SyncVar<float> spider_biteCooldown;
         public SyncVar<float> spider_stunTime;
+        byte _biteGate;
+        byte _stunGate;
+        float _conditionPeak;
 
         //trader  
         public SyncVar<Vector2_4byte_512> trader_desiredpos;
@@ -1680,7 +1691,7 @@ namespace Together {
             if (item.condition < 0f) {
                 item.condition = 0f;
             }
-            if (condition.Value != item.condition) {
+            if (condition.Value != SyncStep.StepItem(item.condition)) {
                 return true;
             }
             if (favourited.Value != item.favourited) {
@@ -1880,6 +1891,41 @@ namespace Together {
             return false;
         }
 
+        // 0 idle, 1 coasting above the snap, 2 snapped under it.
+        void GateTimer(ref byte phase, float live, ref SyncVar<float> field, bool stun) {
+            if (live > 0.5f) {
+                if (phase != 1) {
+                    if (field.Value != 0f) {
+                        field.Value = 0f;
+                    }
+                    phase = 1;
+                    SyncStep.Timer(stun, 0);
+                } else {
+                    SyncStep.Timer(stun, 2);
+                }
+                return;
+            }
+            if (live > 0f) {
+                if (phase != 2) {
+                    field.Value = live;
+                    phase = 2;
+                    SyncStep.Timer(stun, 1);
+                } else {
+                    SyncStep.Timer(stun, 2);
+                }
+                return;
+            }
+            if (phase != 0) {
+                if (field.Value != 0f) {
+                    field.Value = 0f;
+                }
+                phase = 0;
+                SyncStep.Timer(stun, 0);
+            } else {
+                SyncStep.Timer(stun, 2);
+            }
+        }
+
         internal void WriteObjectIntoPacket() {
             EnsureParts();
             FixSyringeHold.Begin(this, out FixSyringeHold.Snap syringe);
@@ -1901,10 +1947,18 @@ namespace Together {
 
                         FloatAngle newRot = go.transform.rotation.eulerAngles.z;
                         newRot.Normalize();
+                        newRot.Degrees = Mathf.Round(newRot.Degrees);
+                        bool rotWrote = _rotation.Value.Degrees != newRot.Degrees;
                         _rotation.Value = newRot;
-                    }
+                        SyncStep.Rot(rotWrote);
 
-                    _scale.Value = go.transform.localScale;
+                        Vector2 scale = go.transform.localScale;
+                        scale.x = Mathf.Round(scale.x * 100f) * 0.01f;
+                        scale.y = Mathf.Round(scale.y * 100f) * 0.01f;
+                        bool scaleWrote = _scale.Value.x != scale.x || _scale.Value.y != scale.y;
+                        _scale.Value = scale;
+                        SyncStep.Scale(scaleWrote);
+                    }
                 }
 
                 if (has_rb && !onBody) {
@@ -1923,7 +1977,10 @@ namespace Together {
                     item.condition = 0f;
                 }
 
-                condition.Value = item.condition;
+                float stepped = SyncStep.StepItem(item.condition);
+                bool condWrote = condition.Value != stepped;
+                condition.Value = stepped;
+                SyncStep.Cond(condWrote);
                 favourited.Value = item.favourited;
 #if FULLGAME
                 itemLabel.Value = item.label ?? "";
@@ -1991,7 +2048,10 @@ namespace Together {
 
             } else if (_buildLive && _build != null) {
                 BuildingEntity b = _build;
-                condition.Value = b.GetHealth();
+                float stepped = SyncStep.StepBuilding(ref _conditionPeak, b.GetHealth());
+                bool condWrote = condition.Value != stepped;
+                condition.Value = stepped;
+                SyncStep.Cond(condWrote);
 
                 if (b.TryGetComponent(out TrackerBuildingEntityBackgroundified tr)) {
                     building_backgroundified.Value = tr.is_backgroundified;
@@ -2013,8 +2073,8 @@ namespace Together {
                     specialdata1.Value = drel.working.ToByte();
                 } else if (go.TryGetComponent(out SpiderHandler spider)) {
                     spider_target.Value = spider.target;
-                    spider_biteCooldown.Value = spider.biteCooldown;
-                    spider_stunTime.Value = spider.stunTime;
+                    GateTimer(ref _biteGate, spider.biteCooldown, ref spider_biteCooldown, false);
+                    GateTimer(ref _stunGate, spider.stunTime, ref spider_stunTime, true);
                 } else if (go.TryGetComponent(out GrabberPlant grabber)) {
                     // tip and the bone scale, only while a player is in this chunk. the next write after they walk in carries the host tip.
                     if (GrabberPlant_Update_MultiplayerPatch.Live(go.transform.position)) {
@@ -2066,7 +2126,13 @@ namespace Together {
                 }
             }
             for (int i = stack.Count - 1; i >= 0; i--) {
-                byte id = (byte)reg[stack[i].liquidId];
+                string liquidId = stack[i].liquidId;
+                if (string.IsNullOrEmpty(liquidId)) {
+                    stack.RemoveAt(i);
+                    continue;
+                }
+                if (reg == null || !reg.TryGetValue(liquidId, out byte id))
+                    continue;
                 if (LiquidListed(id)) {
                     continue;
                 }
@@ -2087,7 +2153,8 @@ namespace Together {
             ml = 0f;
             bool found = false;
             for (int i = 0; i < stack.Count; i++) {
-                if ((byte)reg[stack[i].liquidId] != id) {
+                string liquidId = stack[i].liquidId;
+                if (reg == null || string.IsNullOrEmpty(liquidId) || !reg.TryGetValue(liquidId, out byte mapped) || mapped != id) {
                     continue;
                 }
                 ml = stack[i].amount;
@@ -3325,7 +3392,7 @@ namespace Together {
         public SyncVar<Color24> playerColor;
 
         public SyncVar<SByteScalarVec2> Move;
-        [SyncVarFlags(SyncFlags.Interpolated)]
+        [SyncVarFlags(SyncFlags.Interpolated | SyncFlags.SyncGroup4)]
         public SyncVar<Vector2> LookPos;
         [SyncVarFlags(SyncFlags.Interpolated)]
         public SyncVar<Vector2_4byte_512> CameraPos;

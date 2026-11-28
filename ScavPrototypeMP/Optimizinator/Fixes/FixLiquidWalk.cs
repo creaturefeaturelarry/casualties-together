@@ -78,6 +78,13 @@ internal static class FixLiquidWalk
 	[HarmonyPrefix]
 	static bool Add(WaterContainerItem __instance, string liquidId, float amount, ref float __result)
 	{
+		// stock returns 0 for a blank id. world fluid 6 is that blank, and a stack row of ""
+		// has no LiquidIdRegistry entry, so the next sync write throws every frame.
+		if (string.IsNullOrEmpty(liquidId))
+		{
+			__result = 0f;
+			return false;
+		}
 		float num = UnityEngine.Mathf.Min(__instance.SpaceLeft, amount);
 		if (num <= 0f)
 		{

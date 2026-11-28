@@ -14,6 +14,9 @@ internal static class TitleScreenFpsCap {
 
     internal static void Tick() {
         bool onTitle = Util.IsInMainMenu();
+        if (!onTitle && !_menuCapping) {
+            return;
+        }
         int setting = ReadFramerateSetting();
 
         if (onTitle && setting == 0) {
