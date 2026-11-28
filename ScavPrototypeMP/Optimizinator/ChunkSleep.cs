@@ -33,6 +33,8 @@ public static class ChunkSleep {
         public bool WideKnown;
         public bool Wide;
         public Slot Slot;
+        // last visibility generation that already read this transform. a settled entry skips that read until the window moves.
+        public int SeenGen = -1;
     }
 
     // one occupied chunk. Unsettled counts the placed objects that still need a wake try.
@@ -69,6 +71,7 @@ public static class ChunkSleep {
     static readonly List<VisSpot> _visPrev = new List<VisSpot>(8);
     static WorldGeneration _visWorld;
     static int _visDepth = int.MinValue;
+    static int _visGen;
 
     // every object with this component stays on, even past the 3x3.
     public static void Ignore(Type componentType) {
@@ -187,7 +190,14 @@ public static class ChunkSleep {
         if (Ignored(entry)) {
             entry.ColdSince = -1f;
             Wake(entry);
+            NoteSeen(entry);
             return;
+        }
+        // settled entries stay where they were until the camera window moves. the transform read is the cost.
+        if (entry.Settled && entry.SeenGen == _visGen) {
+            if (entry.Go.activeSelf || CullWorld.HoldsOff(entry.Go))
+                return;
+            MarkSettled(entry, false);
         }
         Vector2 pos = entry.Go.transform.position;
         long key = ChunkStamp.Pack(ChunkStamp.ChunkOf(pos));
@@ -197,10 +207,13 @@ public static class ChunkSleep {
             MarkSettled(entry, false);
         // tiles already drawing. do not count a cold second and turn it back off.
         if (AwakeAt(pos, entry.WideKnown ? entry.Wide : Keep.UsesWideRange(entry.Go))) {
-            if (CullWorld.HoldsOff(entry.Go))
+            if (CullWorld.HoldsOff(entry.Go)) {
+                NoteSeen(entry);
                 return;
+            }
             entry.ColdSince = -1f;
             Wake(entry);
+            NoteSeen(entry);
             return;
         }
         float now = Time.unscaledTime;
@@ -208,6 +221,11 @@ public static class ChunkSleep {
             entry.ColdSince = now;
         else if (!entry.Asleep && now - entry.ColdSince >= ColdFor)
             Sleep(entry);
+        NoteSeen(entry);
+    }
+
+    static void NoteSeen(Entry entry) {
+        entry.SeenGen = entry.Settled ? _visGen : -1;
     }
 
     // host keeps every player's view radius, and a throw so its rigidbody keeps moving.
@@ -302,9 +320,11 @@ public static class ChunkSleep {
             _visWorld = world;
             _visDepth = world.biomeDepth;
             _visPrev.Clear();
+            _visGen++;
         }
         if (!VisibilityMoved(world))
             return;
+        _visGen++;
         world.UpdateChunkVisibility();
     }
 

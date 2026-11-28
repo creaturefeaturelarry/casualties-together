@@ -75,6 +75,8 @@ public static class MoveCommit {
     static int _guardFrame = -1;
 
     static readonly Dictionary<uint, Attempt> Attempts = new Dictionary<uint, Attempt>();
+    static float _scanAt;
+    const float ScanGap = 0.1f;
     static readonly HashSet<ushort> Exclusive = new HashSet<ushort>();
     static readonly HashSet<ushort> Guard = new HashSet<ushort>();
     static readonly Dictionary<ushort, uint> Newest = new Dictionary<ushort, uint>();
@@ -123,6 +125,9 @@ public static class MoveCommit {
             _session = (uint)UnityEngine.Random.Range(1, int.MaxValue);
         if (Net.IsServer)
             return;
+        if (Time.unscaledTime < _scanAt)
+            return;
+        _scanAt = Time.unscaledTime + ScanGap;
         float now = Time.realtimeSinceStartup;
         foreach (var pair in Attempts) {
             Attempt attempt = pair.Value;

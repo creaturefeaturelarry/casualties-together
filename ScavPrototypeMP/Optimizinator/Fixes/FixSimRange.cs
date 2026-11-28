@@ -72,8 +72,40 @@ internal static class FixSimRange {
         // thrown stuff, a fired hook, and a lit stick of dynamite stamp the same 3x3 a player would.
         SimKeep.Stamp(table, world);
         Grids++;
-        Together.BuildingEntity_Update_MultiplayerPatch.NoteWindowMoved();
+        // the table is rebuilt every frame. the building and item caches only need to drop when the stamp changes.
+        if (WindowChanged(world, players))
+            Together.BuildingEntity_Update_MultiplayerPatch.NoteWindowMoved();
         return false;
+    }
+
+    static int _windowSig;
+    static bool _windowHave;
+
+    static bool WindowChanged(WorldGeneration world, int players) {
+        unchecked {
+            int sig = world != null ? world.biomeDepth : 0;
+            sig = sig * 31 + players;
+            if (world != null && world.worldExists) {
+                foreach (KeyValuePair<Body, ScavPlayer> pair in ScavPlayer.BodyToPlayerDict) {
+                    if (pair.Value == null)
+                        continue;
+                    Vector2Int chunk = world.BlockToChunkPos(world.WorldToBlockPos(pair.Value.pos));
+                    sig = sig * 31 + chunk.x;
+                    sig = sig * 31 + chunk.y;
+                }
+                if (players == 0 && Camera.main != null) {
+                    Vector2Int chunk = world.BlockToChunkPos(world.WorldToBlockPos(Camera.main.transform.position));
+                    sig = sig * 31 + chunk.x;
+                    sig = sig * 31 + chunk.y;
+                }
+            }
+            sig = sig * 31 + SimKeep.Signature(world);
+            if (_windowHave && sig == _windowSig)
+                return false;
+            _windowHave = true;
+            _windowSig = sig;
+            return true;
+        }
     }
 
     // in mp, ignore the host renderer. offline returns true and stock keeps its own test.

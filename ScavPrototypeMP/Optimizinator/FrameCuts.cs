@@ -1,3 +1,4 @@
+using CasualtiesTogetherUtils;
 using HarmonyLib;
 using System.Collections.Generic;
 using System.Reflection;
@@ -86,6 +87,183 @@ static class RunSettingFloatCache {
             _infectChance = __result;
             _haveChance = true;
         }
+    }
+}
+
+// local body keeps full visuals. another body in the local view ticks at 10 Hz.
+// a body outside that view skips HandleVisuals and HandleSounds.
+static class BodyViewStep {
+    static int _frame = -1;
+    static int _id;
+    static bool _allow;
+    static bool _known;
+    static int _camFrame = -1;
+    static Camera _cam;
+    static float _halfW;
+    static float _halfH;
+
+    internal static bool Allow(Body body) {
+        if (body == null || !Net.IsRunning || Util.IsBodyLocal(body)) {
+            SlowTick.Step = 0f;
+            return true;
+        }
+        int frame = Time.frameCount;
+        int id = body.GetInstanceID();
+        if (_known && _frame == frame && _id == id)
+            return _allow;
+        _frame = frame;
+        _id = id;
+        _known = true;
+        if (!InLocalView(body.transform.position)) {
+            _allow = false;
+            return false;
+        }
+        _allow = SlowTick.Due(body);
+        return _allow;
+    }
+
+    internal static void End(Body body) {
+        if (body != null && Net.IsRunning && !Util.IsBodyLocal(body))
+            SlowTick.ClearStep();
+    }
+
+    static bool InLocalView(Vector2 pos) {
+        int frame = Time.frameCount;
+        if (_camFrame != frame) {
+            _camFrame = frame;
+            _cam = Camera.main;
+            if (_cam != null) {
+                _halfH = _cam.orthographicSize;
+                if (_halfH < 1f)
+                    _halfH = 8f;
+                _halfW = _halfH * _cam.aspect;
+            }
+        }
+        if (_cam == null)
+            return true;
+        const float margin = 3f;
+        Vector2 c = _cam.transform.position;
+        float dx = pos.x - c.x;
+        float dy = pos.y - c.y;
+        float limW = _halfW + margin;
+        float limH = _halfH + margin;
+        return dx * dx <= limW * limW && dy * dy <= limH * limH;
+    }
+}
+
+[HarmonyPatch(typeof(Body), nameof(Body.HandleVisuals))]
+static class Body_HandleVisuals_Delta {
+    static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
+        return CrystalSeptic_Update_Tick.RewriteDelta(instructions);
+    }
+}
+
+[HarmonyPatch(typeof(Body), "HandleSounds")]
+static class Body_HandleSounds_Step {
+    static bool Prefix(Body __instance) {
+        return BodyViewStep.Allow(__instance);
+    }
+
+    static void Postfix(Body __instance) {
+        BodyViewStep.End(__instance);
+    }
+
+    static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
+        return CrystalSeptic_Update_Tick.RewriteDelta(instructions);
+    }
+}
+
+// one other player per body each half second. a finished pass replaces the nearest the postfix uses.
+static class DyingAloneScan {
+    const float Interval = 0.5f;
+    const float UnknownSqr = 0f;
+
+    struct Pass {
+        public float Next;
+        public int Cand;
+        public bool Any;
+        public float Best;
+        public bool Ready;
+        public bool PublishedAny;
+        public float PublishedBest;
+    }
+
+    static readonly List<Body> Order = new List<Body>(16);
+    static int OrderCount = -1;
+    static readonly Dictionary<int, Pass> ByBody = new Dictionary<int, Pass>(16);
+    static readonly Dictionary<int, NetBody> Nets = new Dictionary<int, NetBody>(16);
+
+    internal static void Read(Body subject, out bool anyNear, out float nearSqr) {
+        if (subject == null) {
+            anyNear = true;
+            nearSqr = UnknownSqr;
+            return;
+        }
+        int id = subject.GetInstanceID();
+        if (!ByBody.TryGetValue(id, out Pass pass))
+            pass = new Pass { Best = float.PositiveInfinity, PublishedBest = UnknownSqr, PublishedAny = true };
+        float now = Time.unscaledTime;
+        if (now >= pass.Next) {
+            pass.Next = now + Interval;
+            CheckOne(subject, ref pass);
+        }
+        ByBody[id] = pass;
+        anyNear = pass.PublishedAny;
+        nearSqr = pass.PublishedBest;
+    }
+
+    static void CheckOne(Body subject, ref Pass pass) {
+        EnsureOrder();
+        if (Order.Count == 0) {
+            pass.Ready = true;
+            pass.PublishedAny = false;
+            pass.PublishedBest = float.PositiveInfinity;
+            return;
+        }
+        if (pass.Cand >= Order.Count) {
+            pass.PublishedAny = pass.Any;
+            pass.PublishedBest = pass.Any ? pass.Best : float.PositiveInfinity;
+            pass.Ready = true;
+            pass.Cand = 0;
+            pass.Any = false;
+            pass.Best = float.PositiveInfinity;
+        }
+        Body candidate = Order[pass.Cand];
+        pass.Cand++;
+        if (candidate == null || candidate == subject)
+            return;
+        if (!NetOf(candidate, out NetBody other) || other.body == null)
+            return;
+        if (!other.body.conscious && !other.body.sleeping)
+            return;
+        float dist = ((Vector2)other.transform.position - (Vector2)subject.transform.position).sqrMagnitude;
+        if (!pass.Any || dist < pass.Best) {
+            pass.Any = true;
+            pass.Best = dist;
+        }
+    }
+
+    static void EnsureOrder() {
+        var dict = ScavPlayer.BodyToPlayerDict;
+        if (dict.Count == OrderCount)
+            return;
+        Order.Clear();
+        foreach (var pair in dict)
+            Order.Add(pair.Key);
+        OrderCount = dict.Count;
+    }
+
+    static bool NetOf(Body body, out NetBody net) {
+        int id = body.GetInstanceID();
+        if (Nets.TryGetValue(id, out net) && net != null)
+            return true;
+        net = body.GetComponent<NetBody>();
+        if (net == null) {
+            Nets.Remove(id);
+            return false;
+        }
+        Nets[id] = net;
+        return true;
     }
 }
 

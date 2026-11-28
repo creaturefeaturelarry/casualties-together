@@ -2126,7 +2126,13 @@ namespace Together {
                 }
             }
             for (int i = stack.Count - 1; i >= 0; i--) {
-                byte id = (byte)reg[stack[i].liquidId];
+                string liquidId = stack[i].liquidId;
+                if (string.IsNullOrEmpty(liquidId)) {
+                    stack.RemoveAt(i);
+                    continue;
+                }
+                if (reg == null || !reg.TryGetValue(liquidId, out byte id))
+                    continue;
                 if (LiquidListed(id)) {
                     continue;
                 }
@@ -2147,7 +2153,8 @@ namespace Together {
             ml = 0f;
             bool found = false;
             for (int i = 0; i < stack.Count; i++) {
-                if ((byte)reg[stack[i].liquidId] != id) {
+                string liquidId = stack[i].liquidId;
+                if (reg == null || string.IsNullOrEmpty(liquidId) || !reg.TryGetValue(liquidId, out byte mapped) || mapped != id) {
                     continue;
                 }
                 ml = stack[i].amount;

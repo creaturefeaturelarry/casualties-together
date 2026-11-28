@@ -25,23 +25,67 @@ namespace Together;
 
 
 public class ItemDespawnerIfUntouched : MonoBehaviour {
-    void Awake() {
-
-    }
-
     public float despawntime = 60;
     float timer = 0;
+    bool parked;
+
     void Update() {
-        if (Multiplayer.IsNetworkActiveAndIsClient() || transform.parent != null) { // is in a container or inventory
+        if (!parked) {
+            parked = true;
+            UntouchedDespawn.Note(this);
+        }
+        enabled = false;
+    }
+
+    internal void Accrue(float dt) {
+        if (Multiplayer.IsNetworkActiveAndIsClient() || transform.parent != null) {
             timer = 0;
             return;
         }
-
-        timer += Time.deltaTime;
-
+        timer += dt;
         if (timer > despawntime) {
             timer = -1f;
             NetObjectRegistry.SafeDestroyObject(gameObject);
+        }
+    }
+}
+
+// one list, once a second. the per-item Update only parks itself.
+static class UntouchedDespawn {
+    static readonly List<ItemDespawnerIfUntouched> Live = new List<ItemDespawnerIfUntouched>();
+    static float _nextReal;
+    static float _lastGame;
+
+    internal static void Note(ItemDespawnerIfUntouched item) {
+        if (item == null)
+            return;
+        Live.Add(item);
+    }
+
+    internal static void Tick() {
+        if (Live.Count == 0 || Multiplayer.IsNetworkActiveAndIsClient())
+            return;
+        float real = Time.unscaledTime;
+        float game = Time.time;
+        if (_nextReal == 0f) {
+            _nextReal = real + 1f;
+            _lastGame = game;
+            return;
+        }
+        if (real < _nextReal)
+            return;
+        _nextReal = real + 1f;
+        float dt = game - _lastGame;
+        _lastGame = game;
+        if (dt < 0f)
+            dt = 0f;
+        for (int i = Live.Count - 1; i >= 0; i--) {
+            ItemDespawnerIfUntouched item = Live[i];
+            if (item == null) {
+                Live.RemoveAt(i);
+                continue;
+            }
+            item.Accrue(dt);
         }
     }
 }
@@ -251,7 +295,16 @@ public static class Item_Update_MultiplayerPatch {
         if (Net.IsClient && (__instance.Stats is not null) && __instance.Stats.destroyAtZeroCondition && (__instance.condition <= 0f) && NetObjectRegistry.IsRegistered(__instance.gameObject)) {
             return false;
         }
+        // held or bagged, nothing to rot, and it cannot get wet. the range test is the rest of the method.
+        if (IdleCarried(__instance))
+            return false;
         return true;
+    }
+
+    static bool IdleCarried(Item item) {
+        if (item == null || item.transform.parent == null || item.canGetWet)
+            return false;
+        return item.Stats == null || item.Stats.rotSpeed == 0f;
     }
 
     static void Postfix(Item __instance) {
@@ -321,10 +374,7 @@ public static class Item_Update_MultiplayerPatch {
         //call	bool [KrokoshaCasualtiesMP]KrokoshaCasualtiesMP.SharedMain::MPinSimRange(valuetype [UnityEngine.CoreModule]UnityEngine.Vector2)
 
         newInstructions.Add(new CodeInstruction(OpCodes.Ldarg_0));
-        newInstructions.Add(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(UnityEngine.Component), "get_transform")));
-        newInstructions.Add(new CodeInstruction(OpCodes.Callvirt, AccessTools.Method(typeof(UnityEngine.Transform), "get_position")));
-        newInstructions.Add(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(UnityEngine.Vector2), "op_Implicit", new Type[] { typeof(UnityEngine.Vector3) })));
-        newInstructions.Add(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(SharedMain), nameof(SharedMain.WorldInSimRange))));
+        newInstructions.Add(new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(ItemSimRange), nameof(ItemSimRange.Query))));
 
 
 #if DEBUG
@@ -353,6 +403,65 @@ public static class Item_Update_MultiplayerPatch {
     }
 
 
+}
+
+// one WorldInSimRange per chunk per frame, and a still item keeps that answer until the sim window moves.
+static class ItemSimRange {
+    sealed class Slot {
+        internal Item Item;
+        internal int Cx;
+        internal int Cy;
+        internal int Gen = int.MinValue;
+        internal int Qx;
+        internal int Qy;
+        internal bool In;
+        internal bool Have;
+    }
+
+    static readonly Dictionary<int, Slot> ByItem = new Dictionary<int, Slot>();
+    static readonly Dictionary<long, bool> ByChunk = new Dictionary<long, bool>();
+    static int _frame = -1;
+
+    internal static bool Query(Item item) {
+        if (item == null)
+            return false;
+        Vector2 pos = item.transform.position;
+        Vector2Int chunk = ChunkStamp.ChunkOf(pos);
+        int gen = BuildingEntity_Update_MultiplayerPatch.WindowGeneration;
+        bool cpu = CpuAdvConfig.Enabled != null && CpuAdvConfig.Enabled.Value;
+        int qx = cpu ? (int)Mathf.Floor(pos.x) : 0;
+        int qy = cpu ? (int)Mathf.Floor(pos.y) : 0;
+        int id = item.GetInstanceID();
+        if (ByItem.TryGetValue(id, out Slot slot) && slot.Have && slot.Item == item && slot.Cx == chunk.x && slot.Cy == chunk.y && slot.Gen == gen && (!cpu || (slot.Qx == qx && slot.Qy == qy)))
+            return slot.In;
+
+        int frame = Time.frameCount;
+        if (_frame != frame) {
+            _frame = frame;
+            ByChunk.Clear();
+        }
+        long key = ChunkStamp.Pack(chunk);
+        bool inRange;
+        if (!cpu && ByChunk.TryGetValue(key, out inRange)) {
+        } else {
+            inRange = SharedMain.WorldInSimRange(pos);
+            if (!cpu)
+                ByChunk[key] = inRange;
+        }
+        if (slot == null || slot.Item != item) {
+            slot = new Slot();
+            ByItem[id] = slot;
+        }
+        slot.Item = item;
+        slot.Have = true;
+        slot.Cx = chunk.x;
+        slot.Cy = chunk.y;
+        slot.Gen = gen;
+        slot.Qx = qx;
+        slot.Qy = qy;
+        slot.In = inRange;
+        return inRange;
+    }
 }
 
 // a client standing in water can be outside the host's awake chunks. the host copy then

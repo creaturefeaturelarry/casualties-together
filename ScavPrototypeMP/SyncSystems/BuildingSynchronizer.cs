@@ -1251,7 +1251,15 @@ internal static class TrapSupport {
 public static class BuildingEntity_Update_MultiplayerPatch {
 
     static bool Prefix(BuildingEntity __instance, ref Vector3 __state) {
-        __state = new Vector3();
+        __state = default;
+        if (__instance == null)
+            return true;
+        Rigidbody2D rb = null;
+        if (!__instance.ignoreBodyOptimize) {
+            rb = BuildingRb(__instance);
+            if (rb != null && StaticCached(rb))
+                return false;
+        }
         // the server sends the destruction and loot; clients must not roll their own drops.
         // the skip used to drop the break particle, the dust, and AnimalDeath with them.
         if (Net.IsRunning && Net.IsClient && __instance.GetHealth() < 0.5f) {
@@ -1260,13 +1268,14 @@ public static class BuildingEntity_Update_MultiplayerPatch {
         }
         // a loose fan used to stay on the stock path, which forces Static whenever
         // the host chunk renderer is off and wipes the fall on the next step.
-        if (Net.IsRunning && TrapSupport.FanIsLoose(__instance))
+        if (Net.IsRunning && LooseFan(__instance, rb))
             __instance.ignoreBodyOptimize = false;
         // stock sets Static when the host chunk renderer is off. putting Dynamic
         // back in the same update zeros velocity, so a fall far from the host
         // never gets past one physics step.
-        if (__instance != null && !__instance.ignoreBodyOptimize) {
-            Rigidbody2D rb = BuildingRb(__instance);
+        if (!__instance.ignoreBodyOptimize) {
+            if (rb == null)
+                rb = BuildingRb(__instance);
             if (rb != null) {
                 BuildingOptimization(rb);
                 return false;
@@ -1322,6 +1331,8 @@ public static class BuildingEntity_Update_MultiplayerPatch {
         internal int Gen = int.MinValue;
         internal bool Dynamic;
         internal bool Have;
+        internal bool FanKnown;
+        internal bool IsFan;
     }
 
     static readonly Dictionary<int, SimSlot> _sim = new Dictionary<int, SimSlot>();
@@ -1334,8 +1345,32 @@ public static class BuildingEntity_Update_MultiplayerPatch {
         return _buildingRb(building);
     }
 
+    internal static int WindowGeneration => _windowGen;
+
     internal static void NoteWindowMoved() {
         _windowGen++;
+    }
+
+    static bool StaticCached(Rigidbody2D rb) {
+        if (WorldGeneration.world == null || !WorldGeneration.world.worldExists || Time.timeScale > 5f)
+            return false;
+        if (!_sim.TryGetValue(rb.GetInstanceID(), out SimSlot slot) || !slot.Have || slot.Dynamic || !slot.FanKnown || slot.IsFan)
+            return false;
+        // a static building does not move. the chunk stored with this window is still its chunk.
+        return slot.Gen == _windowGen;
+    }
+
+    static bool LooseFan(BuildingEntity building, Rigidbody2D rb) {
+        if (rb != null && _sim.TryGetValue(rb.GetInstanceID(), out SimSlot slot) && slot.FanKnown && !slot.IsFan)
+            return false;
+        return TrapSupport.FanIsLoose(building);
+    }
+
+    static void LearnFan(SimSlot slot, Rigidbody2D rb) {
+        if (slot.FanKnown)
+            return;
+        slot.FanKnown = true;
+        slot.IsFan = rb.TryGetComponent<FanTrap>(out _);
     }
 
     static void BuildingOptimization(Rigidbody2D rb) {
@@ -1354,6 +1389,7 @@ public static class BuildingEntity_Update_MultiplayerPatch {
             slot = new SimSlot();
             _sim[id] = slot;
         }
+        LearnFan(slot, rb);
         if (slot.Have && slot.Cx == chunk.x && slot.Cy == chunk.y && slot.Gen == _windowGen) {
             if (!slot.Dynamic)
                 return;

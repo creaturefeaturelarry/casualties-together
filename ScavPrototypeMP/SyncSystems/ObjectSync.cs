@@ -339,9 +339,14 @@ public class SyncInfoGameObjectTracker : MonoBehaviour {
             if (info == null || info.go == null) {
                 continue;
             }
-            info.WriteObjectIntoPacket();
-            if (tracker.IsCrystal()) {
-                EvidenceCrystal.Host(info);
+            try {
+                info.WriteObjectIntoPacket();
+                if (tracker.IsCrystal()) {
+                    EvidenceCrystal.Host(info);
+                }
+            } catch (Exception e) {
+                // one object used to throw out of this loop, leave itself in the list, and skip ServerEntityManager.Update.
+                log.error("FlushFrameSamples: " + e);
             }
         }
         if (count == _frameSamples.Count) {

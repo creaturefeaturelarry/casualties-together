@@ -1311,6 +1311,7 @@ namespace Together {
                 CraftCommit.Tick();
                 MoveCommit.Tick();
                 TorchWet.Tick();
+                UntouchedDespawn.Tick();
             }
             using (FindTheBugInator.Time(FindTheBugInator.Chunks)) {
                 ChunkSleep.Tick();
@@ -1326,6 +1327,7 @@ namespace Together {
             }
 #if FULLGAME
             using (FindTheBugInator.Time(FindTheBugInator.Crystals)) {
+                CrystalChunkSim.Tick();
                 CrystalAuthority.ClientTickBlankResync();
             }
 #endif
