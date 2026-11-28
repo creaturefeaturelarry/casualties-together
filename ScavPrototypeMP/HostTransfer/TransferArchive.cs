@@ -17,7 +17,7 @@ namespace Together
         internal const int MaxExpanded = 128 * 1024 * 1024;
         internal const int MaxSaveJson = 16 * 1024 * 1024;
         internal const string FreshHostKey = "TRANSFER_FRESH_HOST";
-        private static readonly string[] WorldFiles = { "world_tiles.bin", "world_fluid.bin", "world_objects.bin", "qol_worldgen_state.txt" };
+        private static readonly string[] WorldFiles = { "world_tiles.bin", "world_fluid.bin", "world_objects.bin" };
         private static bool PlayerDirectory(string name) => name.StartsWith("STEAM_", StringComparison.Ordinal)
             && ulong.TryParse(name.Substring(6), NumberStyles.None, CultureInfo.InvariantCulture, out ulong steam)
             && steam != 0 && name == "STEAM_" + steam;
@@ -81,7 +81,7 @@ namespace Together
         }
 
         // Only run/player checkpoint files belong in a next-layer handoff. Old terrain
-        // files, positions and QoL slot sidecars must not resurrect the previous layer.
+        // files and positions must not resurrect the previous layer.
         internal static byte[] Build(string root, ulong target, int depth, IEnumerable<ulong> players)
         {
             string[] ids = players.Select(p => "STEAM_" + p).ToArray();

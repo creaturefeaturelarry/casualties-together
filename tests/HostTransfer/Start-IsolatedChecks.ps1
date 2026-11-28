@@ -23,8 +23,6 @@ $plugins = Join-Path $bep 'plugins'
 New-Item -ItemType Directory -Path $plugins -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repo $PrototypeDirectory) -Destination (Join-Path $plugins 'Together') -Recurse
 Copy-Item -LiteralPath (Join-Path $repo 'libs/dlls/CUCoreLib/CUCoreLib.dll') -Destination $plugins
-$qol = Join-Path $GamePath 'BepInEx/plugins/QoL.Unknown.dll'
-if (Test-Path -LiteralPath $qol) { Copy-Item -LiteralPath $qol -Destination $plugins }
 Copy-Item -LiteralPath (Join-Path $repo 'build/artifacts/RuntimeChecks/bin/DebugFullgame/netstandard2.1/Together.HostTransferRuntimeChecks.dll') -Destination $plugins
 Set-Content -LiteralPath (Join-Path $runtime 'steam_appid.txt') -Value '4576490'
 $reportedSettings = Join-Path $repo 'build/host-transfer/playtest-report-20261118/recipient.log'

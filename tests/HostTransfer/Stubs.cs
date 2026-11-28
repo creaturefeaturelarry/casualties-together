@@ -12,7 +12,6 @@ using LiteNetLib.Utils;
 
 namespace HarmonyLib {
     public class HarmonyPatch : Attribute { public HarmonyPatch() {} public HarmonyPatch(Type t, string method) {} }
-    public class HarmonyTargetMethods : Attribute {}
     public class HarmonyPrefix : Attribute {}
     public class HarmonyPostfix : Attribute {}
     public class HarmonyFinalizer : Attribute {}
@@ -33,12 +32,12 @@ namespace Steamworks {
     }
     public static class SteamMatchmaking {
         public static ulong Owner = 1;
-        public static bool AllowOwnerChange = true;
+        public static bool AllowOwnerChange = true, AllowLobbyData = true;
         public static readonly Dictionary<string, string> Data = new();
         public static CSteamID GetLobbyOwner(CSteamID lobby) => new(Owner);
         public static bool SetLobbyOwner(CSteamID lobby, CSteamID owner) { if (!AllowOwnerChange) return false; Owner = owner.m_SteamID; return true; }
         public static string GetLobbyData(CSteamID lobby, string key) => Data.GetValueOrDefault(key, "");
-        public static bool SetLobbyData(CSteamID lobby, string key, string value) { Data[key] = value; return true; }
+        public static bool SetLobbyData(CSteamID lobby, string key, string value) { if (!AllowLobbyData) return false; Data[key] = value; return true; }
     }
 }
 namespace CasualtiesTogetherUtils {}
@@ -114,7 +113,15 @@ namespace Together {
         public static bool IsInMainMenu() => Menu;
         public static bool IsWorldGenerated() => !Menu && !WorldGeneration.world.generatingWorld;
     }
-    public static class SavesystemPatch { public static string mpsavefolder; public static bool PreserveSave; }
+    public static class SavesystemPatch {
+        static string normalFolder;
+        static bool selected;
+        public static string mpsavefolder { get => selected ? HostSaveFolder : normalFolder; set { normalFolder = value; selected = false; } }
+        public static string HostSaveFolder => normalFolder + "_host";
+        public static bool PreserveSave, InDebugMap;
+        public static void SelectHostSave() => selected = true;
+        public static void SelectNormalSave() => selected = false;
+    }
     public static class WorldMP {
         public static event Action OnWorldgenFinish;
         public static void Finish() => OnWorldgenFinish?.Invoke();
@@ -122,7 +129,7 @@ namespace Together {
     }
     public static class FullgameWorldCompat { public static bool IsAscentLayer() => WorldGeneration.world.biomeDepth == 10; }
     public static class KSteam {
-        public static bool IS_IN_LOBBY = true;
+        public static bool IS_IN_LOBBY = true, Loaded = true;
         public static ulong Local = 1;
         public static Steamworks.CSteamID LobbyId = new(100);
         public class Lobby { public Steamworks.CSteamID ownerID = new(1); }
@@ -135,12 +142,13 @@ namespace Together {
         public static int Starts, Detaches;
         public static void Detach() { Detaches++; Net.IsRunning = false; }
         public static bool InstalledSave;
+        public static bool FailStart;
         public static void Start(bool host, ulong lobby, ulong owner, string pw, string settings, bool includesSave) {
+            if (FailStart) throw new InvalidOperationException("Listener failed.");
             Starts++; Net.IsRunning = Net.IsRunningSteam = true; Net.IsHost = host;
             InstalledSave = includesSave;
             KSteam.CURRENT_LOBBY.ownerID = new(owner);
         }
-        public static IDisposable SelectQoLSave() => null;
     }
     public static class HostTransferUI {
         public static bool SelectingAtExit;
