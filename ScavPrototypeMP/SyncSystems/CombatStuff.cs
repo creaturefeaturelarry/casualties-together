@@ -1392,8 +1392,12 @@ public static class Body_Attack_MultiplayerPatch {
                 } finally {
                     Body_Attack_MultiplayerPatch.hostRerunAttacker = null;
                     Body_Attack_MultiplayerPatch.ForceHitResult = false;
+                    Body_Attack_MultiplayerPatch.StaticHitValidation = false;
                 }
             }
+            // the flag is only for that re-run. the host's own swing has none, and a re-run that never reached
+            // Body.Attack never cleared it, so the next swing ignored bodies and took stock building damage.
+            Body_Attack_MultiplayerPatch.StaticHitValidation = false;
 
             if (!LastAttackResult && // if the flag wasnt true
                 didhitconfirmed// if friendly fire or building damage validated and occured
@@ -1901,7 +1905,7 @@ public static class GunScript_Fire_MultiplayerPatch {
         var npc = body.GetNetBody();
         var islocal = Util.IsBodyLocal(body);
 
-        List<SyncInfo> hitBuildings = new(); // guranteed to be only physics active buildings
+        List<SyncInfo> hitBuildings = new(); // physics active buildings, and enemies on a pure client's own shot
         List<Limb> hitLimbs = new();
 
 
@@ -2009,7 +2013,7 @@ public static class GunScript_Fire_MultiplayerPatch {
 
                     byte hitbuildingsamount = (byte)Math.Min(hitBuildings.Count, 40);
                     writer.Put(hitbuildingsamount);
-                    for (byte i = 0; i < hitbuildingsamount; i++) {// theyre guranteed to be registered and physics active
+                    for (byte i = 0; i < hitbuildingsamount; i++) {// registered, and physics active or an enemy (EnemyHitForward)
                         var b = hitBuildings.ElementAt(i);
                         writer.Put(b.syncId);
                     }
@@ -2125,15 +2129,21 @@ public static class GunScript_Fire_MultiplayerPatch {
             List<SyncInfo> buildings_hit = new List<SyncInfo>();
 
             reader.Get(out byte hit_buildings_amount);
-            for (byte i = 0; i < hit_buildings_amount; i++) {// theyre guranteed to be registered and physics active
+            for (byte i = 0; i < hit_buildings_amount; i++) {// registered, and physics active or an enemy (EnemyHitForward)
 
                 reader.Get(out knetid building_syncid);
 
                 if (NetObjectRegistry.TryGetSyncInfo(building_syncid, out var bsi)) {
-                    if (bsi.IsBuilding() && NetObjectRegistry.IsObjectDynamic(bsi.go)) {
+                    bool dynamicHit = bsi.IsBuilding() && NetObjectRegistry.IsObjectDynamic(bsi.go);
+                    // same rule the client used to report it. our replay of this shot skips the stock damage on these.
+                    bool enemyHit = !dynamicHit && bsi.IsBuilding() && EnemyHitForward.IsForwardableEnemy(bsi.building);
+                    if (dynamicHit || enemyHit) {
                         if (bsi.building.cantHit) {
                             Plugin.log.LogWarning($"SUS: PlayerBodyShoot: {plr} -> They hit a building with the cantHit flag on.");
+                        } else if (enemyHit && !EnemyHitForward.InShotReach(gun_barrelpos, bsi)) {
+                            Plugin.log.LogWarning($"SUS: PlayerBodyShoot: {plr} -> They hit an enemy out of gun range ({bsi}).");
                         } else {
+                            if (log.verbose && enemyHit) log.l($"PlayerBodyShoot: {plr} -> forwarded enemy hit {bsi}");
                             buildings_hit.Add(bsi);
                         }
                     } else {
@@ -2295,6 +2305,47 @@ public static class TurretScript_Shoot_MultiplayerPatch {
 
     public static List<SyncInfo> JustHitBuildings = new();
     public static List<Limb> JustHitLimbs = new();
+
+    // a player's bullet on an enemy (EnemyHitForward). the shooter's copy reports it by id and the host applies it once.
+    // returns true to skip only the stock building damage (health, AnimalHit, gore, number). the rest of the ray still
+    // runs, so a Ground-layer enemy stops the tracer like before and the scientist check is untouched.
+    // runs before Shoot_DidHitABuilding. false hands the hit to it, so the dynamic-physics path is unchanged.
+    public static bool Shoot_EnemyHitIsForwarded(BuildingEntity building) {
+        if (!Net.IsRunning) return false;
+        if (SuppressBodyDamage) return false; // Shoot_DidHitABuilding skips the whole hit for those
+        // turrets, guards and the cryo ray have no LastActiveShooter. suicide is not reported. both stay stock.
+        if (LastActiveShooter == null || LastActiveShooterIsSuicide) return false;
+        // a Dynamic one is already reported by Shoot_DidHitABuilding
+        if (ScavMPBuildingSynchronizer.BuildingHasActivePhysics(building)) return false;
+        if (!EnemyHitForward.IsForwardableEnemy(building, out SyncInfo si)) return false;
+
+        if (!HitOnlyStatic) {
+            // the shooter's own copy. the host's own shot keeps the stock damage and reports nothing for it.
+            if (Net.IsServer) {
+                MarkGuardHurtByPlayer(building);
+                return false;
+            }
+            if (DebugHelp._DEV_VISUALISE_NET_EVENTS) DebugHelp.OnNetEvent(building.transform.position, $"Shoot: forwarded enemy hit", Color.green);
+            JustHitBuildings.Add(si);
+            return true;
+        }
+
+        // someone else's shot drawn here: the host validating a client, or a third client.
+        // the shooter's hit (or miss) is the one that counts, and the host applies it from the packet.
+        // a third client still gets the number and gore from ApplyShootDamages. the host's list is never used.
+        if (!Net.IsServer) JustHitBuildings.Add(si);
+        return true;
+    }
+
+    // stock Shoot sets GuardScript.hurtByPlayer only when FireInfo.ignoreBody is on, and mp player shots always
+    // fire with ignoreBody = false. GuardScript.Die turns hurtByPlayer into anyGuardKilled, which EscapeEnding reads,
+    // so in mp a guard shot dead by a player never counted. the host owns guard AI and Die, so it marks it here.
+    internal static void MarkGuardHurtByPlayer(BuildingEntity b) {
+#if FULLGAME
+        if (b != null && b.TryGetComponent(out GuardScript guard) && guard != null)
+            guard.hurtByPlayer = true;
+#endif
+    }
 
     // returns false to damage the building
     public static bool Shoot_DidHitABuilding(BuildingEntity building) { // its guranteed to get called after the cantHit was already checked
@@ -2515,10 +2566,13 @@ public static class TurretScript_Shoot_MultiplayerPatch {
         var damage = (b.animal ? (gst.og.animalDamage * num) : (gst.og.structureDamage * num));
 
         // host applies the shot from the reported id. the client keeps the sound and waits for that health.
-        if (!(Net.IsRunning && Net.IsClient))
+        if (!(Net.IsRunning && Net.IsClient)) {
             b.SetHealth(b.GetHealth() - damage);
+            MarkGuardHurtByPlayer(b);
+        }
         if (b.animal) {
-            b.gameObject.SendMessage("AnimalHit", damage);
+            // stock Shoot sends it with DontRequireReceiver
+            b.gameObject.SendMessage("AnimalHit", damage, SendMessageOptions.DontRequireReceiver);
         }
         return damage;
     }
@@ -2638,6 +2692,39 @@ public static class TurretScript_Shoot_MultiplayerPatch {
     }
 
 
+    // stock Shoot after the building damage: `if (hit.collider.gameObject.layer == 6) { end = hit.point; break; }`, then the
+    // scientist and body checks. that layer check is where both damage branches rejoin, so it already carries a label.
+    // it has to come before the cantHit branch target, which is the non-building path (DamageBlock).
+    static object FindAfterBuildingDamage(List<CodeInstruction> codes, int building_check_location) {
+        if (building_check_location < 1 || !(codes[building_check_location - 1].operand is Label notBuilding)) {
+            return null;
+        }
+        int notBuildingIdx = -1;
+        for (int k = building_check_location + 1; k < codes.Count; k++) {
+            if (codes[k].labels.Contains(notBuilding)) {
+                notBuildingIdx = k;
+                break;
+            }
+        }
+        if (notBuildingIdx < 0) {
+            return null;
+        }
+        for (int k = building_check_location + 4; k < notBuildingIdx; k++) {
+            if ((codes[k].opcode == OpCodes.Callvirt || codes[k].opcode == OpCodes.Call)
+                && codes[k].operand is MethodInfo mi && mi.Name == "get_layer" && mi.DeclaringType == typeof(GameObject)) {
+                // ldloca hit / call get_collider / callvirt get_gameObject / callvirt get_layer
+                CodeInstruction start = codes[k - 3];
+                if ((start.opcode == OpCodes.Ldloca_S || start.opcode == OpCodes.Ldloca) && start.labels.Count > 0) {
+                    if (log.verbose) Plugin.log.LogWarning($"TRANSPILER: TurretScript Shoot found the layer check after the building damage {k - 3}");
+                    return start.labels[0];
+                }
+                return null;
+            }
+        }
+        return null;
+    }
+
+
     static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions) {
 
         var codes = new List<CodeInstruction>(instructions);
@@ -2734,11 +2821,25 @@ public static class TurretScript_Shoot_MultiplayerPatch {
 
 
         {
+            //call    bool Shoot_EnemyHitIsForwarded(class BuildingEntity)
+            //brtrue  <the layer check right after the stock building damage>
+            //ldloc.s buildingEntity(5)
             //call    bool[KrokoshaCasualtiesMP] KrokoshaCasualtiesMP.TurretScript_Shoot_MultiplayerPatch::Shoot_DidHitABuilding(class BuildingEntity)
             //brtrue  404 (0547) ldloc.3 
             //ldloc.s buildingEntity(5)
 
+            object afterDamage = FindAfterBuildingDamage(codes, building_check_location);
+            if (afterDamage == null) {
+                // no tracer stop for a forwarded enemy then, but still no double damage
+                Plugin.log.LogWarning($"TRANSPILER: TurretScript Shoot could not find the layer check after the building damage, forwarded enemy hits will pierce");
+                afterDamage = codes[continuejumpoperandindex].operand;
+            }
+
             var newInstructions = new List<CodeInstruction>();
+            newInstructions.Add(new CodeInstruction(OpCodes.Call,
+                AccessTools.Method(typeof(TurretScript_Shoot_MultiplayerPatch), nameof(TurretScript_Shoot_MultiplayerPatch.Shoot_EnemyHitIsForwarded))));
+            newInstructions.Add(new CodeInstruction(OpCodes.Brtrue, afterDamage));
+            newInstructions.Add(new CodeInstruction(OpCodes.Ldloc_S, codes[building_check_location].operand));
             newInstructions.Add(new CodeInstruction(OpCodes.Call,
                 AccessTools.Method(typeof(TurretScript_Shoot_MultiplayerPatch), nameof(TurretScript_Shoot_MultiplayerPatch.Shoot_DidHitABuilding))));
             newInstructions.Add(new CodeInstruction(OpCodes.Brtrue, codes[continuejumpoperandindex].operand));
