@@ -94,19 +94,17 @@ static class LiquidAffect_StreamWash_MultiplayerPatch {
         Multiplayer.RegisterCustomServerReceiver("together.stream-wash", OnWash);
     }
 
-    static void Prefix(LiquidAffect __instance, ref Seen __state) {
+    static void Prefix(LiquidAffect __instance, Limb ___limb, Body ___body, ref Seen __state) {
         __state = default;
         if (!Net.IsRunning || !Net.IsClient || Net.IsServer || __instance == null)
             return;
-        Traverse fields = Traverse.Create(__instance);
-        Limb limb = fields.Field("limb").GetValue<Limb>();
-        Body body = limb != null ? limb.body : fields.Field("body").GetValue<Body>();
-        if (body == null || !body.IsBodyLocal() || body.dirtyness <= 10f)
+        Body body = ___limb != null ? ___limb.body : ___body;
+        if (body == null || body.dirtyness <= 10f || !body.IsBodyLocal())
             return;
         __state.Watch = true;
         __state.Dirt = body.dirtyness;
         __state.Body = body;
-        __state.At = limb != null ? (Vector2)limb.transform.position : (Vector2)body.transform.position;
+        __state.At = ___limb != null ? (Vector2)___limb.transform.position : (Vector2)body.transform.position;
     }
 
     static void Postfix(Seen __state) {
