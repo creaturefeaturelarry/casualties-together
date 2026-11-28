@@ -585,16 +585,14 @@ static class Sound_Play2_MultiplayerPatch {
 // stock LiquidAffect then NREs on null rb / world / FluidManager - and acid path on null talker.
 [HarmonyPatch(typeof(LiquidAffect), "FixedUpdate")]
 static class LiquidAffect_FixedUpdate_NullGuard_MultiplayerPatch {
-    static bool Prefix(LiquidAffect __instance) {
-        Traverse tr = Traverse.Create(__instance);
-        if (tr.Field("rb").GetValue<Rigidbody2D>() == null) {
+    static bool Prefix(Rigidbody2D ___rb, Limb ___limb) {
+        if (___rb == null) {
             return false;
         }
         if (WorldGeneration.world == null || FluidManager.main == null) {
             return false;
         }
-        Limb limb = tr.Field("limb").GetValue<Limb>();
-        if (limb != null && (limb.body == null || limb.body.talker == null)) {
+        if (___limb != null && (___limb.body == null || ___limb.body.talker == null)) {
             // acid branch calls talker.FinishedTalking(); skip until talker exists
             return false;
         }
@@ -606,22 +604,19 @@ static class LiquidAffect_FixedUpdate_NullGuard_MultiplayerPatch {
 // a body already in liquid keeps running, or it sleeps and sinks.
 [HarmonyPatch(typeof(LiquidAffect), "FixedUpdate")]
 static class LiquidAffect_FixedUpdate_SkipIdle_MultiplayerPatch {
-    static readonly AccessTools.FieldRef<LiquidAffect, Rigidbody2D> Rb =
-        AccessTools.FieldRefAccess<LiquidAffect, Rigidbody2D>("rb");
-    static readonly AccessTools.FieldRef<LiquidAffect, bool> WasWater =
-        AccessTools.FieldRefAccess<LiquidAffect, bool>("wasWater");
+    static WorldGeneration localChunkWorld;
+    static Body localChunkBody;
+    static double localChunkFixedTime;
+    static Vector2Int localChunk;
 
-    static bool Prefix(LiquidAffect __instance) {
+    static bool Prefix(LiquidAffect __instance, Rigidbody2D ___rb, bool ___wasWater) {
         if (__instance == null || !Net.IsRunning)
             return true;
-        Rigidbody2D rb = Rb(__instance);
-        if (rb == null)
+        if (___rb == null)
             return true;
-        if (!Kept(__instance.transform.position))
+        if (!___wasWater && ___rb.IsSleeping())
             return false;
-        if (rb.IsSleeping() && !WasWater(__instance))
-            return false;
-        return true;
+        return Kept(__instance.transform.position);
     }
 
     // host owns water for every player. a client only needs the chunks around itself.
@@ -629,16 +624,29 @@ static class LiquidAffect_FixedUpdate_SkipIdle_MultiplayerPatch {
         if (SimKeep.Covers(pos))
             return true;
         WorldGeneration world = WorldGeneration.world;
-        if (world == null || !world.worldExists)
+        if (world == null || !world.worldExists) {
+            localChunkWorld = null;
             return true;
+        }
         if (Net.IsServer)
             return SharedMain.PositionIsInSimulatedChunk(pos);
-        if (!Util.TryGetLocalBody(out Body body) || body == null)
+        if (!Util.TryGetLocalBody(out Body body)) {
+            localChunkBody = null;
             return true;
-        Vector2Int mine = world.BlockToChunkPos(world.WorldToBlockPos(body.transform.position));
+        }
+
+        // Fixed time distinguishes catch-up steps executed in the same rendered frame.
+        double fixedTime = Time.fixedTimeAsDouble;
+        if (fixedTime != localChunkFixedTime || !ReferenceEquals(world, localChunkWorld) || !ReferenceEquals(body, localChunkBody)) {
+            localChunk = world.BlockToChunkPos(world.WorldToBlockPos(body.transform.position));
+            localChunkFixedTime = fixedTime;
+            localChunkWorld = world;
+            localChunkBody = body;
+        }
+
         Vector2Int chunk = world.BlockToChunkPos(world.WorldToBlockPos(pos));
-        int dx = chunk.x - mine.x;
-        int dy = chunk.y - mine.y;
+        int dx = chunk.x - localChunk.x;
+        int dy = chunk.y - localChunk.y;
         if (dx < 0)
             dx = -dx;
         if (dy < 0)
