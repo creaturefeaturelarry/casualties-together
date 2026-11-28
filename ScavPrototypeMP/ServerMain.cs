@@ -597,7 +597,9 @@ public class ServerMain : MonoBehaviour {
                     ) {
                         LateSpawnLocation(pb);
                     } else {
-                        pb.SetBodyPosition(Util.PlaceBody_FindSpawnLocation(plr.ServerPlayerState.layer_transition_x_offset, plr.body));
+                        // Body.PlaceBody already synced the client's X on the server; only update the new layer Y.
+                        // Re-running PlaceBody_FindSpawnLocation would put Drillpod players at the map top.
+                        pb.SetBodyPosition(new Vector2(pb.body.transform.position.x, Body_PlaceBody_MultiplayerPatch.SpawnLocation.y));
                     }
                 }
             }
