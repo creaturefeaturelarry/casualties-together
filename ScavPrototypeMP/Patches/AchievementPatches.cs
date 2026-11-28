@@ -88,6 +88,9 @@ static class SteamManager_TryUnlockAchievement_LocalOnly_MultiplayerPatch {
         if (!Net.IsRunning) {
             return true;
         }
+        if (GeneralSettings.SuppressAchievements) {
+            return false;
+        }
         // tutorial / scripted force unlocks stay as-written (those paths are local scenes).
         if (force) {
             return true;

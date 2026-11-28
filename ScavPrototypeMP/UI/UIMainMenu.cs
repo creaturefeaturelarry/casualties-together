@@ -124,8 +124,11 @@ public class SettingDeclarerThingyChoiceAttribute : SettingDeclarerThingyBaseAtt
 
 
 
-public static class Amogus {
-    //what is this
+public static class GeneralSettings {
+#if FULLGAME
+    [SettingDeclarerThingyBool("setting_general_suppress_achievements")]
+    public static bool SuppressAchievements = false;
+#endif
 }
 
 
@@ -2322,7 +2325,7 @@ public static class UIMainMenu {
         gui_func = _GUI___SettingsGeneral,
         on_open = () => { },
         on_reset = () => { },
-        settings_origin = typeof(Amogus)
+        settings_origin = typeof(GeneralSettings)
     };
     internal static SettingsTab _gui_setting_tab = new SettingsTab {
         name = "mmst_gui",
